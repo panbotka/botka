@@ -1,0 +1,24 @@
+services:
+  botka:
+    build: .
+    container_name: botka
+    ports:
+      - "5110:5110"
+    env_file: .env
+    volumes:
+      - /home/pi/projects:/home/pi/projects:rw
+      - /home/pi/.claude:/home/pi/.claude:ro
+      - /home/pi/.openclaw:/home/pi/.openclaw:ro
+      - uploads:/app/data/uploads
+      - context:/app/data/context
+    networks:
+      - shared-db
+    restart: unless-stopped
+
+volumes:
+  uploads:
+  context:
+
+networks:
+  shared-db:
+    external: true

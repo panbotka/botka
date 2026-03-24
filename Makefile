@@ -1,4 +1,4 @@
-.PHONY: fmt vet lint test check build run clean migrate-up migrate-down migrate-create frontend-install frontend-dev dev-backend frontend-build prod-build deploy ensure-dist
+.PHONY: fmt vet lint test check build run clean migrate-up migrate-down migrate-create frontend-install frontend-dev dev-backend frontend-build prod-build deploy install-service docker-build docker-up docker-down ensure-dist
 
 BINARY_NAME=botka
 BUILD_DIR=build
@@ -58,9 +58,25 @@ prod-build: frontend-build
 
 # Deploy: build, stop service, copy binary, start service
 deploy: prod-build
-	sudo systemctl stop botka
-	sudo cp bin/$(BINARY_NAME) /usr/bin/$(BINARY_NAME)
+	sudo systemctl stop botka || true
+	sudo cp bin/$(BINARY_NAME) /usr/local/bin/$(BINARY_NAME)
 	sudo systemctl start botka
+
+# Install systemd service: copy unit file and enable
+install-service:
+	sudo cp packaging/botka.service /etc/systemd/system/botka.service
+	sudo systemctl daemon-reload
+	sudo systemctl enable botka
+
+# Docker targets
+docker-build:
+	docker compose build
+
+docker-up:
+	docker compose up -d
+
+docker-down:
+	docker compose down
 
 # Clean build artifacts
 clean:

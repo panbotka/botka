@@ -10,6 +10,25 @@ Merged app combining **Saiduler** (AI task scheduler) and **Chatovadlo** (Claude
 - **Port:** 5110
 - **PWA:** vite-plugin-pwa with service worker
 
+## Database
+
+Botka uses the `botka` database on shared PostgreSQL (`localhost:5432`). To create it:
+
+```bash
+psql -h localhost -U postgres -f scripts/create-db.sql
+```
+
+This creates user `botka` with password `botka` and database `botka`.
+
+## Deployment
+
+```bash
+make install-service  # Install and enable systemd service
+make deploy           # Build and deploy binary to /usr/local/bin
+make docker-build     # Build Docker image
+make docker-up        # Start with Docker Compose
+```
+
 ## Development
 
 ```bash
