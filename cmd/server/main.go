@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 
 	"botka"
+	"botka/internal/claude"
 	"botka/internal/config"
 	"botka/internal/database"
 	"botka/internal/handlers"
@@ -150,6 +151,21 @@ func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gi
 	handlers.RegisterRunnerRoutes(v1, runnerHandler)
 
 	handlers.RegisterOutputRoute(v1, taskRunner)
+
+	// Thread, chat, and file handlers.
+	threadHandler := handlers.NewThreadHandler(db, cfg.AIModel, cfg.AvailableModels)
+	handlers.RegisterThreadRoutes(v1, threadHandler)
+
+	claudeCfg := claude.RunConfig{ClaudePath: cfg.ClaudePath}
+	contextCfg := claude.ContextConfig{
+		OpenClawWorkspace: cfg.OpenClawWorkspace,
+		ContextDir:        cfg.ClaudeContextDir,
+	}
+	chatHandler := handlers.NewChatHandler(db, cfg.AIModel, cfg.UploadDir, claudeCfg, contextCfg, cfg.ClaudeDefaultWorkDir)
+	handlers.RegisterChatRoutes(v1, chatHandler)
+
+	fileHandler := handlers.NewFileHandler(db, cfg.UploadDir)
+	handlers.RegisterFileRoutes(v1, fileHandler)
 
 	// MCP SSE transport.
 	mcpServer := mcp.NewServer(db, taskRunner)
