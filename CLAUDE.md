@@ -55,6 +55,9 @@ All endpoints under `/api/v1`. Response envelope: `{"data": T}` for items, `{"da
 
 ### Source Projects
 
-Port code from these existing projects:
-- **Saiduler** (`/home/pi/projects/saiduler`): Task scheduling, runner, MCP, frontend design system
-- **Chatovadlo** (`/home/pi/projects/chatovadlo`): Chat UI, Claude subprocess, context assembly, personas, tags, memories
+Both source projects are available on this machine and you have full read access. Use them as reference — read the actual source files to understand patterns, copy code, and adapt it.
+
+- **Saiduler** (`/home/pi/projects/saiduler`): Task scheduling, runner, MCP, frontend design system. Key dirs: `cmd/server/`, `internal/`, `frontend/src/`, `migrations/`.
+- **Chatovadlo** (`/home/pi/projects/chatovadlo`): Chat UI, Claude subprocess, context assembly, personas, tags, memories. Key dirs: `cmd/server/`, `internal/`, `frontend/src/`, `e2e/`.
+
+When implementing a feature, always read the corresponding source file first rather than writing from scratch. For example, to implement the task runner, read `/home/pi/projects/saiduler/internal/runner/runner.go` and adapt it.
