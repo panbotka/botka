@@ -22,9 +22,21 @@ type ContextConfig struct {
 // Returns concatenated memory content or an error.
 type MemoryFunc func(ctx context.Context) (string, error)
 
-// AssembleContext reads workspace files, app memories, and folder context,
-// and writes an assembled context file for the given thread.
-// Returns the path to the assembled file.
+// AssembleContext builds a hierarchical system prompt from multiple context layers
+// and writes it to a file that Claude Code reads via --append-system-prompt-file.
+//
+// The layers (in order) provide progressively narrower context:
+//  1. SOUL.md     — AI identity/personality (from OpenClaw workspace)
+//  2. USER.md     — information about the user
+//  3. MEMORY.md   — long-term operational memory
+//  4. Daily notes — recent entries (last 3 days) for temporal context
+//  5. App memories — user-created memories from the database
+//  6. System prompt — thread-specific instructions (from persona or custom)
+//  7. Project CLAUDE.md — project-specific coding context
+//  8. Conversation history — prior messages so resumed sessions have context
+//
+// This layering ensures Claude has full context even when starting a new session
+// (e.g., after a session reset or server restart).
 func AssembleContext(ctx context.Context, cfg ContextConfig, threadID int64, getMemories MemoryFunc, systemPrompt, folderClaudeMD string, messages []models.Message) (string, error) {
 	var parts []string
 

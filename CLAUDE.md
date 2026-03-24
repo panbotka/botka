@@ -10,6 +10,36 @@ Merged app combining **Saiduler** (AI task scheduler) and **Chatovadlo** (Claude
 - **Port:** 5110
 - **PWA:** vite-plugin-pwa with service worker
 
+## Directory Structure
+
+```
+cmd/server/          Entry point (HTTP server + MCP stdio mode)
+cmd/migrate-data/    Data migration utilities from source projects
+internal/
+  config/            Environment config loading (.env + env vars)
+  database/          GORM connection + golang-migrate migrations
+  models/            All GORM models (13 models)
+  handlers/          Gin HTTP handlers (15 handler files)
+  claude/            Chat subprocess runner + context assembly
+  runner/            Task scheduler loop + batch executor
+  projects/          Git repo discovery and DB sync
+  mcp/               MCP server (stdio + SSE transport)
+  middleware/        HTTP middleware (CORS)
+  static/            Frontend static file serving (go:embed)
+frontend/src/
+  api/               API client methods
+  components/        React components (26 files)
+  context/           React context (SettingsContext)
+  hooks/             Custom React hooks (10 hooks)
+  pages/             Page components (6 pages)
+  types/             TypeScript type definitions
+  utils/             Utility functions
+migrations/          SQL migration files (golang-migrate)
+packaging/           systemd service file
+scripts/             Database creation scripts
+data/                Runtime data (uploads, context assembly)
+```
+
 ## Database
 
 Botka uses the `botka` database on shared PostgreSQL (`localhost:5432`). To create it:
@@ -20,13 +50,12 @@ psql -h localhost -U postgres -f scripts/create-db.sql
 
 This creates user `botka` with password `botka` and database `botka`.
 
-## Deployment
+Migrations run automatically on startup via golang-migrate. Manual control:
 
 ```bash
-make install-service  # Install and enable systemd service
-make deploy           # Build and deploy binary to /usr/local/bin
-make docker-build     # Build Docker image
-make docker-up        # Start with Docker Compose
+make migrate-up      # Apply all pending migrations
+make migrate-down    # Rollback last migration
+make migrate-create NAME=add_foo  # Create new migration pair
 ```
 
 ## Development
@@ -36,47 +65,119 @@ make run            # Run Go backend on :5110
 make frontend-dev   # Run Vite dev server on :5173 (proxies /api to :5110)
 make test           # Run Go tests with race detector
 make lint           # Run golangci-lint
-make build          # Production build (frontend + Go binary)
-make deploy         # Build, stop service, copy binary, restart
+make fmt            # Format code with goimports + gofmt
+make check          # Full CI gate: fmt + vet + lint + test
+make build          # Build Go binary to build/botka
+make prod-build     # Build frontend + Go binary to bin/botka
+make clean          # Remove build artifacts
+```
+
+## Deployment
+
+```bash
+make install-service  # Install and enable systemd service
+make deploy           # Build and deploy binary to /usr/local/bin
+make docker-build     # Build Docker image
+make docker-up        # Start with Docker Compose
+make docker-down      # Stop Docker Compose
 ```
 
 ## Architecture
 
 ### Two Claude Code Spawn Paths
 
-1. **Chat mode** (`internal/claude/runner.go`): Interactive sessions with `--resume`, streams to browser SSE. Used by chat handlers.
-2. **Task mode** (`internal/runner/executor.go`): Batch execution with process groups, timeout, retry, verification, PR creation. Used by task scheduler.
+The app has two separate Claude Code subprocess implementations. This is intentional — they serve fundamentally different use cases with different lifecycle requirements:
 
-Both coexist — different lifecycle requirements justify separate implementations.
+1. **Chat mode** (`internal/claude/runner.go`): Spawns interactive Claude Code sessions for the chat UI. Uses `--resume` for session continuity, streams NDJSON events parsed into typed `StreamEvent` values, and sends them to the browser via SSE. Processes are tracked in a registry (`internal/claude/registry.go`).
+
+2. **Task mode** (`internal/runner/executor.go`): Spawns batch Claude Code sessions for autonomous task execution. Uses process groups (`Setpgid`) for reliable timeout/kill, has retry logic with backoff, runs optional verification commands, and creates PRs on feature branches. No session continuity — each execution is standalone.
 
 ### Project/Folder Unification
 
 Saiduler's `projects` and Chatovadlo's `folders` are merged into a single `projects` table. Projects serve dual roles:
-- **For tasks:** Git repos with branch_strategy, verification_command
-- **For chat:** Workspace directories with claude_md context, assigned to threads
+- **For tasks:** Git repos with `branch_strategy`, `verification_command`
+- **For chat:** Workspace directories with `claude_md` context, assigned to threads
+
+### Hierarchical Context Assembly
+
+Chat messages are enriched with hierarchical context assembled in `internal/claude/context.go`:
+1. SOUL.md (identity) from OpenClaw workspace
+2. USER.md (user info)
+3. MEMORY.md (operational memory)
+4. Recent daily notes (last 3 days)
+5. App memories from database
+6. Thread system prompt (persona or custom)
+7. Project CLAUDE.md
+8. Conversation history (last 200 messages, truncated)
 
 ### API Pattern
 
-All endpoints under `/api/v1`. Response envelope: `{"data": T}` for items, `{"data": T[], "total": N}` for lists. SSE streaming for chat and task output.
+All endpoints under `/api/v1`. Response envelope:
+- Single item: `{"data": T}`
+- List: `{"data": T[], "total": N}`
+- Error: `{"error": "message"}`
+
+SSE streaming for chat messages and live task output.
+
+### MCP Server
+
+Two transports:
+- **Stdio:** `botka mcp` — JSON-RPC 2.0 on stdin/stdout, for use as Claude Code MCP server
+- **SSE:** `/mcp/sse` — HTTP SSE transport for browser/remote clients
+
+Exposes task management tools: create_task, list_tasks, get_task, update_task, list_projects.
 
 ### Key Packages
 
 | Package | Purpose |
 |---------|---------|
-| `internal/config` | Environment config loading |
+| `internal/config` | Environment config loading from `.env` + env vars |
 | `internal/database` | GORM connection + golang-migrate |
-| `internal/models` | All GORM models |
-| `internal/handlers` | Gin HTTP handlers |
-| `internal/claude` | Chat subprocess runner + context assembly |
-| `internal/runner` | Task scheduler + batch executor |
-| `internal/projects` | Git repo discovery |
-| `internal/mcp` | MCP server (tasks only) |
+| `internal/models` | All GORM models (Project, Task, Thread, Message, etc.) |
+| `internal/handlers` | Gin HTTP handlers for all API endpoints |
+| `internal/claude` | Chat subprocess runner + hierarchical context assembly |
+| `internal/runner` | Task scheduler loop + batch executor + usage monitor |
+| `internal/projects` | Git repo filesystem discovery and DB sync |
+| `internal/mcp` | MCP server (stdio + SSE transport) |
+| `internal/middleware` | CORS middleware |
+| `internal/static` | Embedded frontend file serving |
 
-### Source Projects
+## Environment Variables
 
-Both source projects are available on this machine and you have full read access. Use them as reference — read the actual source files to understand patterns, copy code, and adapt it.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `5110` | HTTP server port |
+| `DATABASE_URL` | `postgres://botka:botka@localhost:5432/botka?sslmode=disable` | PostgreSQL connection string |
+| `PROJECTS_DIR` | `/home/pi/projects` | Directory to scan for git repos |
+| `CLAUDE_PATH` | `claude` | Path to Claude Code CLI binary |
+| `CLAUDE_CREDENTIALS_PATH` | `/home/pi/.claude/.credentials.json` | Anthropic API credentials for usage monitoring |
+| `CLAUDE_CONTEXT_DIR` | `./data/context` | Directory for assembled context files |
+| `CLAUDE_DEFAULT_WORK_DIR` | `/home/pi` | Default working directory for Claude chat sessions |
+| `MAX_WORKERS` | `2` | Concurrent task execution slots |
+| `USAGE_POLL_INTERVAL` | `15m` | How often to poll API usage stats |
+| `USAGE_THRESHOLD_5H` | `0.90` | 5-hour rate limit threshold (fraction) |
+| `USAGE_THRESHOLD_7D` | `0.95` | 7-day rate limit threshold (fraction) |
+| `OPENCLAW_URL` | `http://localhost:18789` | OpenClaw Whisper transcription endpoint |
+| `OPENCLAW_TOKEN` | *(empty)* | OpenClaw API token |
+| `OPENCLAW_WORKSPACE` | `/home/pi/.openclaw/workspace` | Path to SOUL.md, USER.md, MEMORY.md |
+| `WHISPER_ENABLED` | `true` | Enable voice input transcription |
+| `UPLOAD_DIR` | `./data/uploads` | Directory for uploaded files |
+| `AI_MODEL` | `sonnet` | Default Claude model for new chats |
+| `AVAILABLE_MODELS` | `sonnet,opus,haiku` | CSV list of available models |
 
-- **Saiduler** (`/home/pi/projects/saiduler`): Task scheduling, runner, MCP, frontend design system. Key dirs: `cmd/server/`, `internal/`, `frontend/src/`, `migrations/`.
-- **Chatovadlo** (`/home/pi/projects/chatovadlo`): Chat UI, Claude subprocess, context assembly, personas, tags, memories. Key dirs: `cmd/server/`, `internal/`, `frontend/src/`, `e2e/`.
+## Important Patterns
 
-When implementing a feature, always read the corresponding source file first rather than writing from scratch. For example, to implement the task runner, read `/home/pi/projects/saiduler/internal/runner/runner.go` and adapt it.
+- **Frontend embeds in binary:** `frontend/dist` is embedded via `go:embed` in the root `embed.go`. The `ensure-dist` Makefile target creates a placeholder so `go build` works without building frontend first.
+- **GORM models** use `uuid.UUID` primary keys for tasks/projects and `int64` (bigserial) for chat entities (threads, messages, personas, tags).
+- **Full-text search** on messages uses a PostgreSQL GIN index on a `tsvector` column.
+- **Task scheduling** uses `SELECT ... FOR UPDATE SKIP LOCKED` for safe concurrent task picking.
+- **One task per project:** The scheduler ensures only one task runs per project at a time (keyed by `project_id` in the executors map).
+
+## Source Projects
+
+Both source projects are available on this machine for reference:
+
+- **Saiduler** (`/home/pi/projects/saiduler`): Task scheduling, runner, MCP, frontend design system
+- **Chatovadlo** (`/home/pi/projects/chatovadlo`): Chat UI, Claude subprocess, context assembly, personas, tags, memories
+
+When implementing a feature, read the corresponding source file first rather than writing from scratch.

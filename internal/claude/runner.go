@@ -1,3 +1,13 @@
+// Package claude implements the interactive Claude Code subprocess runner for chat sessions.
+//
+// This is one of two Claude Code spawn paths in the application (the other is internal/runner).
+// The chat runner uses --resume for session continuity and streams NDJSON events to the browser
+// via SSE. It is designed for interactive use where the user expects real-time responses.
+//
+// The task runner (internal/runner/executor.go) is separate because batch task execution has
+// fundamentally different requirements: process groups for reliable kill, timeout with retry,
+// verification commands, and automatic PR creation. Merging these into a single abstraction
+// would add complexity without benefit since they share almost no lifecycle logic.
 package claude
 
 import (

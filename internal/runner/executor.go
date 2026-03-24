@@ -140,6 +140,8 @@ func (e *Executor) spawnClaude(
 		"-p", e.buildPrompt(task),
 	)
 	cmd.Dir = project.Path
+	// Use a process group so we can kill the entire tree (claude + child processes)
+	// on timeout or cancellation, not just the top-level process.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
 	cmd.WaitDelay = gracefulStopTimeout

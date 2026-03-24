@@ -1,3 +1,14 @@
+// Package runner implements the task scheduler and batch Claude Code executor.
+//
+// This is one of two Claude Code spawn paths (the other is internal/claude for chat).
+// The task executor uses process groups (Setpgid) for reliable timeout/kill, has retry
+// logic with backoff for API errors, runs optional verification commands, and creates
+// PRs on feature branches. Each execution is standalone with no session continuity,
+// because tasks are independent units of work.
+//
+// The scheduler loop polls every 5 seconds, picks the highest-priority queued task
+// (excluding projects with a running task), and launches it in a goroutine. It enforces
+// one task per project to prevent git conflicts.
 package runner
 
 import (
@@ -331,6 +342,9 @@ func (r *Runner) pickNextTask(
 }
 
 // buildPickQuery constructs the GORM query for finding the next eligible task.
+// Uses SELECT FOR UPDATE SKIP LOCKED for safe concurrent access without blocking.
+// Excludes projects that already have a running task (one task per project) to
+// prevent git conflicts when multiple tasks modify the same repository.
 func (r *Runner) buildPickQuery(
 	tx *gorm.DB, activeProjectIDs, blockedTaskIDs []uuid.UUID,
 ) *gorm.DB {

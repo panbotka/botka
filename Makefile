@@ -1,4 +1,39 @@
-.PHONY: fmt vet lint test check build run clean migrate-up migrate-down migrate-create frontend-install frontend-dev dev-backend frontend-build prod-build deploy install-service docker-build docker-up docker-down ensure-dist
+.PHONY: help fmt vet lint test check build run clean migrate-up migrate-down migrate-create frontend-install frontend-dev dev-backend frontend-build prod-build deploy install-service docker-build docker-up docker-down ensure-dist
+
+## help: Show available targets
+help:
+	@echo "Usage: make [target]"
+	@echo ""
+	@echo "Development:"
+	@echo "  run              Run Go backend on :5110"
+	@echo "  frontend-dev     Run Vite dev server on :5173 (proxies /api to :5110)"
+	@echo "  dev-backend      Alias for run"
+	@echo ""
+	@echo "Quality:"
+	@echo "  fmt              Format code with goimports + gofmt"
+	@echo "  vet              Run go vet"
+	@echo "  lint             Run golangci-lint"
+	@echo "  test             Run tests with race detector"
+	@echo "  check            Full CI gate: fmt + vet + lint + test"
+	@echo ""
+	@echo "Build:"
+	@echo "  build            Build Go binary to build/botka"
+	@echo "  prod-build       Build frontend + Go binary to bin/botka"
+	@echo "  frontend-install Install frontend npm dependencies"
+	@echo "  frontend-build   Build frontend only"
+	@echo "  clean            Remove build artifacts"
+	@echo ""
+	@echo "Deploy:"
+	@echo "  deploy           Build and deploy to systemd service"
+	@echo "  install-service  Install systemd unit file and enable"
+	@echo "  docker-build     Build Docker image"
+	@echo "  docker-up        Start with docker compose"
+	@echo "  docker-down      Stop docker compose"
+	@echo ""
+	@echo "Database:"
+	@echo "  migrate-up       Apply all pending migrations"
+	@echo "  migrate-down     Rollback last migration"
+	@echo "  migrate-create   Create migration (NAME=migration_name)"
 
 BINARY_NAME=botka
 BUILD_DIR=build
