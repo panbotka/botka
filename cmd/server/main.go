@@ -20,6 +20,7 @@ import (
 	"botka/internal/config"
 	"botka/internal/database"
 	"botka/internal/handlers"
+	"botka/internal/mcp"
 	"botka/internal/middleware"
 	"botka/internal/projects"
 	"botka/internal/runner"
@@ -32,9 +33,11 @@ func main() {
 	// MCP mode: stdout is reserved for the protocol, log to stderr.
 	if len(os.Args) > 1 && os.Args[1] == "mcp" {
 		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
-		// TODO: implement runMCP() — will be added in a later task
-		slog.Error("MCP mode not yet implemented")
-		os.Exit(1)
+		if err := runMCP(); err != nil {
+			slog.Error("mcp server failed", "error", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
@@ -104,7 +107,33 @@ func run() error {
 	return startServer(router, cfg.Port)
 }
 
-// setupRouter creates the Gin router with API and frontend routes.
+// runMCP starts the MCP server in stdio mode. It connects to the database,
+// runs migrations, and reads JSON-RPC messages from stdin until EOF.
+func runMCP() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	if err := database.RunMigrations(cfg.DatabaseURL); err != nil {
+		return fmt.Errorf("run migrations: %w", err)
+	}
+
+	db, err := database.Connect(cfg.DatabaseURL)
+	if err != nil {
+		return fmt.Errorf("connect database: %w", err)
+	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("get underlying sql.DB: %w", err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+
+	return mcp.RunStdio(db)
+}
+
+// setupRouter creates the Gin router with API, MCP, and frontend routes.
 func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Recovery(), gin.Logger(), middleware.CORS())
@@ -121,6 +150,11 @@ func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gi
 	handlers.RegisterRunnerRoutes(v1, runnerHandler)
 
 	handlers.RegisterOutputRoute(v1, taskRunner)
+
+	// MCP SSE transport.
+	mcpServer := mcp.NewServer(db, taskRunner)
+	mcpSSE := mcp.NewSSEHandler(mcpServer)
+	mcp.RegisterRoutes(router.Group("/mcp"), mcpSSE)
 
 	frontendFS := initFrontendFS()
 	static.SetupRoutes(router, frontendFS)
