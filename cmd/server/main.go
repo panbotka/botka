@@ -167,6 +167,28 @@ func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gi
 	fileHandler := handlers.NewFileHandler(db, cfg.UploadDir)
 	handlers.RegisterFileRoutes(v1, fileHandler)
 
+	// Supporting chat handlers: tags, personas, memories, search, transcribe, processes, status.
+	tagHandler := handlers.NewTagHandler(db)
+	handlers.RegisterTagRoutes(v1, tagHandler)
+
+	personaHandler := handlers.NewPersonaHandler(db)
+	handlers.RegisterPersonaRoutes(v1, personaHandler)
+
+	memoryHandler := handlers.NewMemoryHandler(db)
+	handlers.RegisterMemoryRoutes(v1, memoryHandler)
+
+	searchHandler := handlers.NewSearchHandler(db)
+	handlers.RegisterSearchRoutes(v1, searchHandler)
+
+	transcribeHandler := handlers.NewTranscribeHandler(cfg.OpenClawURL, cfg.OpenClawToken, cfg.WhisperEnabled)
+	handlers.RegisterTranscribeRoutes(v1, transcribeHandler)
+
+	processHandler := handlers.NewProcessHandler()
+	handlers.RegisterProcessRoutes(v1, processHandler)
+
+	statusHandler := handlers.NewStatusHandler(cfg.AIModel, cfg.AvailableModels, cfg.WhisperEnabled)
+	handlers.RegisterStatusRoutes(v1, statusHandler)
+
 	// MCP SSE transport.
 	mcpServer := mcp.NewServer(db, taskRunner)
 	mcpSSE := mcp.NewSSEHandler(mcpServer)
