@@ -10,6 +10,8 @@ import {
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useIsMobile } from './hooks/useIsMobile'
+import BottomNav from './components/BottomNav'
+import OfflineIndicator from './components/OfflineIndicator'
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const ChatPage = lazy(() => import('./pages/ChatPage'))
@@ -69,12 +71,18 @@ export default function App() {
   const location = useLocation()
   const isMobile = useIsMobile()
   const isChat = location.pathname.startsWith('/chat')
-  const hideAppSidebar = isMobile && isChat
+  // Hide bottom nav when viewing an active chat thread on mobile
+  const isActiveChatThread = /^\/chat\/\d+$/.test(location.pathname)
+  const hideBottomNav = isMobile && isActiveChatThread
 
   return (
     <div className="flex h-screen bg-white">
-      {!hideAppSidebar && <AppSidebar />}
-      <main className={clsx('flex-1', isChat ? 'overflow-hidden' : 'overflow-auto p-6')}>
+      {!isMobile && <AppSidebar />}
+      <main className={clsx(
+        'flex-1',
+        isChat ? 'overflow-hidden' : 'overflow-auto p-6',
+        isMobile && !hideBottomNav && !isChat && 'pb-20',
+      )}>
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={<DashboardPage />} />
@@ -86,6 +94,8 @@ export default function App() {
           </Routes>
         </Suspense>
       </main>
+      {isMobile && !hideBottomNav && <BottomNav />}
+      <OfflineIndicator />
     </div>
   )
 }

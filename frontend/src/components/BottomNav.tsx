@@ -1,19 +1,22 @@
-import { MessageSquare, Search, Settings } from 'lucide-react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { LayoutDashboard, MessageSquare, ListTodo, Settings } from 'lucide-react'
 import { clsx } from 'clsx'
 
-export type MobileTab = 'chats' | 'search' | 'settings'
+const tabs = [
+  { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { path: '/chat', icon: MessageSquare, label: 'Chat' },
+  { path: '/tasks', icon: ListTodo, label: 'Tasks' },
+  { path: '/settings', icon: Settings, label: 'Settings' },
+] as const
 
-interface Props {
-  activeTab: MobileTab
-  onTabChange: (tab: MobileTab) => void
-}
+export default function BottomNav() {
+  const location = useLocation()
+  const navigate = useNavigate()
 
-export default function BottomNav({ activeTab, onTabChange }: Props) {
-  const tabs: { id: MobileTab; label: string; icon: React.ReactNode }[] = [
-    { id: 'chats', label: 'Chats', icon: <MessageSquare className="w-6 h-6" /> },
-    { id: 'search', label: 'Search', icon: <Search className="w-6 h-6" /> },
-    { id: 'settings', label: 'Settings', icon: <Settings className="w-6 h-6" /> },
-  ]
+  const isActive = (path: string) => {
+    if (path === '/') return location.pathname === '/'
+    return location.pathname.startsWith(path)
+  }
 
   return (
     <nav
@@ -23,14 +26,14 @@ export default function BottomNav({ activeTab, onTabChange }: Props) {
       <div className="flex h-14">
         {tabs.map((tab) => (
           <button
-            key={tab.id}
-            onClick={() => onTabChange(tab.id)}
+            key={tab.path}
+            onClick={() => navigate(tab.path)}
             className={clsx(
-              'flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors cursor-pointer',
-              activeTab === tab.id ? 'text-amber-600' : 'text-zinc-400 active:text-zinc-600',
+              'flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors cursor-pointer min-h-[44px]',
+              isActive(tab.path) ? 'text-amber-600' : 'text-zinc-400 active:text-zinc-600',
             )}
           >
-            {tab.icon}
+            <tab.icon className="w-6 h-6" />
             <span className="text-[10px] font-medium">{tab.label}</span>
           </button>
         ))}

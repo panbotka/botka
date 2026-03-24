@@ -7,7 +7,6 @@ import { useProcesses } from '../hooks/useProcesses'
 import ChatView from '../components/ChatView'
 import ThreadSidebar from '../components/ThreadSidebar'
 import ProcessBar from '../components/ProcessBar'
-import BottomNav, { type MobileTab } from '../components/BottomNav'
 import { MessageSquare, ArrowLeft } from 'lucide-react'
 
 function parseThreadIdFromPath(pathname: string): number | null {
@@ -29,8 +28,6 @@ export default function ChatPage() {
   const [personas, setPersonas] = useState<Persona[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
-  const [mobileTab, setMobileTab] = useState<MobileTab>('chats')
-  const [mobileSearchFocus, setMobileSearchFocus] = useState(false)
   const [pendingStarterMessage, setPendingStarterMessage] = useState<string | null>(null)
   const [streamingThreadId, setStreamingThreadId] = useState<number | null>(null)
   const [threadNotFound, setThreadNotFound] = useState(false)
@@ -167,20 +164,6 @@ export default function ChatPage() {
     selectThread(null)
   }, [selectThread])
 
-  const handleMobileTabChange = useCallback((tab: MobileTab) => {
-    if (tab === 'search') {
-      setMobileSearchFocus(true)
-      setMobileTab('chats')
-      return
-    }
-    setMobileTab(tab)
-    setMobileSearchFocus(false)
-  }, [])
-
-  const handleSearchFocusConsumed = useCallback(() => {
-    setMobileSearchFocus(false)
-  }, [])
-
   // Shared sidebar props
   const sidebarProps = {
     threads,
@@ -218,7 +201,7 @@ export default function ChatPage() {
             <header className="flex items-center gap-3 px-4 h-12 bg-white border-b border-zinc-200 sticky top-0 z-10 flex-shrink-0">
               <button
                 onClick={handleMobileBack}
-                className="text-zinc-500 hover:text-zinc-800 cursor-pointer transition-colors -ml-1"
+                className="text-zinc-500 hover:text-zinc-800 cursor-pointer transition-colors -ml-1 min-w-[44px] min-h-[44px] flex items-center justify-center"
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
@@ -256,8 +239,6 @@ export default function ChatPage() {
             <ThreadSidebar
               {...sidebarProps}
               mobile
-              searchAutoFocus={mobileSearchFocus}
-              onSearchFocusConsumed={handleSearchFocusConsumed}
             />
             {/* FAB: New Chat */}
             <button
@@ -270,7 +251,6 @@ export default function ChatPage() {
             >
               <MessageSquare className="w-6 h-6" />
             </button>
-            <BottomNav activeTab={mobileTab} onTabChange={handleMobileTabChange} />
           </>
         )}
 

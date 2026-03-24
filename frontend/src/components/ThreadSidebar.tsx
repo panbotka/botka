@@ -28,8 +28,6 @@ interface Props {
   streamingThreadId: number | null
   activeProcessThreadIds: Set<number>
   mobile?: boolean
-  searchAutoFocus?: boolean
-  onSearchFocusConsumed?: () => void
 }
 
 export default function ThreadSidebar({
@@ -51,8 +49,6 @@ export default function ThreadSidebar({
   streamingThreadId,
   activeProcessThreadIds,
   mobile,
-  searchAutoFocus,
-  onSearchFocusConsumed,
 }: Props) {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editTitle, setEditTitle] = useState('')
@@ -68,14 +64,6 @@ export default function ThreadSidebar({
   const [searchLoading, setSearchLoading] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
-
-  // Auto-focus search input on mobile when requested
-  useEffect(() => {
-    if (searchAutoFocus && searchInputRef.current) {
-      searchInputRef.current.focus()
-      onSearchFocusConsumed?.()
-    }
-  }, [searchAutoFocus, onSearchFocusConsumed])
 
   // Close menu on outside click or Escape
   useEffect(() => {
@@ -661,7 +649,7 @@ export default function ThreadSidebar({
           </div>
           {searchInput}
           {filterBar}
-          <div className="flex-1 overflow-y-auto px-2" style={{ paddingBottom: 'calc(3.5rem + env(safe-area-inset-bottom, 0px) + 1rem)' }}>
+          <div className="flex-1 overflow-y-auto px-2 pb-4">
             {isSearching ? searchResultsView : threadListView}
           </div>
         </div>
