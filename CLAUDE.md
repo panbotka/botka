@@ -88,7 +88,7 @@ make docker-down      # Stop Docker Compose
 
 The app has two separate Claude Code subprocess implementations. This is intentional — they serve fundamentally different use cases with different lifecycle requirements:
 
-1. **Chat mode** (`internal/claude/runner.go`): Spawns interactive Claude Code sessions for the chat UI. Uses `--resume` for session continuity, streams NDJSON events parsed into typed `StreamEvent` values, and sends them to the browser via SSE. Processes are tracked in a registry (`internal/claude/registry.go`).
+1. **Chat mode** (`internal/claude/runner.go`): Spawns interactive Claude Code sessions for the chat UI. Uses `--resume` for session continuity, streams NDJSON events parsed into typed `StreamEvent` values, and sends them to the browser via SSE. Processes are tracked in a registry (`internal/claude/registry.go`). A session pool (`internal/claude/pool.go`) pre-warms subprocesses between messages so subsequent responses skip process startup.
 
 2. **Task mode** (`internal/runner/executor.go`): Spawns batch Claude Code sessions for autonomous task execution. Uses process groups (`Setpgid`) for reliable timeout/kill, has retry logic with backoff, runs optional verification commands, and creates PRs on feature branches. No session continuity — each execution is standalone.
 
@@ -135,7 +135,7 @@ Exposes task management tools: create_task, list_tasks, get_task, update_task, l
 | `internal/database` | GORM connection + golang-migrate |
 | `internal/models` | All GORM models (Project, Task, Thread, Message, etc.) |
 | `internal/handlers` | Gin HTTP handlers for all API endpoints |
-| `internal/claude` | Chat subprocess runner + hierarchical context assembly |
+| `internal/claude` | Chat subprocess runner, session pool, and hierarchical context assembly |
 | `internal/runner` | Task scheduler loop + batch executor + usage monitor |
 | `internal/projects` | Git repo filesystem discovery and DB sync |
 | `internal/mcp` | MCP server (stdio + SSE transport) |
@@ -172,6 +172,7 @@ Exposes task management tools: create_task, list_tasks, get_task, update_task, l
 - **Full-text search** on messages uses a PostgreSQL GIN index on a `tsvector` column.
 - **Task scheduling** uses `SELECT ... FOR UPDATE SKIP LOCKED` for safe concurrent task picking.
 - **One task per project:** The scheduler ensures only one task runs per project at a time (keyed by `project_id` in the executors map).
+- **Session pool:** After each chat response, a pre-warmed Claude process is spawned with `--resume` and kept alive for 5 minutes via a stdin keepalive byte. The next message pipes its prompt to the waiting process, skipping startup. Sessions are evicted on model/project changes, session clears, or thread deletion.
 
 ## Source Projects
 

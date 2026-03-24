@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"botka/internal/claude"
 	"botka/internal/models"
 )
 
@@ -254,6 +255,8 @@ func (h *ThreadHandler) Delete(c *gin.Context) {
 		return
 	}
 
+	claude.Pool.Evict(id)
+
 	// Delete branch_selections, messages (with attachments), thread_tags, then thread
 	tx := h.db.Begin()
 	tx.Where("thread_id = ?", id).Delete(&models.BranchSelection{})
@@ -360,6 +363,7 @@ func (h *ThreadHandler) UpdateModel(c *gin.Context) {
 		return
 	}
 
+	claude.Pool.Evict(id)
 	h.db.Model(&models.Thread{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"model":      req.Model,
 		"updated_at": time.Now(),
@@ -386,6 +390,7 @@ func (h *ThreadHandler) SetProject(c *gin.Context) {
 		return
 	}
 
+	claude.Pool.Evict(id)
 	h.db.Model(&models.Thread{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"project_id": req.ProjectID,
 		"updated_at": time.Now(),
@@ -412,11 +417,11 @@ func (h *ThreadHandler) Usage(c *gin.Context) {
 		COUNT(*) AS message_count FROM messages WHERE thread_id = ?`, id).Scan(&result)
 
 	respondOK(c, gin.H{
-		"thread_id":              id,
-		"total_prompt_tokens":    result.PromptTokens,
+		"thread_id":               id,
+		"total_prompt_tokens":     result.PromptTokens,
 		"total_completion_tokens": result.CompletionTokens,
-		"total_tokens":           result.PromptTokens + result.CompletionTokens,
-		"message_count":          result.MessageCount,
+		"total_tokens":            result.PromptTokens + result.CompletionTokens,
+		"message_count":           result.MessageCount,
 	})
 }
 
@@ -444,6 +449,7 @@ func (h *ThreadHandler) ClearMessages(c *gin.Context) {
 	tx.Commit()
 
 	// Clear session since messages are gone
+	claude.Pool.Evict(id)
 	h.db.Model(&models.Thread{}).Where("id = ?", id).Update("claude_session_id", nil)
 
 	respondOK(c, gin.H{"status": "ok"})

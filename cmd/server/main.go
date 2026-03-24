@@ -72,6 +72,7 @@ func run() error {
 		return fmt.Errorf("get underlying sql.DB: %w", err)
 	}
 	defer func() { _ = sqlDB.Close() }()
+	defer claude.Pool.Shutdown()
 
 	// Project discovery: scan filesystem and sync to database.
 	discovered, err := projects.Scan(cfg.ProjectsDir)

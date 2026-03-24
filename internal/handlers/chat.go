@@ -412,12 +412,25 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 	cfg.WorkDir = workDir
 	cfg.Name = thread.Title
 
-	streamCtx, streamCancel := context.WithCancel(c.Request.Context())
+	// Use a background context for the Claude process so it completes even
+	// if the HTTP client disconnects. This prevents losing responses when the
+	// browser has a network hiccup or the user switches tabs on mobile.
+	streamCtx, streamCancel := context.WithCancel(context.Background())
 	defer streamCancel()
 	claude.Registry.Register(threadID, thread.Title, streamCancel)
-	defer claude.Registry.Unregister(threadID)
+	// NOTE: we do NOT defer Registry.Unregister here. Instead, Pool.PreWarm
+	// seamlessly replaces the active entry with the pre-warmed one, keeping
+	// the ProcessBar visible continuously. On error (no PreWarm), we
+	// unregister explicitly below.
 
-	stream := claude.Run(streamCtx, cfg, lastUserContent)
+	// Try to use a pre-warmed session from the pool (avoids process startup).
+	var stream <-chan claude.StreamEvent
+	if entry := claude.Pool.Acquire(threadID, cfg); entry != nil {
+		log.Printf("[chat] using pre-warmed session for thread %d", threadID)
+		stream = claude.RunFromPool(entry, lastUserContent)
+	} else {
+		stream = claude.Run(streamCtx, cfg, lastUserContent)
+	}
 
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
@@ -430,69 +443,98 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 		return
 	}
 
+	clientGone := c.Request.Context().Done()
+	clientDisconnected := false
+
 	var fullResponse strings.Builder
 	var errored bool
 
 	for event := range stream {
+		// Check if client disconnected — stop writing but keep reading
+		// so we can save the full response to the database.
+		if !clientDisconnected {
+			select {
+			case <-clientGone:
+				clientDisconnected = true
+				log.Printf("[chat] client disconnected for thread %d, continuing to capture response", threadID)
+			default:
+			}
+		}
+
 		switch event.Kind {
 		case claude.KindContentDelta:
 			fullResponse.WriteString(event.Text)
-			chunk, _ := json.Marshal(map[string]string{"content": event.Text})
-			fmt.Fprintf(c.Writer, "data: %s\n\n", chunk)
-			flusher.Flush()
+			if !clientDisconnected {
+				chunk, _ := json.Marshal(map[string]string{"content": event.Text})
+				fmt.Fprintf(c.Writer, "data: %s\n\n", chunk)
+				flusher.Flush()
+			}
 
 		case claude.KindThinkingDelta:
-			chunk, _ := json.Marshal(map[string]string{"content": event.Thinking})
-			fmt.Fprintf(c.Writer, "event: thinking\ndata: %s\n\n", chunk)
-			flusher.Flush()
+			if !clientDisconnected {
+				chunk, _ := json.Marshal(map[string]string{"content": event.Thinking})
+				fmt.Fprintf(c.Writer, "event: thinking\ndata: %s\n\n", chunk)
+				flusher.Flush()
+			}
 
 		case claude.KindToolUse:
-			toolJSON, _ := json.Marshal(map[string]interface{}{
-				"id":    event.ToolID,
-				"name":  event.ToolName,
-				"input": json.RawMessage(event.ToolInput),
-			})
-			fmt.Fprintf(c.Writer, "event: tool_use\ndata: %s\n\n", toolJSON)
-			flusher.Flush()
+			if !clientDisconnected {
+				toolJSON, _ := json.Marshal(map[string]interface{}{
+					"id":    event.ToolID,
+					"name":  event.ToolName,
+					"input": json.RawMessage(event.ToolInput),
+				})
+				fmt.Fprintf(c.Writer, "event: tool_use\ndata: %s\n\n", toolJSON)
+				flusher.Flush()
+			}
 
 		case claude.KindToolResult:
-			resultJSON, _ := json.Marshal(map[string]interface{}{
-				"tool_use_id": event.ToolUseID,
-				"content":     event.ToolContent,
-				"is_error":    event.ToolIsError,
-			})
-			fmt.Fprintf(c.Writer, "event: tool_result\ndata: %s\n\n", resultJSON)
-			flusher.Flush()
+			if !clientDisconnected {
+				resultJSON, _ := json.Marshal(map[string]interface{}{
+					"tool_use_id": event.ToolUseID,
+					"content":     event.ToolContent,
+					"is_error":    event.ToolIsError,
+				})
+				fmt.Fprintf(c.Writer, "event: tool_result\ndata: %s\n\n", resultJSON)
+				flusher.Flush()
+			}
 
 		case claude.KindResult:
 			if event.IsError {
-				errJSON, _ := json.Marshal(map[string]string{"error": event.ErrorMsg})
-				fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", errJSON)
-				flusher.Flush()
+				if !clientDisconnected {
+					errJSON, _ := json.Marshal(map[string]string{"error": event.ErrorMsg})
+					fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", errJSON)
+					flusher.Flush()
+				}
 				errored = true
 			} else {
 				if fullResponse.Len() == 0 && event.ResultText != "" {
 					fullResponse.WriteString(event.ResultText)
 				}
-				usageJSON, _ := json.Marshal(map[string]interface{}{
-					"cost_usd":      event.CostUSD,
-					"duration_ms":   event.DurationMs,
-					"num_turns":     event.NumTurns,
-					"input_tokens":  event.InputTokens,
-					"output_tokens": event.OutputTokens,
-				})
-				fmt.Fprintf(c.Writer, "event: usage\ndata: %s\n\n", usageJSON)
-				flusher.Flush()
+				if !clientDisconnected {
+					usageJSON, _ := json.Marshal(map[string]interface{}{
+						"cost_usd":      event.CostUSD,
+						"duration_ms":   event.DurationMs,
+						"num_turns":     event.NumTurns,
+						"input_tokens":  event.InputTokens,
+						"output_tokens": event.OutputTokens,
+					})
+					fmt.Fprintf(c.Writer, "event: usage\ndata: %s\n\n", usageJSON)
+					flusher.Flush()
+				}
 			}
 
 		case claude.KindError:
-			errJSON, _ := json.Marshal(map[string]string{"error": event.ErrorMsg})
-			fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", errJSON)
-			flusher.Flush()
+			if !clientDisconnected {
+				errJSON, _ := json.Marshal(map[string]string{"error": event.ErrorMsg})
+				fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", errJSON)
+				flusher.Flush()
+			}
 			errored = true
 		}
 	}
 
+	// Always save the response to the database, even if client disconnected
 	if !errored {
 		assistantContent := fullResponse.String()
 		if assistantContent != "" {
@@ -514,14 +556,31 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 		if msgCount == 2 && needsAutoTitle {
 			generatedTitle := claude.TitleFromContent(lastUserContent)
 			h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("title", generatedTitle)
-			titleJSON, _ := json.Marshal(map[string]string{"title": generatedTitle})
-			fmt.Fprintf(c.Writer, "event: title\ndata: %s\n\n", titleJSON)
-			flusher.Flush()
+			if !clientDisconnected {
+				titleJSON, _ := json.Marshal(map[string]string{"title": generatedTitle})
+				fmt.Fprintf(c.Writer, "event: title\ndata: %s\n\n", titleJSON)
+				flusher.Flush()
+			}
 		}
 	}
 
-	fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
-	flusher.Flush()
+	if !clientDisconnected {
+		fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+		flusher.Flush()
+	}
+
+	// Pre-warm the next session so subsequent messages skip process startup.
+	// PreWarm also registers in the Registry, seamlessly replacing the active entry.
+	if !errored && cfg.SessionID != "" {
+		prewarmCfg := cfg
+		prewarmCfg.Resume = true
+		prewarmCfg.SystemPromptFile = ""
+		prewarmCfg.Name = ""
+		go claude.Pool.PreWarm(prewarmCfg, threadID, thread.Title)
+	} else {
+		// No pre-warm (error or no session), clean up the registry entry
+		claude.Registry.Unregister(threadID)
+	}
 }
 
 // ClearSession clears the Claude Code session ID for a thread.
@@ -532,6 +591,7 @@ func (h *ChatHandler) ClearSession(c *gin.Context) {
 		return
 	}
 
+	claude.Pool.Evict(threadID)
 	h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("claude_session_id", nil)
 	respondOK(c, gin.H{"status": "ok"})
 }
@@ -544,6 +604,7 @@ func (h *ChatHandler) NewSession(c *gin.Context) {
 		return
 	}
 
+	claude.Pool.Evict(threadID)
 	newSessionID := uuid.New().String()
 	h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("claude_session_id", newSessionID)
 

@@ -23,7 +23,7 @@ Botka merges two projects into one:
 - Real-time streaming chat with Claude Code
 - Conversation branching and forking at any message
 - Message editing with automatic branch creation
-- Claude Code session continuity via `--resume`
+- Claude Code session continuity via `--resume` with pre-warmed subprocess pool (5-minute idle TTL)
 - Personas with custom system prompts and default models
 - Project-based workspaces (Claude runs in project directory)
 - Hierarchical context assembly (SOUL.md, USER.md, MEMORY.md, daily notes, app memories, persona, project CLAUDE.md)
@@ -251,7 +251,7 @@ All endpoints are under `/api/v1`. Responses use a consistent envelope format:
 
 The app maintains two separate subprocess implementations because they have fundamentally different requirements:
 
-1. **Chat mode** (`internal/claude/runner.go`) — Interactive sessions with `--resume` for continuity, NDJSON stream parsing, SSE to browser. Processes tracked in a registry.
+1. **Chat mode** (`internal/claude/runner.go`, `pool.go`) — Interactive sessions with `--resume` for continuity, NDJSON stream parsing, SSE to browser. A session pool pre-warms subprocesses between messages to eliminate startup latency. Processes tracked in a registry.
 
 2. **Task mode** (`internal/runner/executor.go`) — Batch execution with process groups for timeout/kill, retry logic with backoff, verification commands, and automatic PR creation. No session continuity.
 
@@ -261,4 +261,5 @@ The app maintains two separate subprocess implementations because they have fund
 - **One task per project:** The scheduler prevents concurrent task execution on the same project to avoid git conflicts.
 - **Usage monitoring:** The runner polls Anthropic API usage and pauses task scheduling when approaching rate limits.
 - **Hierarchical context:** Chat sessions get layered context (identity, user info, memories, persona, project CLAUDE.md, conversation history).
+- **Session pool:** After each chat response, a new Claude process is pre-spawned with `--resume` and kept alive for 5 minutes. When the next message arrives, it pipes the prompt directly to the waiting process, saving ~2-3s of process startup. Sessions are automatically evicted on model/project changes or session resets.
 - **Frontend embedded in binary:** Production builds embed `frontend/dist` via `go:embed` for single-binary deployment.
