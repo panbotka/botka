@@ -1,0 +1,186 @@
+// ── Projects (unified from Saiduler projects + Chatovadlo folders) ──
+
+export type BranchStrategy = 'main' | 'feature_branch'
+
+export interface Project {
+  id: string
+  name: string
+  path: string
+  branch_strategy: BranchStrategy
+  verification_command?: string
+  active: boolean
+  claude_md: string
+  sort_order: number
+  created_at: string
+  updated_at: string
+  task_counts?: Record<string, number>
+}
+
+// ── Tasks (from Saiduler) ──
+
+export type TaskStatus = 'pending' | 'queued' | 'running' | 'done' | 'failed' | 'needs_review' | 'cancelled'
+
+export interface Task {
+  id: string
+  title: string
+  spec: string
+  status: TaskStatus
+  priority: number
+  project_id: string
+  project_name?: string
+  project?: Project
+  failure_reason: string | null
+  retry_count: number
+  executions?: TaskExecution[]
+  created_at: string
+  updated_at: string
+}
+
+export interface TaskExecution {
+  id: string
+  task_id: string
+  attempt: number
+  started_at: string
+  finished_at: string | null
+  exit_code: number | null
+  cost_usd: number | null
+  duration_ms: number | null
+  summary: string | null
+  error_message: string | null
+}
+
+export type RunnerStateValue = 'running' | 'paused' | 'stopped'
+
+export interface RunnerStatus {
+  state: RunnerStateValue
+  active_tasks: ActiveTaskInfo[]
+  max_workers: number
+  usage: UsageInfo | null
+  task_limit: number
+  completed_count: number
+}
+
+export interface UsageInfo {
+  five_hour_pct: number
+  seven_day_pct: number
+  resets_at: string
+  last_checked: string
+}
+
+export interface ActiveTaskInfo {
+  task_id: string
+  task_title: string
+  project_name: string
+  started_at: string
+}
+
+// ── Threads (from Chatovadlo) ──
+
+export interface Thread {
+  id: number
+  title: string
+  model: string
+  system_prompt: string
+  persona_id?: number
+  persona_icon?: string
+  persona_name?: string
+  project_id?: string
+  pinned: boolean
+  archived: boolean
+  claude_session_id?: string
+  tags?: Tag[]
+  created_at: string
+  updated_at: string
+  last_message_preview?: string
+  last_message_at?: string
+}
+
+export interface Message {
+  id: number
+  thread_id: number
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  parent_id?: number
+  thinking?: string
+  thinking_duration_ms?: number
+  prompt_tokens?: number
+  completion_tokens?: number
+  attachments?: Attachment[]
+  created_at: string
+}
+
+export interface Attachment {
+  id: number
+  message_id: number
+  filename: string
+  original_name: string
+  mime_type: string
+  size: number
+  created_at: string
+}
+
+export interface ThreadDetail {
+  thread: Thread
+  messages: Message[]
+  fork_points?: Record<string, ForkPoint>
+}
+
+export interface ForkChild {
+  id: number
+  preview: string
+  role: string
+  created_at: string
+}
+
+export interface ForkPoint {
+  children: ForkChild[]
+  active_index: number
+}
+
+// ── Supporting (from Chatovadlo) ──
+
+export interface Persona {
+  id: number
+  name: string
+  system_prompt: string
+  default_model: string
+  icon: string
+  starter_message: string
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface Tag {
+  id: number
+  name: string
+  color: string
+  created_at: string
+}
+
+export interface Memory {
+  id: string
+  content: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ThreadUsage {
+  thread_id: number
+  total_prompt_tokens: number
+  total_completion_tokens: number
+  total_tokens: number
+  message_count: number
+}
+
+export interface SearchMatch {
+  message_id: number
+  role: string
+  snippet: string
+  created_at: string
+}
+
+export interface SearchResult {
+  thread: Thread
+  matches: SearchMatch[]
+}

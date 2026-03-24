@@ -1,0 +1,87 @@
+@import "tailwindcss";
+
+html, body, #root {
+  height: 100%;
+  height: 100dvh;
+  margin: 0;
+}
+
+body {
+  @apply bg-zinc-50 text-zinc-900 antialiased;
+}
+
+/* Font size settings */
+:root.font-small { font-size: 15px; }
+:root.font-medium { font-size: 16px; }
+:root.font-large { font-size: 18px; }
+
+/* Dark theme */
+:root.dark {
+  --color-zinc-50: #18181b;
+  --color-zinc-100: #27272a;
+  --color-zinc-200: #3f3f46;
+  --color-zinc-300: #52525b;
+  --color-zinc-400: #71717a;
+  --color-zinc-500: #a1a1aa;
+  --color-zinc-600: #d4d4d8;
+  --color-zinc-700: #e4e4e7;
+  --color-zinc-800: #f4f4f5;
+  --color-zinc-900: #fafafa;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-zinc-300 rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-zinc-400;
+}
+
+/* Markdown content styling */
+.markdown-content p {
+  @apply my-2.5;
+  line-height: 1.7;
+}
+.markdown-content h1, .markdown-content h2, .markdown-content h3 {
+  @apply font-semibold mt-5 mb-2;
+}
+.markdown-content h1 { @apply text-xl; }
+.markdown-content h2 { @apply text-lg; }
+.markdown-content h3 { @apply text-base; }
+.markdown-content ul, .markdown-content ol {
+  @apply pl-5 my-2.5;
+}
+.markdown-content ul { list-style-type: disc; }
+.markdown-content ol { list-style-type: decimal; }
+.markdown-content li { @apply my-1; line-height: 1.7; }
+.markdown-content a {
+  @apply text-emerald-600 hover:text-emerald-500 hover:underline transition-colors;
+}
+.markdown-content strong { @apply font-semibold; }
+.markdown-content blockquote {
+  @apply border-l-2 border-emerald-600/30 pl-4 my-3 text-zinc-500 italic;
+}
+.markdown-content hr {
+  @apply border-zinc-200 my-5;
+}
+.markdown-content pre {
+  @apply overflow-x-auto;
+}
+.markdown-content table {
+  @apply w-full text-sm;
+}
+.markdown-content th {
+  @apply text-left font-medium border-b border-zinc-200 px-3 py-2 bg-zinc-100;
+}
+.markdown-content td {
+  @apply border-b border-zinc-200/50 px-3 py-2;
+}
+.markdown-content tr:nth-child(even) td {
+  @apply bg-zinc-100/30;
+}
