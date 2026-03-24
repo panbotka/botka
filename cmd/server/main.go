@@ -14,11 +14,14 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"botka"
 	"botka/internal/config"
 	"botka/internal/database"
+	"botka/internal/handlers"
 	"botka/internal/middleware"
+	"botka/internal/projects"
 	"botka/internal/static"
 )
 
@@ -65,24 +68,33 @@ func run() error {
 	}
 	defer func() { _ = sqlDB.Close() }()
 
-	// TODO: project discovery — will be added in a later task
+	// Project discovery: scan filesystem and sync to database.
+	discovered, err := projects.Scan(cfg.ProjectsDir)
+	if err != nil {
+		return fmt.Errorf("scan projects: %w", err)
+	}
+	if err := projects.SyncToDatabase(db, discovered); err != nil {
+		return fmt.Errorf("sync projects: %w", err)
+	}
+	slog.Info("project discovery complete", "count", len(discovered))
+
 	// TODO: usage monitor initialization — will be added in a later task
 	// TODO: task runner initialization — will be added in a later task
 
-	_ = db  // used by handlers registered in later tasks
-	_ = cfg // used by handlers registered in later tasks
-
-	router := setupRouter()
+	router := setupRouter(db, cfg)
 
 	return startServer(router, cfg.Port)
 }
 
-// setupRouter creates the Gin router with health check and frontend routes.
-func setupRouter() *gin.Engine {
+// setupRouter creates the Gin router with API and frontend routes.
+func setupRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Recovery(), gin.Logger(), middleware.CORS())
 
-	// TODO: register API v1 routes — will be added in later tasks
+	v1 := router.Group("/api/v1")
+
+	projectHandler := handlers.NewProjectHandler(db, cfg.ProjectsDir, projects.Scan, projects.SyncToDatabase)
+	handlers.RegisterProjectRoutes(v1, projectHandler)
 
 	frontendFS := initFrontendFS()
 	static.SetupRoutes(router, frontendFS)
