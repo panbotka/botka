@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { Routes, Route, NavLink } from 'react-router-dom'
+import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
   MessageSquare,
@@ -9,8 +9,10 @@ import {
   Loader2,
 } from 'lucide-react'
 import { clsx } from 'clsx'
+import { useIsMobile } from './hooks/useIsMobile'
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
+const ChatPage = lazy(() => import('./pages/ChatPage'))
 const TasksPage = lazy(() => import('./pages/TasksPage'))
 const TaskDetailPage = lazy(() => import('./pages/TaskDetailPage'))
 const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
@@ -39,9 +41,9 @@ function PageLoader() {
   )
 }
 
-function Sidebar() {
+function AppSidebar() {
   return (
-    <aside className="flex h-screen w-56 flex-col border-r border-zinc-200 bg-zinc-50">
+    <aside className="flex h-screen w-56 flex-col border-r border-zinc-200 bg-zinc-50 flex-shrink-0">
       <div className="flex h-14 items-center gap-2 border-b border-zinc-200 px-4">
         <span className="text-xl">🤖</span>
         <span className="text-lg font-semibold text-zinc-900">Botka</span>
@@ -71,15 +73,19 @@ function Sidebar() {
 }
 
 export default function App() {
+  const location = useLocation()
+  const isMobile = useIsMobile()
+  const isChat = location.pathname.startsWith('/chat')
+  const hideAppSidebar = isMobile && isChat
+
   return (
     <div className="flex h-screen bg-white">
-      <Sidebar />
-      <main className="flex-1 overflow-auto p-6">
+      {!hideAppSidebar && <AppSidebar />}
+      <main className={clsx('flex-1', isChat ? 'overflow-hidden' : 'overflow-auto p-6')}>
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={<DashboardPage />} />
-            <Route path="/chat" element={<Placeholder name="Chat" />} />
-            <Route path="/chat/:id" element={<Placeholder name="Chat" />} />
+            <Route path="/chat/*" element={<ChatPage />} />
             <Route path="/tasks" element={<TasksPage />} />
             <Route path="/tasks/:id" element={<TaskDetailPage />} />
             <Route path="/projects" element={<ProjectsPage />} />

@@ -150,8 +150,9 @@ export function refreshUsage(): Promise<UsageInfo> {
 
 // Threads
 
-export function fetchThreads(): Promise<Thread[]> {
-  return requestData<Thread[]>('/threads')
+export function fetchThreads(includeArchived?: boolean): Promise<Thread[]> {
+  const qs = includeArchived ? '?include_archived=true' : ''
+  return requestData<Thread[]>(`/threads${qs}`)
 }
 
 export function fetchThread(id: number): Promise<Thread> {
@@ -204,6 +205,14 @@ export function clearMessages(id: number): Promise<void> {
 
 export function clearSession(id: number): Promise<void> {
   return request<void>(`/threads/${id}/session`, { method: 'DELETE' })
+}
+
+export function newSession(id: number): Promise<void> {
+  return request<void>(`/threads/${id}/session`, { method: 'POST' })
+}
+
+export function renameThread(id: number, title: string): Promise<Thread> {
+  return updateThread(id, { title } as Partial<Thread>)
 }
 
 export function updateModel(id: number, model: string): Promise<void> {
@@ -513,6 +522,8 @@ export const api = {
   unarchiveThread,
   clearMessages,
   clearSession,
+  newSession,
+  renameThread,
   updateModel,
   switchBranch,
   updateThreadTags,
