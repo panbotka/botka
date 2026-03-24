@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { Routes, Route, NavLink } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -5,8 +6,14 @@ import {
   ListTodo,
   FolderGit2,
   Settings,
+  Loader2,
 } from 'lucide-react'
 import { clsx } from 'clsx'
+
+const DashboardPage = lazy(() => import('./pages/DashboardPage'))
+const TasksPage = lazy(() => import('./pages/TasksPage'))
+const TaskDetailPage = lazy(() => import('./pages/TaskDetailPage'))
+const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -20,6 +27,14 @@ function Placeholder({ name }: { name: string }) {
   return (
     <div className="flex items-center justify-center h-full text-zinc-400 text-lg">
       {name} — Coming Soon
+    </div>
+  )
+}
+
+function PageLoader() {
+  return (
+    <div className="flex h-64 items-center justify-center">
+      <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
     </div>
   )
 }
@@ -60,15 +75,17 @@ export default function App() {
     <div className="flex h-screen bg-white">
       <Sidebar />
       <main className="flex-1 overflow-auto p-6">
-        <Routes>
-          <Route path="/" element={<Placeholder name="Dashboard" />} />
-          <Route path="/chat" element={<Placeholder name="Chat" />} />
-          <Route path="/chat/:id" element={<Placeholder name="Chat" />} />
-          <Route path="/tasks" element={<Placeholder name="Tasks" />} />
-          <Route path="/tasks/:id" element={<Placeholder name="Task Detail" />} />
-          <Route path="/projects" element={<Placeholder name="Projects" />} />
-          <Route path="/settings" element={<Placeholder name="Settings" />} />
-        </Routes>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/chat" element={<Placeholder name="Chat" />} />
+            <Route path="/chat/:id" element={<Placeholder name="Chat" />} />
+            <Route path="/tasks" element={<TasksPage />} />
+            <Route path="/tasks/:id" element={<TaskDetailPage />} />
+            <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/settings" element={<Placeholder name="Settings" />} />
+          </Routes>
+        </Suspense>
       </main>
     </div>
   )

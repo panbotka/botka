@@ -1,51 +1,170 @@
-import type { Project, Task, Thread, RunnerStatus } from '../types'
+import type { Project, Task, Thread, RunnerStatus, UsageInfo } from '../types'
 
-const BASE = '/api/v1'
+const BASE_URL = '/api/v1'
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(BASE + path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
+export class ApiError extends Error {
+  status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...init?.headers,
+    },
   })
-  if (!res.ok) throw new Error(await res.text())
-  const json = await res.json()
-  return json.data ?? json
+  if (!res.ok) {
+    let message = res.statusText
+    try {
+      const body = await res.json()
+      if (body.error) message = body.error
+    } catch {
+      // use statusText
+    }
+    throw new ApiError(res.status, message)
+  }
+  if (res.status === 204) return undefined as T
+  return res.json()
 }
 
-function post<T>(path: string, body: unknown): Promise<T> {
-  return request<T>(path, { method: 'POST', body: JSON.stringify(body) })
+async function requestData<T>(path: string, init?: RequestInit): Promise<T> {
+  const body = await request<{ data: T }>(path, init)
+  return body.data
 }
 
-function put<T>(path: string, body: unknown): Promise<T> {
-  return request<T>(path, { method: 'PUT', body: JSON.stringify(body) })
+// Projects
+
+export function fetchProjects(): Promise<Project[]> {
+  return requestData<Project[]>('/projects')
 }
 
-function del<T>(path: string): Promise<T> {
-  return request<T>(path, { method: 'DELETE' })
+export function fetchProject(id: string): Promise<Project> {
+  return requestData<Project>(`/projects/${id}`)
 }
 
-export const api = {
-  // Projects
-  getProjects: () => request<Project[]>('/projects'),
-  getProject: (id: string) => request<Project>(`/projects/${id}`),
-  createProject: (data: Partial<Project>) => post<Project>('/projects', data),
-  updateProject: (id: string, data: Partial<Project>) => put<Project>(`/projects/${id}`, data),
-  deleteProject: (id: string) => del<void>(`/projects/${id}`),
+export function updateProject(id: string, data: Partial<Project>): Promise<Project> {
+  return requestData<Project>(`/projects/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
 
-  // Tasks
-  getTasks: (params?: Record<string, string>) =>
-    request<Task[]>('/tasks' + (params ? '?' + new URLSearchParams(params) : '')),
-  getTask: (id: string) => request<Task>(`/tasks/${id}`),
-  createTask: (data: Partial<Task>) => post<Task>('/tasks', data),
-  updateTask: (id: string, data: Partial<Task>) => put<Task>(`/tasks/${id}`, data),
-  deleteTask: (id: string) => del<void>(`/tasks/${id}`),
+export function scanProjects(): Promise<{ discovered: number; new: number; deactivated: number }> {
+  return requestData('/projects/scan', { method: 'POST' })
+}
 
-  // Runner
-  getRunnerStatus: () => request<RunnerStatus>('/runner/status'),
+// Tasks
 
-  // Threads
-  getThreads: () => request<Thread[]>('/threads'),
-  getThread: (id: number) => request<Thread>(`/threads/${id}`),
-  createThread: (data: Partial<Thread>) => post<Thread>('/threads', data),
-  deleteThread: (id: number) => del<void>(`/threads/${id}`),
+export function fetchTasks(params?: {
+  status?: string
+  project_id?: string
+  limit?: number
+  offset?: number
+}): Promise<{ data: Task[]; total: number }> {
+  const search = new URLSearchParams()
+  if (params?.status) search.set('status', params.status)
+  if (params?.project_id) search.set('project_id', params.project_id)
+  if (params?.limit != null) search.set('limit', String(params.limit))
+  if (params?.offset != null) search.set('offset', String(params.offset))
+  const qs = search.toString()
+  return request(`/tasks${qs ? `?${qs}` : ''}`)
+}
+
+export function createTask(data: {
+  title: string
+  spec: string
+  project_id: string
+  priority?: number
+  status?: string
+}): Promise<Task> {
+  return requestData<Task>('/tasks', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export function fetchTask(id: string): Promise<Task> {
+  return requestData<Task>(`/tasks/${id}`)
+}
+
+export function updateTask(id: string, data: Partial<Task>): Promise<Task> {
+  return requestData<Task>(`/tasks/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export function deleteTask(id: string): Promise<void> {
+  return request<void>(`/tasks/${id}`, { method: 'DELETE' })
+}
+
+export function reorderTasks(items: { id: string; priority: number }[]): Promise<void> {
+  return requestData<void>('/tasks/reorder', {
+    method: 'POST',
+    body: JSON.stringify(items),
+  })
+}
+
+export function retryTask(id: string): Promise<Task> {
+  return requestData<Task>(`/tasks/${id}/retry`, { method: 'POST' })
+}
+
+export function batchUpdateTaskStatus(ids: string[], status: string): Promise<{ updated: number }> {
+  return requestData<{ updated: number }>('/tasks/batch-status', {
+    method: 'POST',
+    body: JSON.stringify({ ids, status }),
+  })
+}
+
+// Runner
+
+export function fetchRunnerStatus(): Promise<RunnerStatus> {
+  return requestData<RunnerStatus>('/runner/status')
+}
+
+export function startRunner(count?: number): Promise<void> {
+  return requestData<void>('/runner/start', {
+    method: 'POST',
+    body: count ? JSON.stringify({ count }) : undefined,
+  })
+}
+
+export function pauseRunner(): Promise<void> {
+  return requestData<void>('/runner/pause', { method: 'POST' })
+}
+
+export function stopRunner(): Promise<void> {
+  return requestData<void>('/runner/stop', { method: 'POST' })
+}
+
+export function refreshUsage(): Promise<UsageInfo> {
+  return requestData<UsageInfo>('/runner/usage/refresh', { method: 'POST' })
+}
+
+// Threads
+
+export function fetchThreads(): Promise<Thread[]> {
+  return requestData<Thread[]>('/threads')
+}
+
+export function fetchThread(id: number): Promise<Thread> {
+  return requestData<Thread>(`/threads/${id}`)
+}
+
+export function createThread(data: Partial<Thread>): Promise<Thread> {
+  return requestData<Thread>('/threads', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export function deleteThread(id: number): Promise<void> {
+  return request<void>(`/threads/${id}`, { method: 'DELETE' })
 }
