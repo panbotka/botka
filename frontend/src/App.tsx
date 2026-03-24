@@ -16,6 +16,7 @@ const ChatPage = lazy(() => import('./pages/ChatPage'))
 const TasksPage = lazy(() => import('./pages/TasksPage'))
 const TaskDetailPage = lazy(() => import('./pages/TaskDetailPage'))
 const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -24,14 +25,6 @@ const navItems = [
   { to: '/projects', icon: FolderGit2, label: 'Projects' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ] as const
-
-function Placeholder({ name }: { name: string }) {
-  return (
-    <div className="flex items-center justify-center h-full text-zinc-400 text-lg">
-      {name} — Coming Soon
-    </div>
-  )
-}
 
 function PageLoader() {
   return (
@@ -89,7 +82,7 @@ export default function App() {
             <Route path="/tasks" element={<TasksPage />} />
             <Route path="/tasks/:id" element={<TaskDetailPage />} />
             <Route path="/projects" element={<ProjectsPage />} />
-            <Route path="/settings" element={<Placeholder name="Settings" />} />
+            <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </Suspense>
       </main>

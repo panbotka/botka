@@ -273,6 +273,10 @@ export function deleteTag(id: number): Promise<void> {
   return request<void>(`/tags/${id}`, { method: 'DELETE' })
 }
 
+export function getTagThreadCount(id: number): Promise<number> {
+  return requestData<{ count: number }>(`/tags/${id}/threads/count`).then((r) => r.count)
+}
+
 // Personas
 
 export function fetchPersonas(): Promise<Persona[]> {
@@ -510,6 +514,11 @@ export async function* streamBranch(
 
 // Convenience object for use in hooks that call api.methodName()
 export const api = {
+  // Projects
+  fetchProjects,
+  fetchProject,
+  updateProject,
+  scanProjects,
   // Threads
   getThread,
   createThread,
@@ -535,6 +544,7 @@ export const api = {
   createTag,
   updateTag,
   deleteTag,
+  getTagThreadCount,
   // Personas
   fetchPersonas,
   createPersona,

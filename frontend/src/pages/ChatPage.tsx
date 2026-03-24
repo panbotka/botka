@@ -130,7 +130,7 @@ export default function ChatPage() {
     if (isMobile) return
     const urlThreadId = parseThreadIdFromPath(window.location.pathname)
     if (!urlThreadId && threads.length > 0) {
-      selectThread(threads[0].id, true)
+      selectThread(threads[0]!.id, true)
     }
   }, [threads, selectThread, isMobile])
 
