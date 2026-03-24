@@ -85,3 +85,56 @@ body {
 .markdown-content tr:nth-child(even) td {
   @apply bg-zinc-100/30;
 }
+.markdown-content .table-wrapper {
+  @apply overflow-x-auto my-3;
+}
+
+/* Chat animations */
+@keyframes message-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes palette-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-message-in {
+  animation: message-in 0.2s ease-out;
+}
+
+.animate-palette-in {
+  animation: palette-in 0.15s ease-out;
+}
+
+/* Loading dots */
+.loading-dots span {
+  @apply w-2 h-2 bg-zinc-400 rounded-full;
+  animation: loading-dot 1.4s ease-in-out infinite;
+}
+.loading-dots span:nth-child(1) { animation-delay: 0s; }
+.loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+.loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes loading-dot {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
+}
