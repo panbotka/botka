@@ -22,6 +22,7 @@ import (
 	"botka/internal/handlers"
 	"botka/internal/middleware"
 	"botka/internal/projects"
+	"botka/internal/runner"
 	"botka/internal/static"
 )
 
@@ -78,16 +79,33 @@ func run() error {
 	}
 	slog.Info("project discovery complete", "count", len(discovered))
 
-	// TODO: usage monitor initialization — will be added in a later task
-	// TODO: task runner initialization — will be added in a later task
+	// Usage monitor: tracks Anthropic API rate limits.
+	usageMon := runner.NewUsageMonitor(
+		cfg.ClaudeCredentialsPath,
+		cfg.UsageThreshold5h,
+		cfg.UsageThreshold7d,
+		cfg.UsagePollInterval,
+		"",
+	)
+	usageMon.Start(context.Background())
+	defer usageMon.Stop()
 
-	router := setupRouter(db, cfg)
+	// Task runner: scheduler loop and parallel task execution.
+	taskRunner, err := runner.NewRunner(db, cfg, usageMon)
+	if err != nil {
+		return fmt.Errorf("create runner: %w", err)
+	}
+	// Restore runner state on startup (starts loop if previously running).
+	taskRunner.RestoreState()
+	defer taskRunner.Shutdown()
+
+	router := setupRouter(db, cfg, taskRunner)
 
 	return startServer(router, cfg.Port)
 }
 
 // setupRouter creates the Gin router with API and frontend routes.
-func setupRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
+func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Recovery(), gin.Logger(), middleware.CORS())
 
@@ -95,6 +113,14 @@ func setupRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
 
 	projectHandler := handlers.NewProjectHandler(db, cfg.ProjectsDir, projects.Scan, projects.SyncToDatabase)
 	handlers.RegisterProjectRoutes(v1, projectHandler)
+
+	taskHandler := handlers.NewTaskHandler(db)
+	handlers.RegisterTaskRoutes(v1, taskHandler)
+
+	runnerHandler := handlers.NewRunnerHandler(taskRunner)
+	handlers.RegisterRunnerRoutes(v1, runnerHandler)
+
+	handlers.RegisterOutputRoute(v1, taskRunner)
 
 	frontendFS := initFrontendFS()
 	static.SetupRoutes(router, frontendFS)
