@@ -325,7 +325,7 @@ export default function ThreadSidebar({
             </div>
           ) : (
             <div
-              className="relative flex items-stretch gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+              className="relative flex items-stretch gap-0.5 flex-shrink-0"
               ref={menuOpenId === thread.id ? menuRef : undefined}
             >
               <button
