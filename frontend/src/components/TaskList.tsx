@@ -70,6 +70,7 @@ function StatusBadge({ status }: { status: TaskStatus }) {
 
 function StatusBadgeDropdown({ taskId, status, onStatusChange }: { taskId: string; status: TaskStatus; onStatusChange: () => void }) {
   const [open, setOpen] = useState(false)
+  const [openUp, setOpenUp] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const transitions = statusTransitions[status]
 
@@ -83,6 +84,15 @@ function StatusBadgeDropdown({ taskId, status, onStatusChange }: { taskId: strin
     document.addEventListener('click', handler, true)
     return () => document.removeEventListener('click', handler, true)
   }, [open])
+
+  const handleToggle = () => {
+    if (!open && ref.current) {
+      const rect = ref.current.getBoundingClientRect()
+      const spaceBelow = window.innerHeight - rect.bottom
+      setOpenUp(spaceBelow < 120)
+    }
+    setOpen(!open)
+  }
 
   const handleTransition = async (target: TaskStatus) => {
     setOpen(false)
@@ -98,13 +108,16 @@ function StatusBadgeDropdown({ taskId, status, onStatusChange }: { taskId: strin
     <div ref={ref} className="relative inline-block" onClick={(e) => e.stopPropagation()}>
       <button
         className="inline-flex items-center gap-0.5 cursor-pointer"
-        onClick={() => setOpen(!open)}
+        onClick={handleToggle}
       >
         <StatusBadge status={status} />
-        <ChevronDown className="h-3 w-3 text-zinc-400" />
+        <ChevronDown className={clsx('h-3 w-3 text-zinc-400 transition-transform', open && openUp && 'rotate-180')} />
       </button>
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-10 min-w-[120px] rounded-md border border-zinc-200 bg-zinc-100 shadow-lg">
+        <div className={clsx(
+          'absolute left-0 z-10 min-w-[120px] rounded-md border border-zinc-200 bg-zinc-100 shadow-lg',
+          openUp ? 'bottom-full mb-1' : 'top-full mt-1',
+        )}>
           {transitions.map((t) => (
             <button
               key={t.target}
@@ -381,7 +394,7 @@ export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, onS
           onStatusChange={onStatusChange}
         />
       )}
-      <div className="overflow-hidden rounded-lg border border-zinc-200">
+      <div className="overflow-x-clip overflow-y-visible rounded-lg border border-zinc-200">
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-zinc-200 bg-zinc-50 text-xs font-medium uppercase tracking-wide text-zinc-500">
