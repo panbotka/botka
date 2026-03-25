@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { clsx } from 'clsx'
 import { Plus, Loader2 } from 'lucide-react'
 
@@ -21,25 +21,34 @@ const filters: { value: Filter; label: string }[] = [
   { value: 'needs_review', label: 'Needs Review' },
 ]
 
+const validFilters = new Set<string>(filters.map((f) => f.value))
+
 export default function TasksPage() {
   useDocumentTitle('Tasks')
-  const [activeFilter, setActiveFilter] = useState<Filter>('all')
+  const [searchParams, setSearchParams] = useSearchParams()
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
-  const initialFilterSet = useRef(false)
+  const urlStatus = searchParams.get('status')
+  const hasValidUrlParam = urlStatus !== null && validFilters.has(urlStatus)
+
+  const autoSelectedFilter = useRef<Filter | null>(null)
 
   const { tasks, loading, error, refetch } = useTasks()
   useRefreshOnFocus(refetch)
 
-  // Set initial tab to the most actionable status
+  // Auto-select most actionable status when no valid URL param is present
   useEffect(() => {
-    if (initialFilterSet.current || tasks.length === 0) return
-    initialFilterSet.current = true
+    if (hasValidUrlParam || autoSelectedFilter.current !== null || tasks.length === 0) return
     const hasStatus = (s: TaskStatus) => tasks.some((t) => t.status === s)
-    if (hasStatus('running')) setActiveFilter('running')
-    else if (hasStatus('pending')) setActiveFilter('pending')
-    else if (hasStatus('queued')) setActiveFilter('queued')
-  }, [tasks])
+    if (hasStatus('running')) autoSelectedFilter.current = 'running'
+    else if (hasStatus('pending')) autoSelectedFilter.current = 'pending'
+    else if (hasStatus('queued')) autoSelectedFilter.current = 'queued'
+    else autoSelectedFilter.current = 'all'
+  }, [tasks, hasValidUrlParam])
+
+  const activeFilter: Filter = hasValidUrlParam
+    ? (urlStatus as Filter)
+    : (autoSelectedFilter.current ?? 'all')
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: tasks.length }
@@ -54,10 +63,17 @@ export default function TasksPage() {
     [tasks, activeFilter],
   )
 
-  const handleFilterChange = useCallback((value: Filter) => {
-    setActiveFilter(value)
-    setSelectedIds(new Set())
-  }, [])
+  const handleFilterChange = useCallback(
+    (value: Filter) => {
+      if (value === 'all') {
+        setSearchParams({}, { replace: true })
+      } else {
+        setSearchParams({ status: value }, { replace: true })
+      }
+      setSelectedIds(new Set())
+    },
+    [setSearchParams],
+  )
 
   const handleSelectionChange = useCallback((ids: Set<string>) => {
     setSelectedIds(ids)
