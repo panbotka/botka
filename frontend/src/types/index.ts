@@ -47,7 +47,7 @@ export interface ProjectStats {
 
 // ── Tasks (from Saiduler) ──
 
-export type TaskStatus = 'pending' | 'queued' | 'running' | 'done' | 'failed' | 'needs_review' | 'cancelled'
+export type TaskStatus = 'pending' | 'queued' | 'running' | 'done' | 'failed' | 'needs_review' | 'cancelled' | 'deleted'
 
 export interface Task {
   id: string

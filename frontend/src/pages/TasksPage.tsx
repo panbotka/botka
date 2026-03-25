@@ -19,6 +19,7 @@ const filters: { value: Filter; label: string }[] = [
   { value: 'done', label: 'Done' },
   { value: 'failed', label: 'Failed' },
   { value: 'needs_review', label: 'Needs Review' },
+  { value: 'deleted', label: 'Deleted' },
 ]
 
 const validFilters = new Set<string>(filters.map((f) => f.value))
@@ -34,33 +35,47 @@ export default function TasksPage() {
 
   const autoSelectedFilter = useRef<Filter | null>(null)
 
-  const { tasks, loading, error, refetch } = useTasks()
+  const isDeletedView = urlStatus === 'deleted'
+
+  // Fetch non-deleted tasks (backend excludes deleted by default)
+  const { tasks: mainTasks, loading: mainLoading, error: mainError, refetch: mainRefetch } = useTasks()
+  // Fetch deleted tasks separately for the Deleted tab
+  const { tasks: deletedTasks, loading: deletedLoading, error: deletedError, refetch: deletedRefetch } = useTasks({ status: 'deleted' })
+
+  const refetch = useCallback(async () => {
+    await Promise.all([mainRefetch(), deletedRefetch()])
+  }, [mainRefetch, deletedRefetch])
+
   useRefreshOnFocus(refetch)
 
-  // Derive unique project names from tasks
+  const tasks = isDeletedView ? deletedTasks : mainTasks
+  const loading = isDeletedView ? deletedLoading : mainLoading
+  const error = isDeletedView ? deletedError : mainError
+
+  // Derive unique project names from main tasks (not deleted)
   const projectNames = useMemo(() => {
     const names = new Set<string>()
-    for (const t of tasks) {
+    for (const t of mainTasks) {
       const name = t.project_name ?? t.project?.name
       if (name) names.add(name)
     }
     return Array.from(names).sort((a, b) => a.localeCompare(b))
-  }, [tasks])
+  }, [mainTasks])
 
   const activeProject = urlProject && projectNames.includes(urlProject) ? urlProject : null
 
   // Auto-select most actionable status when no valid URL param is present
   useEffect(() => {
-    if (hasValidUrlParam || autoSelectedFilter.current !== null || tasks.length === 0) return
+    if (hasValidUrlParam || autoSelectedFilter.current !== null || mainTasks.length === 0) return
     const projectTasks = activeProject
-      ? tasks.filter((t) => (t.project_name ?? t.project?.name) === activeProject)
-      : tasks
+      ? mainTasks.filter((t) => (t.project_name ?? t.project?.name) === activeProject)
+      : mainTasks
     const hasStatus = (s: TaskStatus) => projectTasks.some((t) => t.status === s)
     if (hasStatus('running')) autoSelectedFilter.current = 'running'
     else if (hasStatus('pending')) autoSelectedFilter.current = 'pending'
     else if (hasStatus('queued')) autoSelectedFilter.current = 'queued'
     else autoSelectedFilter.current = 'all'
-  }, [tasks, hasValidUrlParam, activeProject])
+  }, [mainTasks, hasValidUrlParam, activeProject])
 
   const activeFilter: Filter = hasValidUrlParam
     ? (urlStatus as Filter)
@@ -76,16 +91,16 @@ export default function TasksPage() {
   )
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: projectFiltered.length }
+    const c: Record<string, number> = { all: projectFiltered.length, deleted: deletedTasks.length }
     for (const t of projectFiltered) {
       c[t.status] = (c[t.status] ?? 0) + 1
     }
     return c
-  }, [projectFiltered])
+  }, [projectFiltered, deletedTasks.length])
 
   const filtered = useMemo(
     () =>
-      activeFilter === 'all'
+      activeFilter === 'all' || activeFilter === 'deleted'
         ? projectFiltered
         : projectFiltered.filter((t) => t.status === activeFilter),
     [projectFiltered, activeFilter],

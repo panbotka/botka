@@ -21,6 +21,7 @@ var allowedTransitions = map[models.TaskStatus]map[models.TaskStatus]bool{
 	models.TaskStatusQueued:      {models.TaskStatusPending: true, models.TaskStatusCancelled: true},
 	models.TaskStatusFailed:      {models.TaskStatusQueued: true},
 	models.TaskStatusNeedsReview: {models.TaskStatusQueued: true, models.TaskStatusDone: true},
+	models.TaskStatusDeleted:     {models.TaskStatusPending: true},
 }
 
 // createTaskArgs holds the arguments for the create_task tool.
@@ -136,6 +137,8 @@ func (s *Server) handleListTasks(raw json.RawMessage) (interface{}, error) {
 
 	if args.Status != "" {
 		query = query.Where("status = ?", args.Status)
+	} else {
+		query = query.Where("status != ?", models.TaskStatusDeleted)
 	}
 	if args.ProjectName != "" {
 		project, err := s.findProjectForFilter(args.ProjectName)

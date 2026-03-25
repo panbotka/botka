@@ -16,7 +16,6 @@ import {
   AlertTriangle,
   Save,
   Check,
-  FileText,
   DollarSign,
   Timer,
   TrendingUp,
@@ -31,7 +30,7 @@ import {
 } from '../api/client'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
-import type { Project, Task, TaskStatus, BranchStrategy, GitCommit, GitStatus, ProjectStats } from '../types'
+import type { Project, Task, BranchStrategy, GitCommit, GitStatus, ProjectStats } from '../types'
 
 type TabId = 'stats' | 'git-status' | 'git-history' | 'tasks' | 'settings'
 

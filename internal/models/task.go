@@ -27,6 +27,8 @@ const (
 	TaskStatusNeedsReview TaskStatus = "needs_review"
 	// TaskStatusCancelled indicates the task was cancelled before completion.
 	TaskStatusCancelled TaskStatus = "cancelled"
+	// TaskStatusDeleted indicates the task was soft-deleted.
+	TaskStatusDeleted TaskStatus = "deleted"
 )
 
 // validStatuses contains all valid TaskStatus values for validation.
@@ -38,6 +40,7 @@ var validStatuses = map[TaskStatus]bool{
 	TaskStatusFailed:      true,
 	TaskStatusNeedsReview: true,
 	TaskStatusCancelled:   true,
+	TaskStatusDeleted:     true,
 }
 
 // IsValid reports whether the TaskStatus is a recognized status value.

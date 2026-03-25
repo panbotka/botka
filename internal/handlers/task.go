@@ -43,6 +43,7 @@ var allowedTransitions = map[models.TaskStatus]map[models.TaskStatus]bool{
 	models.TaskStatusQueued:      {models.TaskStatusPending: true, models.TaskStatusCancelled: true},
 	models.TaskStatusFailed:      {models.TaskStatusQueued: true},
 	models.TaskStatusNeedsReview: {models.TaskStatusQueued: true, models.TaskStatusDone: true},
+	models.TaskStatusDeleted:     {models.TaskStatusPending: true},
 }
 
 // createTaskRequest is the JSON body for creating a task.
@@ -222,7 +223,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	respondOK(c, task)
 }
 
-// Delete cancels or hard-deletes a task depending on its status.
+// Delete soft-deletes a task by setting its status to deleted.
 func (h *TaskHandler) Delete(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -237,18 +238,14 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 		respondError(c, http.StatusConflict, "cannot delete a running task")
 		return
 	}
+	if task.Status == models.TaskStatusDeleted {
+		c.Status(http.StatusNoContent)
+		return
+	}
 
-	if task.Status == models.TaskStatusPending || task.Status == models.TaskStatusCancelled {
-		if err := h.db.Delete(&task).Error; err != nil {
-			respondError(c, http.StatusInternalServerError, "failed to delete task")
-			return
-		}
-	} else {
-		err := h.db.Model(&task).Update("status", models.TaskStatusCancelled).Error
-		if err != nil {
-			respondError(c, http.StatusInternalServerError, "failed to cancel task")
-			return
-		}
+	if err := h.db.Model(&task).Update("status", models.TaskStatusDeleted).Error; err != nil {
+		respondError(c, http.StatusInternalServerError, "failed to delete task")
+		return
 	}
 	c.Status(http.StatusNoContent)
 }
@@ -518,6 +515,7 @@ func buildTaskUpdates(req updateTaskRequest) map[string]interface{} {
 
 // taskFilter returns a function that applies status and project_id WHERE clauses.
 // Status may be a single value or comma-separated list (e.g. "done,failed,needs_review").
+// When no status filter is provided, deleted tasks are excluded by default.
 func taskFilter(status, projectID string) func(*gorm.DB) *gorm.DB {
 	return func(q *gorm.DB) *gorm.DB {
 		if status != "" {
@@ -526,6 +524,8 @@ func taskFilter(status, projectID string) func(*gorm.DB) *gorm.DB {
 			} else {
 				q = q.Where("status = ?", status)
 			}
+		} else {
+			q = q.Where("status != ?", models.TaskStatusDeleted)
 		}
 		if projectID != "" {
 			q = q.Where("project_id = ?", projectID)

@@ -18,7 +18,7 @@ cmd/migrate-data/    Data migration utilities from source projects
 internal/
   config/            Environment config loading (.env + env vars)
   database/          GORM connection + golang-migrate migrations
-  models/            All GORM models (13 models)
+  models/            All GORM models (12 models)
   handlers/          Gin HTTP handlers (15 handler files)
   claude/            Chat subprocess runner + context assembly
   runner/            Task scheduler loop + batch executor
@@ -28,10 +28,10 @@ internal/
   static/            Frontend static file serving (go:embed)
 frontend/src/
   api/               API client methods
-  components/        React components (26 files)
+  components/        React components (24 files)
   context/           React context (SettingsContext)
-  hooks/             Custom React hooks (10 hooks)
-  pages/             Page components (6 pages)
+  hooks/             Custom React hooks (13 hooks)
+  pages/             Page components (8 pages)
   types/             TypeScript type definitions
   utils/             Utility functions
 migrations/          SQL migration files (golang-migrate)
@@ -74,7 +74,7 @@ make clean          # Remove build artifacts
 
 ## Testing
 
-**~399 tests** across 28 test files covering all packages. Tests use stdlib `testing` only (no external test frameworks).
+**~312 tests** across 28 test files covering all packages. Tests use stdlib `testing` only (no external test frameworks).
 
 ```bash
 make test           # Run all tests with race detector

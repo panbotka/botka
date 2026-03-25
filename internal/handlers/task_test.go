@@ -448,7 +448,7 @@ func TestTaskUpdate_InvalidTransition(t *testing.T) {
 	}
 }
 
-func TestTaskDelete_HardDeletePending(t *testing.T) {
+func TestTaskDelete_SoftDeletePending(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)
 	proj := createTestProject(t, db)
@@ -460,15 +460,14 @@ func TestTaskDelete_HardDeletePending(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", w.Code)
 	}
-	// Verify hard deleted
-	var count int64
-	db.Model(&models.Task{}).Where("id = ?", task.ID).Count(&count)
-	if count != 0 {
-		t.Errorf("expected task to be deleted, but it still exists")
+	var got models.Task
+	db.First(&got, "id = ?", task.ID)
+	if got.Status != models.TaskStatusDeleted {
+		t.Errorf("expected status deleted, got %s", got.Status)
 	}
 }
 
-func TestTaskDelete_SoftCancelQueued(t *testing.T) {
+func TestTaskDelete_SoftDeleteQueued(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)
 	proj := createTestProject(t, db)
@@ -480,11 +479,10 @@ func TestTaskDelete_SoftCancelQueued(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", w.Code)
 	}
-	// Verify soft cancelled (still exists but status=cancelled)
 	var got models.Task
 	db.First(&got, "id = ?", task.ID)
-	if got.Status != models.TaskStatusCancelled {
-		t.Errorf("expected status cancelled, got %s", got.Status)
+	if got.Status != models.TaskStatusDeleted {
+		t.Errorf("expected status deleted, got %s", got.Status)
 	}
 }
 
@@ -700,7 +698,7 @@ func TestTaskCreate_PendingStatus(t *testing.T) {
 	}
 }
 
-func TestTaskDelete_CancelledHardDelete(t *testing.T) {
+func TestTaskDelete_SoftDeleteCancelled(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)
 	proj := createTestProject(t, db)
@@ -712,14 +710,14 @@ func TestTaskDelete_CancelledHardDelete(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", w.Code)
 	}
-	var count int64
-	db.Model(&models.Task{}).Where("id = ?", task.ID).Count(&count)
-	if count != 0 {
-		t.Errorf("expected cancelled task to be hard deleted")
+	var got models.Task
+	db.First(&got, "id = ?", task.ID)
+	if got.Status != models.TaskStatusDeleted {
+		t.Errorf("expected status deleted, got %s", got.Status)
 	}
 }
 
-func TestTaskDelete_FailedSoftCancel(t *testing.T) {
+func TestTaskDelete_SoftDeleteFailed(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)
 	proj := createTestProject(t, db)
@@ -733,7 +731,7 @@ func TestTaskDelete_FailedSoftCancel(t *testing.T) {
 	}
 	var got models.Task
 	db.First(&got, "id = ?", task.ID)
-	if got.Status != models.TaskStatusCancelled {
-		t.Errorf("expected failed task to be soft cancelled, got %s", got.Status)
+	if got.Status != models.TaskStatusDeleted {
+		t.Errorf("expected status deleted, got %s", got.Status)
 	}
 }

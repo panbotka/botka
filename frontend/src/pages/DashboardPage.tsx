@@ -75,6 +75,7 @@ const statusConfig: Record<TaskStatus, { icon: typeof CheckCircle2; color: strin
   queued: { icon: Clock, color: 'text-zinc-500', label: 'Queued' },
   pending: { icon: Clock, color: 'text-zinc-400', label: 'Pending' },
   cancelled: { icon: XCircle, color: 'text-zinc-400', label: 'Cancelled' },
+  deleted: { icon: XCircle, color: 'text-zinc-300', label: 'Deleted' },
 }
 
 function StatusBadge({ status }: { status: TaskStatus }) {

@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   Clock,
   Loader2,
+  Undo2,
 } from 'lucide-react'
 import { TaskForm } from '../components/TaskForm'
 import { LiveOutputInline } from '../components/LiveOutput'
@@ -36,6 +37,7 @@ const statusConfig: Record<
   queued: { icon: Clock, color: 'text-zinc-700', bgColor: 'bg-zinc-100', label: 'Queued' },
   pending: { icon: Clock, color: 'text-zinc-500', bgColor: 'bg-zinc-50', label: 'Pending' },
   cancelled: { icon: XCircle, color: 'text-zinc-500', bgColor: 'bg-zinc-50', label: 'Cancelled' },
+  deleted: { icon: Trash2, color: 'text-zinc-500', bgColor: 'bg-zinc-50', label: 'Deleted' },
 }
 
 function formatDuration(ms: number): string {
@@ -77,7 +79,6 @@ export default function TaskDetailPage() {
 }
 
 function TaskDetail({ taskId }: { taskId: string }) {
-  const navigate = useNavigate()
   const [task, setTask] = useState<Task | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -119,9 +120,22 @@ function TaskDetail({ taskId }: { taskId: string }) {
     setActing(true)
     try {
       await deleteTask(taskId)
-      navigate('/tasks')
+      await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Delete failed')
+    } finally {
+      setActing(false)
+    }
+  }
+
+  async function handleRestore() {
+    setActing(true)
+    try {
+      await updateTask(taskId, { status: 'pending' as TaskStatus })
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Restore failed')
+    } finally {
       setActing(false)
     }
   }
@@ -262,10 +276,7 @@ function TaskDetail({ taskId }: { taskId: string }) {
       )}
 
       {/* Actions */}
-      {(task.status === 'failed' ||
-        task.status === 'needs_review' ||
-        task.status === 'pending' ||
-        task.status === 'queued') && (
+      {task.status !== 'running' && (
         <div className="flex gap-3">
           {(task.status === 'failed' || task.status === 'needs_review') && (
             <button
@@ -287,14 +298,24 @@ function TaskDetail({ taskId }: { taskId: string }) {
               Mark Done
             </button>
           )}
-          {(task.status === 'pending' || task.status === 'queued') && (
+          {task.status === 'deleted' && (
+            <button
+              onClick={handleRestore}
+              disabled={acting}
+              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+              Restore
+            </button>
+          )}
+          {task.status !== 'deleted' && (
             <button
               onClick={handleDelete}
               disabled={acting}
               className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
             >
               <Trash2 className="h-3.5 w-3.5" />
-              Cancel
+              Delete
             </button>
           )}
         </div>

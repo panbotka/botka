@@ -27,6 +27,7 @@ import {
   Loader2,
   Ban,
   ChevronDown,
+  Trash2,
 } from 'lucide-react'
 
 import { reorderTasks, updateTask, batchUpdateTaskStatus } from '../api/client'
@@ -40,6 +41,7 @@ const statusBadge: Record<TaskStatus, { icon: typeof CheckCircle2; bg: string; t
   failed:       { icon: XCircle,        bg: 'bg-red-50',     text: 'text-red-700',    label: 'Failed' },
   needs_review: { icon: AlertTriangle,  bg: 'bg-orange-50',  text: 'text-orange-700', label: 'Review' },
   cancelled:    { icon: Ban,            bg: 'bg-zinc-50',    text: 'text-zinc-400',   label: 'Cancelled', strike: true },
+  deleted:      { icon: Trash2,        bg: 'bg-zinc-50',    text: 'text-zinc-400',   label: 'Deleted', strike: true },
 }
 
 const statusTransitions: Partial<Record<TaskStatus, { label: string; target: TaskStatus }[]>> = {
@@ -47,6 +49,7 @@ const statusTransitions: Partial<Record<TaskStatus, { label: string; target: Tas
   queued:       [{ label: 'Unqueue', target: 'pending' }, { label: 'Cancel', target: 'cancelled' }],
   failed:       [{ label: 'Requeue', target: 'queued' }],
   needs_review: [{ label: 'Requeue', target: 'queued' }, { label: 'Mark Done', target: 'done' }],
+  deleted:      [{ label: 'Restore', target: 'pending' }],
 }
 
 function StatusBadge({ status }: { status: TaskStatus }) {
