@@ -98,6 +98,19 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     return () => clearTimeout(feedbackTimer.current);
   }, []);
 
+  // Global Shift+Tab handler for plan mode toggle (works regardless of focus)
+  useEffect(() => {
+    if (!threadId) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Tab' && e.shiftKey) {
+        e.preventDefault();
+        setPlanMode(p => !p);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [threadId]);
+
   const handleDragEnter = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
