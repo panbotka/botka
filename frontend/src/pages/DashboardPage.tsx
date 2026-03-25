@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 
 import { RunnerStatus } from '../components/RunnerStatus'
+import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import {
   fetchRunnerStatus,
   fetchTasks,
@@ -266,6 +267,8 @@ export default function DashboardPage() {
     const id = setInterval(refresh, REFRESH_INTERVAL)
     return () => clearInterval(id)
   }, [refresh])
+
+  useRefreshOnFocus(refresh)
 
   async function handleStart(count?: number) {
     setToggling(true)

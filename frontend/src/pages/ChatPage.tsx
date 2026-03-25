@@ -4,6 +4,7 @@ import type { Tag, Thread, Persona, Project } from '../types'
 import { api } from '../api/client'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useProcesses } from '../hooks/useProcesses'
+import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import ChatView from '../components/ChatView'
 import ThreadSidebar from '../components/ThreadSidebar'
 import ProcessBar from '../components/ProcessBar'
@@ -121,6 +122,8 @@ export default function ChatPage() {
     loadPersonas()
     loadProjects()
   }, [loadThreads, loadTags, loadPersonas, loadProjects, showArchived])
+
+  useRefreshOnFocus(loadThreads)
 
   // On desktop, auto-select first thread if none selected
   useEffect(() => {

@@ -5,6 +5,7 @@ import { Plus, Loader2 } from 'lucide-react'
 
 import { TaskList } from '../components/TaskList'
 import { useTasks } from '../hooks/useTasks'
+import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import type { TaskStatus } from '../types'
 
 type Filter = 'all' | TaskStatus
@@ -26,6 +27,7 @@ export default function TasksPage() {
   const initialFilterSet = useRef(false)
 
   const { tasks, loading, error, refetch } = useTasks()
+  useRefreshOnFocus(refetch)
 
   // Set initial tab to the most actionable status
   useEffect(() => {

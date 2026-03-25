@@ -16,6 +16,7 @@ import {
 import { TaskForm } from '../components/TaskForm'
 import { LiveOutputInline } from '../components/LiveOutput'
 import { fetchTask, retryTask, deleteTask, updateTask } from '../api/client'
+import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import type { Task, TaskStatus, TaskExecution } from '../types'
 
 const statusConfig: Record<
@@ -96,6 +97,8 @@ function TaskDetail({ taskId }: { taskId: string }) {
   useEffect(() => {
     load()
   }, [load])
+
+  useRefreshOnFocus(load)
 
   async function handleRetry() {
     setActing(true)
