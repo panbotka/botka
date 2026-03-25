@@ -208,7 +208,7 @@ export default function ChatPage() {
         {showMobileChat ? (
           <div className="flex-1 flex flex-col min-w-0">
             {/* Mobile chat header */}
-            <header className="flex items-center gap-3 px-4 h-12 bg-white border-b border-zinc-200 sticky top-0 z-10 flex-shrink-0">
+            <header className="flex items-center gap-3 px-4 h-12 bg-zinc-50 border-b border-zinc-200 sticky top-0 z-10 flex-shrink-0">
               <button
                 onClick={handleMobileBack}
                 className="text-zinc-500 hover:text-zinc-800 cursor-pointer transition-colors -ml-1 min-w-[44px] min-h-[44px] flex items-center justify-center"
@@ -291,7 +291,7 @@ export default function ChatPage() {
         {activeThreadId ? (
           <>
             {/* Desktop chat header */}
-            <header className="flex items-center gap-3 px-4 h-12 bg-white border-b border-zinc-200 sticky top-0 z-10 flex-shrink-0">
+            <header className="flex items-center gap-3 px-4 h-12 bg-zinc-50 border-b border-zinc-200 sticky top-0 z-10 flex-shrink-0">
               <div className="flex-1 min-w-0">
                 <span className="text-sm text-zinc-900 font-medium truncate block">
                   {activeThread?.persona_icon && <span className="mr-1">{activeThread.persona_icon}</span>}

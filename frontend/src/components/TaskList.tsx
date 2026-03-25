@@ -104,7 +104,7 @@ function StatusBadgeDropdown({ taskId, status, onStatusChange }: { taskId: strin
         <ChevronDown className="h-3 w-3 text-zinc-400" />
       </button>
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-10 min-w-[120px] rounded-md border border-zinc-200 bg-white shadow-lg">
+        <div className="absolute left-0 top-full mt-1 z-10 min-w-[120px] rounded-md border border-zinc-200 bg-zinc-100 shadow-lg">
           {transitions.map((t) => (
             <button
               key={t.target}
@@ -253,14 +253,14 @@ function BatchToolbar({
         <button
           key={t.target}
           onClick={() => handleBatch(t.target)}
-          className="rounded-full bg-white px-3 py-1 text-xs font-medium text-zinc-700 border border-zinc-200 hover:bg-zinc-50"
+          className="rounded-full bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-700 border border-zinc-200 hover:bg-zinc-100"
         >
           {t.label}
         </button>
       ))}
       <button
         onClick={onDeselect}
-        className="ml-auto rounded-full bg-white px-3 py-1 text-xs font-medium text-zinc-500 border border-zinc-200 hover:bg-zinc-50"
+        className="ml-auto rounded-full bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-500 border border-zinc-200 hover:bg-zinc-100"
       >
         Deselect all
       </button>

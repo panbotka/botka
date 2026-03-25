@@ -42,7 +42,7 @@ export default function SlashCommandMenu({ filter, selectedIndex, onSelect }: Pr
     <div
       ref={listRef}
       className="absolute bottom-full left-0 right-0 mb-2
-                 bg-white border border-zinc-200 rounded-xl shadow-xl shadow-zinc-200/50
+                 bg-zinc-100 border border-zinc-200 rounded-xl shadow-xl shadow-zinc-200/50
                  max-h-60 overflow-y-auto z-10"
     >
       {filtered.map((cmd, i) => (

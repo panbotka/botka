@@ -138,7 +138,7 @@ function ProjectConfigEditor({
           value={verificationCommand}
           onChange={(e) => setVerificationCommand(e.target.value)}
           placeholder="e.g., make test, go test ./..."
-          className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+          className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
         />
       </div>
 
@@ -189,7 +189,7 @@ function ProjectRow({
   const [expanded, setExpanded] = useState(false)
 
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white overflow-hidden">
+    <div className="rounded-lg border border-zinc-200 bg-zinc-50 overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center gap-3 px-5 py-3.5 text-left hover:bg-zinc-50 transition-colors"

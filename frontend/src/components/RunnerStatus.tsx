@@ -39,7 +39,7 @@ export function RunnerStatus({ status, onStart, onPause, onStop, toggling }: Run
   }
 
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-5">
+    <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className={clsx('inline-block h-3 w-3 rounded-full', cfg.dot)} />

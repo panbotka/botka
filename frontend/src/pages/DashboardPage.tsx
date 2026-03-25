@@ -100,7 +100,7 @@ function UsageMeters({ usage, onRefresh }: { usage: UsageInfo | null; onRefresh:
 
   if (!usage) {
     return (
-      <div className="rounded-lg border border-zinc-200 bg-white p-5">
+      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-5">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
             API Usage
@@ -120,7 +120,7 @@ function UsageMeters({ usage, onRefresh }: { usage: UsageInfo | null; onRefresh:
   ]
 
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-5">
+    <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-5">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
           API Usage
@@ -156,7 +156,7 @@ function UsageMeters({ usage, onRefresh }: { usage: UsageInfo | null; onRefresh:
 
 function ActiveTasks({ tasks }: { tasks: RunnerStatusType['active_tasks'] }) {
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-5">
+    <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-5">
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
         Active Tasks
       </h2>
@@ -193,7 +193,7 @@ function ActiveTasks({ tasks }: { tasks: RunnerStatusType['active_tasks'] }) {
 
 function RecentTasks({ tasks }: { tasks: Task[] }) {
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-5">
+    <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-5">
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
         Recent Results
       </h2>

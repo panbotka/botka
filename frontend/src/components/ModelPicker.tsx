@@ -54,7 +54,7 @@ export default function ModelPicker({ value, onChange }: Props) {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="e.g. claude-sonnet-4-20250514"
-        className="w-full bg-white border border-zinc-300 rounded-xl
+        className="w-full bg-zinc-50 border border-zinc-300 rounded-xl
                    px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400
                    outline-none focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500 transition-colors"
       />
@@ -77,7 +77,7 @@ export default function ModelPicker({ value, onChange }: Props) {
       <button
         type="button"
         onClick={() => { setOpen(!open); setFilter(''); }}
-        className="w-full flex items-center justify-between bg-white border border-zinc-300
+        className="w-full flex items-center justify-between bg-zinc-50 border border-zinc-300
                    rounded-xl px-3 py-2 text-sm text-left transition-colors cursor-pointer
                    hover:border-zinc-400 focus:border-zinc-500 outline-none"
       >
@@ -91,7 +91,7 @@ export default function ModelPicker({ value, onChange }: Props) {
       </button>
 
       {open && (
-        <div className="absolute z-50 mt-1 w-full bg-white border border-zinc-200
+        <div className="absolute z-50 mt-1 w-full bg-zinc-100 border border-zinc-200
                         rounded-xl shadow-xl shadow-zinc-200/50 py-1 overflow-hidden">
           {searchable && (
             <div className="px-2 pb-1">

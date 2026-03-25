@@ -278,7 +278,7 @@ export default function CommandPalette({
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
       <div
-        className="relative bg-white border border-zinc-200 rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-palette-in"
+        className="relative bg-zinc-100 border border-zinc-200 rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-palette-in"
         onKeyDown={handleKeyDown}
       >
         <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-200">

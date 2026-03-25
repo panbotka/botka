@@ -358,7 +358,7 @@ export default function ThreadSidebar({
               {menuOpenId === thread.id && (
                 <div
                   className="absolute right-0 top-full mt-1 z-50 w-44
-                             bg-white border border-zinc-200 rounded-xl
+                             bg-zinc-100 border border-zinc-200 rounded-xl
                              shadow-lg shadow-zinc-200/50 py-1 overflow-hidden"
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -486,7 +486,7 @@ export default function ThreadSidebar({
           placeholder="Search messages..."
           className="w-full bg-zinc-100 border border-zinc-200 rounded-xl
                      pl-9 pr-8 py-2 text-sm text-zinc-900 placeholder-zinc-400
-                     outline-none focus:border-zinc-300 focus:bg-white transition-all duration-150"
+                     outline-none focus:border-zinc-300 focus:bg-zinc-50 transition-all duration-150"
         />
         {searchQuery && (
           <button
@@ -619,7 +619,7 @@ export default function ThreadSidebar({
       <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[60]"
            onClick={() => setModelPickerThread(null)} />
       <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[60]
-                      w-full max-w-sm bg-white border border-zinc-200
+                      w-full max-w-sm bg-zinc-100 border border-zinc-200
                       rounded-2xl shadow-2xl p-5">
         <h3 className="text-sm font-medium text-zinc-900 mb-1">Change model</h3>
         <p className="text-xs text-zinc-500 mb-3 truncate">
@@ -643,7 +643,7 @@ export default function ThreadSidebar({
   if (mobile) {
     return (
       <>
-        <div className="flex-1 flex flex-col w-full bg-white overflow-hidden">
+        <div className="flex-1 flex flex-col w-full bg-zinc-50 overflow-hidden">
           <div className="px-4 pt-4 pb-2">
             <h1 className="text-xl font-bold text-zinc-900">Chats</h1>
           </div>
@@ -691,7 +691,7 @@ export default function ThreadSidebar({
           </div>
           {personaDropdownOpen && (
             <div className="absolute left-3 right-3 top-full mt-1 z-50
-                           bg-white border border-zinc-200 rounded-xl
+                           bg-zinc-100 border border-zinc-200 rounded-xl
                            shadow-lg shadow-zinc-200/50 py-1 overflow-hidden">
               <button
                 onClick={() => { onNewThread(); clearSearch(); setPersonaDropdownOpen(false) }}

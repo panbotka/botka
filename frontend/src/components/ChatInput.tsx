@@ -205,7 +205,7 @@ const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ onSend
           onSelect={handleCommandSelect}
         />
       )}
-      <div className={`bg-white border rounded-2xl shadow-sm focus-within:shadow-md transition-all duration-200 ${
+      <div className={`bg-zinc-50 border rounded-2xl shadow-sm focus-within:shadow-md transition-all duration-200 ${
         planMode
           ? 'border-blue-400/40 focus-within:border-blue-400/60'
           : 'border-zinc-300 focus-within:border-zinc-400'

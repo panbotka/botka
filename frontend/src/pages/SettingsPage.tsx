@@ -139,7 +139,7 @@ function GeneralTab() {
           <select
             value={defaultModel}
             onChange={(e) => handleModelChange(e.target.value)}
-            className="mt-2 w-full max-w-xs rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+            className="mt-2 w-full max-w-xs rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
           >
             <option value="">Auto</option>
             {models.map((m) => (
@@ -350,7 +350,7 @@ function PersonasTab() {
       )}
 
       {isEditing && (
-        <div className="rounded-lg border border-zinc-200 bg-white p-4 space-y-4">
+        <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 space-y-4">
           <h3 className="text-sm font-medium text-zinc-900">
             {adding ? 'New Persona' : 'Edit Persona'}
           </h3>
@@ -383,7 +383,7 @@ function PersonasTab() {
               type="text"
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
               placeholder="Persona name"
             />
           </div>
@@ -395,7 +395,7 @@ function PersonasTab() {
               value={form.system_prompt}
               onChange={(e) => setForm((f) => ({ ...f, system_prompt: e.target.value }))}
               rows={4}
-              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
               placeholder="You are a helpful assistant that..."
             />
           </div>
@@ -406,7 +406,7 @@ function PersonasTab() {
             <select
               value={form.default_model}
               onChange={(e) => setForm((f) => ({ ...f, default_model: e.target.value }))}
-              className="mt-1 w-full max-w-xs rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              className="mt-1 w-full max-w-xs rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
             >
               <option value="">Default</option>
               {models.map((m) => (
@@ -424,7 +424,7 @@ function PersonasTab() {
               value={form.starter_message}
               onChange={(e) => setForm((f) => ({ ...f, starter_message: e.target.value }))}
               rows={2}
-              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
               placeholder="Optional message to start conversation"
             />
           </div>
@@ -467,7 +467,7 @@ function PersonasTab() {
               onDrop={() => handleDrop(idx)}
               onDragEnd={() => { setDragIndex(null); setDragOverIndex(null) }}
               className={clsx(
-                'flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-4 py-3 transition-colors',
+                'flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 transition-colors',
                 dragOverIndex === idx && 'border-zinc-400 bg-zinc-50',
               )}
             >
@@ -641,7 +641,7 @@ function TagsTab() {
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-            className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+            className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
             placeholder="Tag name"
           />
         </div>
@@ -685,7 +685,7 @@ function TagsTab() {
           {tags.map((t) => (
             <div
               key={t.id}
-              className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-4 py-3"
+              className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3"
             >
               {editingId === t.id ? (
                 <>
@@ -711,7 +711,7 @@ function TagsTab() {
                       if (e.key === 'Enter') saveEdit()
                       if (e.key === 'Escape') setEditingId(null)
                     }}
-                    className="flex-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                    className="flex-1 rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
                     autoFocus
                   />
                   <button
@@ -868,7 +868,7 @@ function MemoriesTab() {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleCreate()
           }}
           rows={2}
-          className="flex-1 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+          className="flex-1 rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
           placeholder="Add a memory..."
         />
         <button
@@ -894,7 +894,7 @@ function MemoriesTab() {
           {memories.map((m) => (
             <div
               key={m.id}
-              className="rounded-lg border border-zinc-200 bg-white px-4 py-3"
+              className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3"
             >
               {editingId === m.id ? (
                 <div className="space-y-2">
@@ -906,7 +906,7 @@ function MemoriesTab() {
                       if (e.key === 'Escape') setEditingId(null)
                     }}
                     rows={3}
-                    className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                    className="w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
                     autoFocus
                   />
                   <div className="flex items-center gap-2">

@@ -239,7 +239,7 @@ function TaskDetail({ taskId }: { taskId: string }) {
       )}
 
       {/* Spec */}
-      <div className="rounded-lg border border-zinc-200 bg-white p-5">
+      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-5">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">Spec</h2>
         {task.spec ? (
           <div className="prose prose-sm prose-zinc max-w-none">
@@ -295,7 +295,7 @@ function TaskDetail({ taskId }: { taskId: string }) {
       )}
 
       {/* Execution History */}
-      <div className="rounded-lg border border-zinc-200 bg-white p-5">
+      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-5">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
           Execution History
         </h2>

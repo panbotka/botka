@@ -130,7 +130,7 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
                   e.target.style.height = e.target.scrollHeight + 'px';
                 }}
                 onKeyDown={handleEditKeyDown}
-                className="w-full bg-white text-zinc-900 text-sm rounded-lg px-3 py-2 resize-none outline-none focus:ring-1 focus:ring-emerald-500 border border-zinc-300 min-w-[200px]"
+                className="w-full bg-zinc-50 text-zinc-900 text-sm rounded-lg px-3 py-2 resize-none outline-none focus:ring-1 focus:ring-emerald-500 border border-zinc-300 min-w-[200px]"
                 rows={1}
               />
               <div className="flex justify-end gap-2">

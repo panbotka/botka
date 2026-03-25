@@ -76,7 +76,7 @@ export default function App() {
   const hideBottomNav = isMobile && isActiveChatThread
 
   return (
-    <div className="flex h-screen bg-white">
+    <div className="flex h-screen bg-zinc-50">
       {!isMobile && <AppSidebar />}
       <main className={clsx(
         'flex-1',

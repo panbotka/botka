@@ -41,7 +41,7 @@ export default function ProjectPicker({ projects, currentProjectId, onSelect }: 
       </button>
 
       {open && (
-        <div className="absolute right-0 z-50 mt-1 w-56 bg-white border border-zinc-200
+        <div className="absolute right-0 z-50 mt-1 w-56 bg-zinc-100 border border-zinc-200
                         rounded-xl shadow-xl shadow-zinc-200/50 py-1 overflow-hidden">
           <div className="max-h-60 overflow-y-auto">
             <button
