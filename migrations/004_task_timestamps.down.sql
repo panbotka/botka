@@ -1,0 +1,2 @@
+ALTER TABLE tasks DROP COLUMN IF EXISTS started_at;
+ALTER TABLE tasks DROP COLUMN IF EXISTS completed_at;

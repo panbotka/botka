@@ -94,6 +94,8 @@ type taskListItem struct {
 	ProjectName   string            `json:"project_name"`
 	FailureReason *string           `json:"failure_reason"`
 	RetryCount    int               `json:"retry_count"`
+	StartedAt     *time.Time        `json:"started_at"`
+	CompletedAt   *time.Time        `json:"completed_at"`
 	CreatedAt     time.Time         `json:"created_at"`
 	UpdatedAt     time.Time         `json:"updated_at"`
 }
@@ -118,8 +120,12 @@ func (h *TaskHandler) List(c *gin.Context) {
 
 	limit, offset := parsePagination(c)
 	var tasks []models.Task
+	order := "priority DESC, created_at ASC"
+	if isCompletedFilter(status) {
+		order = "completed_at DESC NULLS LAST, created_at DESC"
+	}
 	q := filter(h.db.Preload("Project")).
-		Order("priority DESC, created_at ASC").
+		Order(order).
 		Limit(limit).Offset(offset)
 	if err := q.Find(&tasks).Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "failed to list tasks")
@@ -514,6 +520,23 @@ func buildTaskUpdates(req updateTaskRequest) map[string]interface{} {
 	return updates
 }
 
+// isCompletedFilter returns true if the status filter contains only completed statuses
+// (done, failed, needs_review, cancelled), indicating results should be sorted by completion time.
+func isCompletedFilter(status string) bool {
+	if status == "" {
+		return false
+	}
+	completedStatuses := map[string]bool{
+		"done": true, "failed": true, "needs_review": true, "cancelled": true,
+	}
+	for _, s := range strings.Split(status, ",") {
+		if !completedStatuses[strings.TrimSpace(s)] {
+			return false
+		}
+	}
+	return true
+}
+
 // taskFilter returns a function that applies status and project_id WHERE clauses.
 // Status may be a single value or comma-separated list (e.g. "done,failed,needs_review").
 // When no status filter is provided, deleted tasks are excluded by default.
@@ -559,6 +582,8 @@ func toTaskListItem(t *models.Task) taskListItem {
 		ProjectName:   t.Project.Name,
 		FailureReason: t.FailureReason,
 		RetryCount:    t.RetryCount,
+		StartedAt:     t.StartedAt,
+		CompletedAt:   t.CompletedAt,
 		CreatedAt:     t.CreatedAt,
 		UpdatedAt:     t.UpdatedAt,
 	}
@@ -578,9 +603,9 @@ type globalTaskStats struct {
 
 // topProjectInfo holds the most active project by task count.
 type topProjectInfo struct {
-	ID   uuid.UUID `json:"id"`
-	Name string    `json:"name"`
-	Count int64    `json:"count"`
+	ID    uuid.UUID `json:"id"`
+	Name  string    `json:"name"`
+	Count int64     `json:"count"`
 }
 
 // Stats returns aggregate task statistics across all projects.

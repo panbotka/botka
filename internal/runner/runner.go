@@ -371,7 +371,13 @@ func (r *Runner) claimTask(
 		return nil, nil, fmt.Errorf("load project: %w", err)
 	}
 
-	if err := tx.Model(task).Update("status", models.TaskStatusRunning).Error; err != nil {
+	updates := map[string]interface{}{"status": models.TaskStatusRunning}
+	if task.StartedAt == nil {
+		now := time.Now()
+		updates["started_at"] = now
+		task.StartedAt = &now
+	}
+	if err := tx.Model(task).Updates(updates).Error; err != nil {
 		return nil, nil, fmt.Errorf("update task status: %w", err)
 	}
 	task.Status = models.TaskStatusRunning
@@ -490,7 +496,11 @@ func (r *Runner) requeueTask(task *models.Task, errMsg string) {
 }
 
 func (r *Runner) finalizeTask(task *models.Task, result *ExecutionResult) {
-	updates := map[string]interface{}{"status": result.Status}
+	now := time.Now()
+	updates := map[string]interface{}{
+		"status":       result.Status,
+		"completed_at": now,
+	}
 	if result.ErrorMessage != "" {
 		updates["failure_reason"] = result.ErrorMessage
 	}

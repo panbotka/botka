@@ -83,6 +83,8 @@ type Task struct {
 	FailureReason *string         `gorm:"type:text" json:"failure_reason"`
 	RetryCount    int             `gorm:"not null;default:0" json:"retry_count"`
 	Executions    []TaskExecution `gorm:"foreignKey:TaskID" json:"executions,omitempty"`
+	StartedAt     *time.Time      `json:"started_at"`
+	CompletedAt   *time.Time      `json:"completed_at"`
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
 }

@@ -150,6 +150,21 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString()
 }
 
+function formatDuration(startedAt: string | null, completedAt: string | null): string | null {
+  if (!startedAt || !completedAt) return null
+  const ms = new Date(completedAt).getTime() - new Date(startedAt).getTime()
+  if (ms < 0) return null
+  const totalMins = Math.floor(ms / 60_000)
+  const days = Math.floor(totalMins / 1440)
+  const hours = Math.floor((totalMins % 1440) / 60)
+  const mins = totalMins % 60
+  const parts: string[] = []
+  if (days > 0) parts.push(`${days}d`)
+  if (hours > 0) parts.push(`${hours}h`)
+  if (mins > 0 || parts.length === 0) parts.push(`${mins}m`)
+  return parts.join(' ')
+}
+
 const isDraggable = (status: TaskStatus) => status === 'pending' || status === 'queued'
 
 interface SortableRowProps {
@@ -225,9 +240,18 @@ function SortableRow({ task, onClick, selected, onSelect, onStatusChange }: Sort
       <td className="whitespace-nowrap py-2.5 pl-2 text-xs text-zinc-500">
         {task.project_name || task.project?.name || '\u2014'}
       </td>
-      <td className="py-2.5 pl-2 pr-3 text-right text-xs text-zinc-400">
-        {formatDate(task.created_at)}
-      </td>
+      {(() => {
+        const duration = formatDuration(task.started_at, task.completed_at)
+        return duration ? (
+          <td className="whitespace-nowrap py-2.5 pl-2 pr-3 text-right text-xs tabular-nums text-zinc-400" title={`Started: ${new Date(task.started_at!).toLocaleString()}`}>
+            {duration}
+          </td>
+        ) : (
+          <td className="py-2.5 pl-2 pr-3 text-right text-xs text-zinc-400">
+            {formatDate(task.created_at)}
+          </td>
+        )
+      })()}
     </tr>
   )
 }
