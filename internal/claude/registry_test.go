@@ -86,3 +86,38 @@ func TestProcessRegistry_UnregisterNonexistent(t *testing.T) {
 	// Should not panic
 	r.Unregister(999)
 }
+
+func TestProcessRegistry_KillAll(t *testing.T) {
+	r := &ProcessRegistry{entries: make(map[int64]*processEntry)}
+
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	defer cancel1()
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	defer cancel2()
+
+	r.Register(1, "Thread One", cancel1)
+	r.Register(2, "Thread Two", cancel2)
+
+	count := r.KillAll()
+	if count != 2 {
+		t.Errorf("expected KillAll to return 2, got %d", count)
+	}
+	if ctx1.Err() == nil {
+		t.Error("expected ctx1 to be cancelled")
+	}
+	if ctx2.Err() == nil {
+		t.Error("expected ctx2 to be cancelled")
+	}
+	if len(r.List()) != 0 {
+		t.Error("expected empty registry after KillAll")
+	}
+}
+
+func TestProcessRegistry_KillAllEmpty(t *testing.T) {
+	r := &ProcessRegistry{entries: make(map[int64]*processEntry)}
+
+	count := r.KillAll()
+	if count != 0 {
+		t.Errorf("expected KillAll to return 0 on empty registry, got %d", count)
+	}
+}

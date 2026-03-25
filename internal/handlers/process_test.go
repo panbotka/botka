@@ -49,3 +49,19 @@ func TestProcessHandler_Kill_InvalidID(t *testing.T) {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
 }
+
+func TestProcessHandler_KillAll_Empty(t *testing.T) {
+	r := processRouter()
+	w := doRequest(r, http.MethodDelete, "/api/v1/processes", "")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	data := resp["data"].(map[string]interface{})
+	if killed := data["killed"].(float64); killed != 0 {
+		t.Errorf("expected 0 killed, got %v", killed)
+	}
+}

@@ -79,3 +79,16 @@ func (r *ProcessRegistry) Kill(threadID int64) bool {
 	delete(r.entries, threadID)
 	return true
 }
+
+// KillAll cancels all running processes and clears the registry.
+// Returns the number of processes killed.
+func (r *ProcessRegistry) KillAll() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	count := len(r.entries)
+	for id, e := range r.entries {
+		e.cancel()
+		delete(r.entries, id)
+	}
+	return count
+}

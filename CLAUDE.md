@@ -74,7 +74,7 @@ make clean          # Remove build artifacts
 
 ## Testing
 
-**~295 tests** across 28 test files covering all packages. Tests use stdlib `testing` only (no external test frameworks).
+**~399 tests** across 28 test files covering all packages. Tests use stdlib `testing` only (no external test frameworks).
 
 ```bash
 make test           # Run all tests with race detector
@@ -194,6 +194,10 @@ Exposes task management tools: create_task, list_tasks, get_task, update_task, l
 | `UPLOAD_DIR` | `./data/uploads` | Directory for uploaded files |
 | `AI_MODEL` | `sonnet` | Default Claude model for new chats |
 | `AVAILABLE_MODELS` | `sonnet,opus,haiku` | CSV list of available models |
+
+## Task Agent Safety
+
+**NEVER run `make deploy`, `make install-service`, `systemctl restart botka`, or any command that would restart the Botka service.** Task agents run inside Botka — deploying or restarting would kill the agent's own process and leave the task stuck in "running" state forever. Only build and test, never deploy.
 
 ## Important Patterns
 

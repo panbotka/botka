@@ -118,7 +118,9 @@ func (e *Executor) setupBranch(ctx context.Context, task *models.Task, project *
 func (e *Executor) buildPrompt(task *models.Task) string {
 	prompt := fmt.Sprintf(
 		"You are working on task: %s. Read the full specification at docs/specs/task-%s.md "+
-			"and implement it completely. When done, commit your changes with a descriptive commit message.",
+			"and implement it completely. When done, commit your changes with a descriptive commit message."+
+			" IMPORTANT: NEVER run deploy, restart, or service management commands (make deploy, systemctl restart, etc.)"+
+			" — you are running inside the application and would kill yourself.",
 		task.Title, task.ID,
 	)
 	if task.RetryCount > 0 && task.FailureReason != nil {

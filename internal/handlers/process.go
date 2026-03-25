@@ -19,12 +19,19 @@ func NewProcessHandler() *ProcessHandler {
 // RegisterProcessRoutes attaches process management endpoints to the given router group.
 func RegisterProcessRoutes(rg *gin.RouterGroup, h *ProcessHandler) {
 	rg.GET("/processes", h.List)
+	rg.DELETE("/processes", h.KillAll)
 	rg.DELETE("/processes/:id", h.Kill)
 }
 
 // List returns all active Claude Code chat processes.
 func (h *ProcessHandler) List(c *gin.Context) {
 	respondOK(c, claude.Registry.List())
+}
+
+// KillAll terminates all active Claude processes.
+func (h *ProcessHandler) KillAll(c *gin.Context) {
+	count := claude.Registry.KillAll()
+	respondOK(c, gin.H{"killed": count})
 }
 
 // Kill terminates an active Claude process by thread ID.
