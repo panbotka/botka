@@ -45,6 +45,23 @@ export interface ProjectStats {
   total_cost_usd: number | null
 }
 
+export interface TaskStatsTopProject {
+  id: string
+  name: string
+  count: number
+}
+
+export interface TaskStats {
+  total: number
+  by_status: Record<string, number>
+  completed_today: number
+  completed_week: number
+  success_rate: number | null
+  avg_duration_ms: number | null
+  total_cost_usd: number | null
+  top_project: TaskStatsTopProject | null
+}
+
 // ── Tasks (from Saiduler) ──
 
 export type TaskStatus = 'pending' | 'queued' | 'running' | 'done' | 'failed' | 'needs_review' | 'cancelled' | 'deleted'

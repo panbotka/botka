@@ -1,4 +1,4 @@
-import type { Project, Task, Thread, ThreadDetail, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats } from '../types'
+import type { Project, Task, Thread, ThreadDetail, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, TaskStats } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -133,6 +133,10 @@ export function batchUpdateTaskStatus(ids: string[], status: string): Promise<{ 
     method: 'POST',
     body: JSON.stringify({ ids, status }),
   })
+}
+
+export function fetchTaskStats(): Promise<TaskStats> {
+  return requestData<TaskStats>('/tasks/stats')
 }
 
 // Runner
@@ -615,6 +619,8 @@ export const api = {
   // Processes
   listProcesses,
   killProcess,
+  // Task Stats
+  fetchTaskStats,
   // Status
   getStatus,
   getModels,

@@ -28,6 +28,7 @@ func NewTaskHandler(db *gorm.DB) *TaskHandler {
 // RegisterTaskRoutes attaches task endpoints to the given router group.
 func RegisterTaskRoutes(rg *gin.RouterGroup, h *TaskHandler) {
 	rg.GET("/tasks", h.List)
+	rg.GET("/tasks/stats", h.Stats)
 	rg.POST("/tasks", h.Create)
 	rg.POST("/tasks/batch-status", h.BatchUpdateStatus)
 	rg.POST("/tasks/reorder", h.Reorder)
@@ -561,4 +562,128 @@ func toTaskListItem(t *models.Task) taskListItem {
 		CreatedAt:     t.CreatedAt,
 		UpdatedAt:     t.UpdatedAt,
 	}
+}
+
+// globalTaskStats is the JSON response for the global task stats endpoint.
+type globalTaskStats struct {
+	Total          int64           `json:"total"`
+	ByStatus       taskCounts      `json:"by_status"`
+	CompletedToday int64           `json:"completed_today"`
+	CompletedWeek  int64           `json:"completed_week"`
+	SuccessRate    *float64        `json:"success_rate"`
+	AvgDurationMs  *float64        `json:"avg_duration_ms"`
+	TotalCostUSD   *float64        `json:"total_cost_usd"`
+	TopProject     *topProjectInfo `json:"top_project"`
+}
+
+// topProjectInfo holds the most active project by task count.
+type topProjectInfo struct {
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+	Count int64    `json:"count"`
+}
+
+// Stats returns aggregate task statistics across all projects.
+func (h *TaskHandler) Stats(c *gin.Context) {
+	// Count tasks by status (excluding deleted)
+	type statusCount struct {
+		Status string
+		Count  int64
+	}
+	var rows []statusCount
+	if err := h.db.Model(&models.Task{}).
+		Select("status, count(*) as count").
+		Where("status != ?", models.TaskStatusDeleted).
+		Group("status").
+		Scan(&rows).Error; err != nil {
+		respondError(c, http.StatusInternalServerError, "failed to count tasks")
+		return
+	}
+
+	var counts taskCounts
+	for _, row := range rows {
+		switch models.TaskStatus(row.Status) {
+		case models.TaskStatusPending:
+			counts.Pending = row.Count
+		case models.TaskStatusQueued:
+			counts.Queued = row.Count
+		case models.TaskStatusRunning:
+			counts.Running = row.Count
+		case models.TaskStatusDone:
+			counts.Done = row.Count
+		case models.TaskStatusFailed:
+			counts.Failed = row.Count
+		case models.TaskStatusNeedsReview:
+			counts.NeedsReview = row.Count
+		case models.TaskStatusCancelled:
+			counts.Cancelled = row.Count
+		}
+	}
+
+	total := counts.Pending + counts.Queued + counts.Running + counts.Done +
+		counts.Failed + counts.NeedsReview + counts.Cancelled
+
+	stats := globalTaskStats{
+		Total:    total,
+		ByStatus: counts,
+	}
+
+	// Tasks completed today
+	today := time.Now().Truncate(24 * time.Hour)
+	h.db.Model(&models.Task{}).
+		Where("status = ? AND updated_at >= ?", models.TaskStatusDone, today).
+		Count(&stats.CompletedToday)
+
+	// Tasks completed this week (last 7 days)
+	weekAgo := time.Now().AddDate(0, 0, -7)
+	h.db.Model(&models.Task{}).
+		Where("status = ? AND updated_at >= ?", models.TaskStatusDone, weekAgo).
+		Count(&stats.CompletedWeek)
+
+	// Success rate
+	completed := counts.Done + counts.Failed
+	if completed > 0 {
+		rate := float64(counts.Done) / float64(completed)
+		stats.SuccessRate = &rate
+	}
+
+	// Average duration from executions
+	var avgDuration struct{ Avg *float64 }
+	h.db.Model(&models.TaskExecution{}).
+		Select("AVG(duration_ms) as avg").
+		Where("duration_ms IS NOT NULL").
+		Scan(&avgDuration)
+	stats.AvgDurationMs = avgDuration.Avg
+
+	// Total cost
+	var totalCost struct{ Sum *float64 }
+	h.db.Model(&models.TaskExecution{}).
+		Select("SUM(cost_usd) as sum").
+		Where("cost_usd IS NOT NULL").
+		Scan(&totalCost)
+	stats.TotalCostUSD = totalCost.Sum
+
+	// Most active project (by non-deleted task count)
+	var topProj struct {
+		ProjectID uuid.UUID
+		Name      string
+		Count     int64
+	}
+	h.db.Model(&models.Task{}).
+		Select("tasks.project_id, projects.name, count(*) as count").
+		Joins("JOIN projects ON projects.id = tasks.project_id").
+		Where("tasks.status != ?", models.TaskStatusDeleted).
+		Group("tasks.project_id, projects.name").
+		Order("count DESC").
+		Limit(1).
+		Scan(&topProj)
+	if topProj.Count > 0 {
+		stats.TopProject = &topProjectInfo{
+			ID:    topProj.ProjectID,
+			Name:  topProj.Name,
+			Count: topProj.Count,
+		}
+	}
+
+	respondOK(c, stats)
 }
