@@ -5,6 +5,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import SelectableOptions from './SelectableOptions';
+import { linkifyTasksMarkdown } from '../utils/linkifyTasks';
 
 const CodeBlock = lazy(() => import('./CodeBlock'));
 
@@ -64,7 +65,7 @@ export default function MarkdownContent({ content, onOptionSelect }: Props) {
         },
       }}
     >
-      {content}
+      {linkifyTasksMarkdown(content)}
     </Markdown>
     </div>
   );

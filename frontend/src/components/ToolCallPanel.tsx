@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
+import { linkifyTasksReact } from '../utils/linkifyTasks';
 import {
   Terminal,
   FileText,
@@ -120,7 +121,10 @@ export default function ToolCallPanel({ name, input, result, isError, isStreamin
                 <pre className={`whitespace-pre-wrap break-all font-mono leading-relaxed max-h-60 overflow-y-auto ${
                   isError ? 'text-red-600' : 'text-zinc-700'
                 }`}>
-                  {result.length > 2000 ? result.slice(0, 2000) + '\n... (truncated)' : result}
+                  {(() => {
+                    const text = result.length > 2000 ? result.slice(0, 2000) + '\n... (truncated)' : result;
+                    return name === 'mcp__botka__create_task' ? linkifyTasksReact(text) : text;
+                  })()}
                 </pre>
               </div>
             )}
