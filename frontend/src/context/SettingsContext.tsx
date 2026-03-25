@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 
-export type Theme = 'light' | 'dark' | 'system'
+export type Theme = 'light' | 'dark' | 'dark-green' | 'dark-blue' | 'system'
 export type FontSize = 'small' | 'medium' | 'large'
 
 export interface Settings {
@@ -25,7 +25,7 @@ interface SettingsContextType {
   settings: Settings
   updateSettings: (partial: Partial<Settings>) => void
   resetSettings: () => void
-  resolvedTheme: 'light' | 'dark'
+  resolvedTheme: 'light' | 'dark' | 'dark-green' | 'dark-blue'
 }
 
 const SettingsContext = createContext<SettingsContextType | null>(null)
@@ -54,7 +54,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<Settings>(loadSettings)
   const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(getSystemTheme)
 
-  const resolvedTheme = settings.theme === 'system' ? systemTheme : settings.theme
+  const resolvedTheme: 'light' | 'dark' | 'dark-green' | 'dark-blue' =
+    settings.theme === 'system' ? systemTheme : settings.theme
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
@@ -65,7 +66,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const root = document.documentElement
-    root.classList.remove('light', 'dark')
+    root.classList.remove('light', 'dark', 'dark-green', 'dark-blue')
     root.classList.add(resolvedTheme)
   }, [resolvedTheme])
 

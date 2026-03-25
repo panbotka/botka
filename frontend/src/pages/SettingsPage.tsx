@@ -93,19 +93,25 @@ function GeneralTab() {
       {/* Theme */}
       <div>
         <label className="text-sm font-medium text-zinc-700">Theme</label>
-        <div className="mt-2 flex gap-2">
-          {(['light', 'dark', 'system'] as Theme[]).map((t) => (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {([
+            { value: 'light', label: 'Light' },
+            { value: 'dark', label: 'Dark' },
+            { value: 'dark-green', label: 'Dark Green' },
+            { value: 'dark-blue', label: 'Dark Blue' },
+            { value: 'system', label: 'System' },
+          ] as { value: Theme; label: string }[]).map((t) => (
             <button
-              key={t}
-              onClick={() => updateSettings({ theme: t })}
+              key={t.value}
+              onClick={() => updateSettings({ theme: t.value })}
               className={clsx(
-                'rounded-md px-4 py-2 text-sm font-medium capitalize transition-colors',
-                settings.theme === t
+                'rounded-md px-4 py-2 text-sm font-medium transition-colors',
+                settings.theme === t.value
                   ? 'bg-zinc-900 text-white'
                   : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200',
               )}
             >
-              {t}
+              {t.label}
             </button>
           ))}
         </div>

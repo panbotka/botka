@@ -78,7 +78,7 @@ const ACTIONS: ActionDef[] = [
   { id: 'new-chat', label: 'New chat', keywords: ['new', 'create', 'chat'], shortcut: ['Ctrl', '\u21E7', 'O'] },
   { id: 'settings', label: 'Settings', keywords: ['settings', 'preferences', 'config'] },
   { id: 'export', label: 'Export thread', keywords: ['export', 'download', 'save'] },
-  { id: 'toggle-theme', label: 'Toggle theme', keywords: ['theme', 'dark', 'light'] },
+  { id: 'toggle-theme', label: 'Toggle theme', keywords: ['theme', 'dark', 'light', 'green', 'blue'] },
   { id: 'search', label: 'Search messages', keywords: ['search', 'find'] },
 ];
 
