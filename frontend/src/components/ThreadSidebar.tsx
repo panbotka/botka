@@ -6,7 +6,7 @@ import ModelPicker from './ModelPicker'
 import {
   Plus, Search, Pin, Archive, MoreVertical, Pencil,
   Trash2, Download, Cpu, Tag as TagIcon, ChevronRight,
-  X, Check, ChevronDown, FolderGit2,
+  X, ChevronDown, FolderGit2,
 } from 'lucide-react'
 
 interface Props {
@@ -52,7 +52,6 @@ export default function ThreadSidebar({
 }: Props) {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editTitle, setEditTitle] = useState('')
-  const [deletingId, setDeletingId] = useState<number | null>(null)
   const [menuOpenId, setMenuOpenId] = useState<number | null>(null)
   const [modelPickerThread, setModelPickerThread] = useState<Thread | null>(null)
   const [tagMenuThreadId, setTagMenuThreadId] = useState<number | null>(null)
@@ -305,41 +304,10 @@ export default function ThreadSidebar({
             </div>
           </div>
 
-          {deletingId === thread.id ? (
-            <div className="flex items-center gap-0.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-              <span className="text-xs text-red-500 mr-0.5">Delete?</span>
-              <button
-                onClick={() => { handleDelete(thread.id); setDeletingId(null) }}
-                className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                title="Confirm delete"
-              >
-                <Check className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setDeletingId(null)}
-                className="p-1.5 text-zinc-400 hover:bg-zinc-100 rounded-lg transition-colors cursor-pointer"
-                title="Cancel"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          ) : (
-            <div
+          <div
               className="relative flex items-stretch gap-0.5 flex-shrink-0"
               ref={menuOpenId === thread.id ? menuRef : undefined}
             >
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleArchive(thread.id, thread.archived)
-                }}
-                className="w-8 flex items-center justify-center rounded-lg
-                           text-zinc-400 hover:text-amber-600 hover:bg-zinc-100
-                           transition-all cursor-pointer"
-                title={thread.archived ? 'Unarchive' : 'Archive'}
-              >
-                <Archive className="w-4 h-4" />
-              </button>
               <button
                 onClick={(e) => {
                   e.stopPropagation()
@@ -385,7 +353,13 @@ export default function ThreadSidebar({
                     Rename
                   </button>
                   <button
-                    onClick={() => { handleArchive(thread.id, thread.archived); setMenuOpenId(null) }}
+                    onClick={() => {
+                      const msg = thread.archived
+                        ? 'Are you sure you want to unarchive this thread?'
+                        : 'Are you sure you want to archive this thread?'
+                      if (window.confirm(msg)) handleArchive(thread.id, thread.archived)
+                      setMenuOpenId(null)
+                    }}
                     className="w-full flex items-center gap-3 px-3 py-2
                                text-sm text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
                   >
@@ -451,7 +425,10 @@ export default function ThreadSidebar({
                   )}
                   <div className="my-1 mx-2 border-t border-zinc-100" />
                   <button
-                    onClick={() => { setDeletingId(thread.id); setMenuOpenId(null) }}
+                    onClick={() => {
+                      if (window.confirm('Are you sure you want to delete this thread?')) handleDelete(thread.id)
+                      setMenuOpenId(null)
+                    }}
                     className="w-full flex items-center gap-3 px-3 py-2
                                text-sm text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
                   >
@@ -461,7 +438,6 @@ export default function ThreadSidebar({
                 </div>
               )}
             </div>
-          )}
         </>
       )}
     </div>
