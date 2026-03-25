@@ -32,13 +32,17 @@ type searchMatch struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type searchResultThread struct {
+	ID        int64     `json:"id"`
+	Title     string    `json:"title"`
+	Model     *string   `json:"model"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type searchResult struct {
-	ThreadID  int64         `json:"thread_id"`
-	Title     string        `json:"title"`
-	Model     *string       `json:"model"`
-	CreatedAt time.Time     `json:"created_at"`
-	UpdatedAt time.Time     `json:"updated_at"`
-	Matches   []searchMatch `json:"matches"`
+	Thread  searchResultThread `json:"thread"`
+	Matches []searchMatch      `json:"matches"`
 }
 
 // Search performs diacritic-insensitive substring search across messages
@@ -86,11 +90,13 @@ func (h *SearchHandler) Search(c *gin.Context) {
 	for _, r := range rows {
 		if _, exists := threadMap[r.ThreadID]; !exists {
 			threadMap[r.ThreadID] = &searchResult{
-				ThreadID:  r.ThreadID,
-				Title:     r.Title,
-				Model:     r.Model,
-				CreatedAt: r.TCreated,
-				UpdatedAt: r.TUpdated,
+				Thread: searchResultThread{
+					ID:        r.ThreadID,
+					Title:     r.Title,
+					Model:     r.Model,
+					CreatedAt: r.TCreated,
+					UpdatedAt: r.TUpdated,
+				},
 			}
 			order = append(order, r.ThreadID)
 		}
