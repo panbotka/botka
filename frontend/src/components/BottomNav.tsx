@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, MessageSquare, ListTodo, Settings } from 'lucide-react'
+import { LayoutDashboard, MessageSquare, ListTodo, Settings, HelpCircle } from 'lucide-react'
 import { clsx } from 'clsx'
 
 const tabs = [
@@ -7,6 +7,7 @@ const tabs = [
   { path: '/chat', icon: MessageSquare, label: 'Chat' },
   { path: '/tasks', icon: ListTodo, label: 'Tasks' },
   { path: '/settings', icon: Settings, label: 'Settings' },
+  { path: '/help', icon: HelpCircle, label: 'Help' },
 ] as const
 
 export default function BottomNav() {

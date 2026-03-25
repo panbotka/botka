@@ -6,6 +6,7 @@ import {
   ListTodo,
   FolderGit2,
   Settings,
+  HelpCircle,
   Loader2,
 } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -19,6 +20,7 @@ const TasksPage = lazy(() => import('./pages/TasksPage'))
 const TaskDetailPage = lazy(() => import('./pages/TaskDetailPage'))
 const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const HelpPage = lazy(() => import('./pages/HelpPage'))
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -26,6 +28,7 @@ const navItems = [
   { to: '/tasks', icon: ListTodo, label: 'Tasks' },
   { to: '/projects', icon: FolderGit2, label: 'Projects' },
   { to: '/settings', icon: Settings, label: 'Settings' },
+  { to: '/help', icon: HelpCircle, label: 'Help' },
 ] as const
 
 function PageLoader() {
@@ -91,6 +94,7 @@ export default function App() {
             <Route path="/tasks/:id" element={<TaskDetailPage />} />
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/help" element={<HelpPage />} />
           </Routes>
         </Suspense>
       </main>
