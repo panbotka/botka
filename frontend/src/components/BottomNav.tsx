@@ -21,7 +21,7 @@ export default function BottomNav() {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-40 bg-zinc-50 border-t border-zinc-200"
+      className="fixed bottom-0 left-0 right-0 z-40 bg-zinc-50 border-t border-zinc-200 dark:bg-zinc-100 dark:border-zinc-300"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
       <div className="flex h-14">
@@ -31,7 +31,7 @@ export default function BottomNav() {
             onClick={() => navigate(tab.path)}
             className={clsx(
               'flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors cursor-pointer min-h-[44px]',
-              isActive(tab.path) ? 'text-amber-600' : 'text-zinc-400 active:text-zinc-600',
+              isActive(tab.path) ? 'text-amber-600' : 'text-zinc-400 active:text-zinc-600 dark:text-zinc-500',
             )}
           >
             <tab.icon className="w-6 h-6" />

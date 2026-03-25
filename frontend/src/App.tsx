@@ -56,8 +56,8 @@ function AppSidebar() {
               clsx(
                 'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
                 isActive
-                  ? 'bg-zinc-200 text-zinc-900'
-                  : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900',
+                  ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-300'
+                  : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-200',
               )
             }
           >
