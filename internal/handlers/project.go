@@ -3,6 +3,8 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"os/exec"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -42,6 +44,9 @@ func RegisterProjectRoutes(rg *gin.RouterGroup, h *ProjectHandler) {
 	rg.GET("/projects/:id", h.Get)
 	rg.PUT("/projects/:id", h.Update)
 	rg.POST("/projects/scan", h.Scan)
+	rg.GET("/projects/:id/git-log", h.GetGitLog)
+	rg.GET("/projects/:id/git-status", h.GetGitStatus)
+	rg.GET("/projects/:id/stats", h.GetStats)
 }
 
 // taskCounts holds per-status task counts for a project.
@@ -321,6 +326,196 @@ func (h *ProjectHandler) countThreads(projectID uuid.UUID) (int64, error) {
 		Where("project_id = ?", projectID).
 		Count(&count).Error
 	return count, err
+}
+
+// gitCommit represents a single git log entry.
+type gitCommit struct {
+	Hash    string `json:"hash"`
+	Author  string `json:"author"`
+	Date    string `json:"date"`
+	Message string `json:"message"`
+}
+
+// GetGitLog returns recent commit history for a project's git repository.
+func (h *ProjectHandler) GetGitLog(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "invalid project id")
+		return
+	}
+
+	proj, ok := h.findProject(c, id)
+	if !ok {
+		return
+	}
+
+	cmd := exec.Command("git", "log", "--format=%H\t%an\t%aI\t%s", "-50")
+	cmd.Dir = proj.Path
+	out, err := cmd.Output()
+	if err != nil {
+		respondOK(c, []gitCommit{})
+		return
+	}
+
+	var commits []gitCommit
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 4)
+		if len(parts) < 4 {
+			continue
+		}
+		commits = append(commits, gitCommit{
+			Hash:    parts[0][:12],
+			Author:  parts[1],
+			Date:    parts[2],
+			Message: parts[3],
+		})
+	}
+
+	if commits == nil {
+		commits = []gitCommit{}
+	}
+	respondOK(c, commits)
+}
+
+// gitStatusResponse represents the current git status of a project directory.
+type gitStatusResponse struct {
+	Branch       string        `json:"branch"`
+	Clean        bool          `json:"clean"`
+	ChangedFiles []changedFile `json:"changed_files"`
+	DiffStat     string        `json:"diff_stat"`
+}
+
+// changedFile represents a single file in the git status output.
+type changedFile struct {
+	Path   string `json:"path"`
+	Status string `json:"status"`
+}
+
+// GetGitStatus returns the current git status of a project directory.
+func (h *ProjectHandler) GetGitStatus(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "invalid project id")
+		return
+	}
+
+	proj, ok := h.findProject(c, id)
+	if !ok {
+		return
+	}
+
+	resp := gitStatusResponse{ChangedFiles: []changedFile{}}
+
+	// Get current branch
+	branchCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	branchCmd.Dir = proj.Path
+	branchOut, err := branchCmd.Output()
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "not a git repository")
+		return
+	}
+	resp.Branch = strings.TrimSpace(string(branchOut))
+
+	// Get porcelain status
+	statusCmd := exec.Command("git", "status", "--porcelain")
+	statusCmd.Dir = proj.Path
+	statusOut, err := statusCmd.Output()
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "failed to get git status")
+		return
+	}
+
+	statusStr := strings.TrimSpace(string(statusOut))
+	resp.Clean = statusStr == ""
+	if !resp.Clean {
+		for _, line := range strings.Split(statusStr, "\n") {
+			if len(line) < 4 {
+				continue
+			}
+			resp.ChangedFiles = append(resp.ChangedFiles, changedFile{
+				Status: strings.TrimSpace(line[:2]),
+				Path:   line[3:],
+			})
+		}
+	}
+
+	// Get diff stat
+	diffCmd := exec.Command("git", "diff", "--stat")
+	diffCmd.Dir = proj.Path
+	diffOut, _ := diffCmd.Output()
+	resp.DiffStat = strings.TrimSpace(string(diffOut))
+
+	respondOK(c, resp)
+}
+
+// projectStats holds aggregate task statistics for a project.
+type projectStats struct {
+	Total         int64      `json:"total"`
+	ByStatus      taskCounts `json:"by_status"`
+	AvgDurationMs *float64   `json:"avg_duration_ms"`
+	SuccessRate   *float64   `json:"success_rate"`
+	TotalCostUSD  *float64   `json:"total_cost_usd"`
+}
+
+// GetStats returns aggregate task statistics for a project.
+func (h *ProjectHandler) GetStats(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "invalid project id")
+		return
+	}
+
+	_, ok := h.findProject(c, id)
+	if !ok {
+		return
+	}
+
+	counts, err := h.countTasks(id)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "failed to count tasks")
+		return
+	}
+
+	total := counts.Pending + counts.Queued + counts.Running + counts.Done + counts.Failed + counts.NeedsReview + counts.Cancelled
+
+	stats := projectStats{
+		Total:    total,
+		ByStatus: counts,
+	}
+
+	// Compute average duration from completed executions
+	var avgDuration struct {
+		Avg *float64
+	}
+	h.db.Model(&models.TaskExecution{}).
+		Select("AVG(duration_ms) as avg").
+		Joins("JOIN tasks ON tasks.id = task_executions.task_id").
+		Where("tasks.project_id = ? AND task_executions.duration_ms IS NOT NULL", id).
+		Scan(&avgDuration)
+	stats.AvgDurationMs = avgDuration.Avg
+
+	// Compute success rate (done / (done + failed))
+	completed := counts.Done + counts.Failed
+	if completed > 0 {
+		rate := float64(counts.Done) / float64(completed)
+		stats.SuccessRate = &rate
+	}
+
+	// Compute total cost
+	var totalCost struct {
+		Sum *float64
+	}
+	h.db.Model(&models.TaskExecution{}).
+		Select("SUM(cost_usd) as sum").
+		Joins("JOIN tasks ON tasks.id = task_executions.task_id").
+		Where("tasks.project_id = ? AND task_executions.cost_usd IS NOT NULL", id).
+		Scan(&totalCost)
+	stats.TotalCostUSD = totalCost.Sum
+
+	respondOK(c, stats)
 }
 
 // buildProjectResponse assembles a projectResponse with task and thread counts.

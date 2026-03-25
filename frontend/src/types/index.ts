@@ -16,6 +16,35 @@ export interface Project {
   task_counts?: Record<string, number>
 }
 
+// ── Project detail types ──
+
+export interface GitCommit {
+  hash: string
+  author: string
+  date: string
+  message: string
+}
+
+export interface ChangedFile {
+  path: string
+  status: string
+}
+
+export interface GitStatus {
+  branch: string
+  clean: boolean
+  changed_files: ChangedFile[]
+  diff_stat: string
+}
+
+export interface ProjectStats {
+  total: number
+  by_status: Record<string, number>
+  avg_duration_ms: number | null
+  success_rate: number | null
+  total_cost_usd: number | null
+}
+
 // ── Tasks (from Saiduler) ──
 
 export type TaskStatus = 'pending' | 'queued' | 'running' | 'done' | 'failed' | 'needs_review' | 'cancelled'

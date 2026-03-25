@@ -226,6 +226,138 @@ func TestProject_ScanSuccess(t *testing.T) {
 	}
 }
 
+func TestProject_Stats(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	p := createTestProject(t, db)
+	createTestTask(t, db, p.ID, models.TaskStatusPending)
+	createTestTask(t, db, p.ID, models.TaskStatusDone)
+	createTestTask(t, db, p.ID, models.TaskStatusDone)
+	createTestTask(t, db, p.ID, models.TaskStatusFailed)
+
+	r := projectRouter(db, noopScan, noopSync)
+	w := doRequest(r, http.MethodGet, fmt.Sprintf("/api/v1/projects/%s/stats", p.ID), "")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	data := resp["data"].(map[string]interface{})
+
+	if int(data["total"].(float64)) != 4 {
+		t.Errorf("expected total=4, got %v", data["total"])
+	}
+
+	byStatus := data["by_status"].(map[string]interface{})
+	if int(byStatus["pending"].(float64)) != 1 {
+		t.Errorf("expected pending=1, got %v", byStatus["pending"])
+	}
+	if int(byStatus["done"].(float64)) != 2 {
+		t.Errorf("expected done=2, got %v", byStatus["done"])
+	}
+	if int(byStatus["failed"].(float64)) != 1 {
+		t.Errorf("expected failed=1, got %v", byStatus["failed"])
+	}
+
+	// success_rate should be 2/(2+1) = 0.6667
+	successRate := data["success_rate"].(float64)
+	if successRate < 0.66 || successRate > 0.67 {
+		t.Errorf("expected success_rate ~0.6667, got %v", successRate)
+	}
+}
+
+func TestProject_StatsEmpty(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	p := createTestProject(t, db)
+
+	r := projectRouter(db, noopScan, noopSync)
+	w := doRequest(r, http.MethodGet, fmt.Sprintf("/api/v1/projects/%s/stats", p.ID), "")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	data := resp["data"].(map[string]interface{})
+
+	if int(data["total"].(float64)) != 0 {
+		t.Errorf("expected total=0, got %v", data["total"])
+	}
+	if data["success_rate"] != nil {
+		t.Errorf("expected success_rate=nil, got %v", data["success_rate"])
+	}
+}
+
+func TestProject_StatsNotFound(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	r := projectRouter(db, noopScan, noopSync)
+	w := doRequest(r, http.MethodGet, fmt.Sprintf("/api/v1/projects/%s/stats", uuid.New()), "")
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestProject_GitLogNotFound(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	r := projectRouter(db, noopScan, noopSync)
+	w := doRequest(r, http.MethodGet, fmt.Sprintf("/api/v1/projects/%s/git-log", uuid.New()), "")
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestProject_GitStatusNotFound(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	r := projectRouter(db, noopScan, noopSync)
+	w := doRequest(r, http.MethodGet, fmt.Sprintf("/api/v1/projects/%s/git-status", uuid.New()), "")
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestProject_GitLogNonGitDir(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	// Create project pointing to /tmp (not a git repo)
+	p := models.Project{
+		Name:           "non-git-project",
+		Path:           "/tmp",
+		BranchStrategy: "main",
+		Active:         true,
+	}
+	db.Create(&p)
+
+	r := projectRouter(db, noopScan, noopSync)
+	w := doRequest(r, http.MethodGet, fmt.Sprintf("/api/v1/projects/%s/git-log", p.ID), "")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	data := resp["data"].([]interface{})
+	if len(data) != 0 {
+		t.Errorf("expected empty commits, got %d", len(data))
+	}
+}
+
 func TestProject_ScanError(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)

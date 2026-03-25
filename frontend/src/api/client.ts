@@ -1,4 +1,4 @@
-import type { Project, Task, Thread, ThreadDetail, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult } from '../types'
+import type { Project, Task, Thread, ThreadDetail, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -58,6 +58,18 @@ export function updateProject(id: string, data: Partial<Project>): Promise<Proje
 
 export function scanProjects(): Promise<{ discovered: number; new: number; deactivated: number }> {
   return requestData('/projects/scan', { method: 'POST' })
+}
+
+export function fetchProjectGitLog(id: string): Promise<GitCommit[]> {
+  return requestData<GitCommit[]>(`/projects/${id}/git-log`)
+}
+
+export function fetchProjectGitStatus(id: string): Promise<GitStatus> {
+  return requestData<GitStatus>(`/projects/${id}/git-status`)
+}
+
+export function fetchProjectStats(id: string): Promise<ProjectStats> {
+  return requestData<ProjectStats>(`/projects/${id}/stats`)
 }
 
 // Tasks
@@ -561,6 +573,9 @@ export const api = {
   fetchProject,
   updateProject,
   scanProjects,
+  fetchProjectGitLog,
+  fetchProjectGitStatus,
+  fetchProjectStats,
   // Threads
   getThread,
   createThread,

@@ -206,7 +206,11 @@ function ProjectRow({
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-zinc-900 truncate">{project.name}</span>
+            <Link
+              to={`/projects/${project.id}`}
+              onClick={(e) => e.stopPropagation()}
+              className="font-medium text-zinc-900 truncate hover:text-blue-600 hover:underline"
+            >{project.name}</Link>
             <span
               className={clsx(
                 'rounded-full px-1.5 py-0.5 text-xs',

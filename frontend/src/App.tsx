@@ -20,6 +20,7 @@ const ChatPage = lazy(() => import('./pages/ChatPage'))
 const TasksPage = lazy(() => import('./pages/TasksPage'))
 const TaskDetailPage = lazy(() => import('./pages/TaskDetailPage'))
 const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
+const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const HelpPage = lazy(() => import('./pages/HelpPage'))
 
@@ -95,6 +96,7 @@ export default function App() {
               <Route path="/tasks" element={<TasksPage />} />
               <Route path="/tasks/:id" element={<TaskDetailPage />} />
               <Route path="/projects" element={<ProjectsPage />} />
+              <Route path="/projects/:id" element={<ProjectDetailPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/help" element={<HelpPage />} />
             </Routes>
