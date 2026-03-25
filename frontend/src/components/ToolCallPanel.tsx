@@ -1,4 +1,20 @@
 import { useState } from 'react';
+import type { LucideIcon } from 'lucide-react';
+import {
+  Terminal,
+  FileText,
+  Pencil,
+  FilePlus,
+  Search,
+  FolderSearch,
+  Globe,
+  Bot,
+  ListTodo,
+  BookOpen,
+  Plug,
+  Wrench,
+  ChevronRight,
+} from 'lucide-react';
 
 interface Props {
   name: string;
@@ -8,16 +24,26 @@ interface Props {
   isStreaming?: boolean;
 }
 
-const TOOL_ICONS: Record<string, string> = {
-  Bash: '$',
-  Read: '\u{1F4C4}',
-  Edit: '\u{270F}',
-  Write: '\u{1F4DD}',
-  Grep: '\u{1F50D}',
-  Glob: '\u{1F4C1}',
-  WebFetch: '\u{1F310}',
-  WebSearch: '\u{1F50E}',
+const TOOL_ICONS: Record<string, LucideIcon> = {
+  Bash: Terminal,
+  Read: FileText,
+  Edit: Pencil,
+  Write: FilePlus,
+  Grep: Search,
+  Glob: FolderSearch,
+  WebFetch: Globe,
+  WebSearch: Globe,
+  Agent: Bot,
+  TodoRead: ListTodo,
+  TodoWrite: ListTodo,
+  NotebookEdit: BookOpen,
 };
+
+function getToolIcon(name: string): LucideIcon {
+  if (TOOL_ICONS[name]) return TOOL_ICONS[name];
+  if (name.startsWith('mcp__')) return Plug;
+  return Wrench;
+}
 
 function getToolLabel(name: string, input: Record<string, unknown>): string {
   switch (name) {
@@ -45,7 +71,7 @@ function getToolLabel(name: string, input: Record<string, unknown>): string {
 export default function ToolCallPanel({ name, input, result, isError, isStreaming }: Props) {
   const [expanded, setExpanded] = useState(false);
 
-  const icon = TOOL_ICONS[name] || '\u{2699}';
+  const IconComponent = getToolIcon(name);
   const label = getToolLabel(name, input);
 
   return (
@@ -54,7 +80,7 @@ export default function ToolCallPanel({ name, input, result, isError, isStreamin
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-zinc-100 transition-colors cursor-pointer"
       >
-        <span className="shrink-0 w-5 text-center font-mono text-zinc-500">{icon}</span>
+        <IconComponent size={16} className="shrink-0 text-zinc-500" />
         <span className="font-medium text-zinc-700">{name}</span>
         <span className="text-zinc-400 truncate flex-1">{label}</span>
         {isStreaming && !result && (
@@ -66,15 +92,10 @@ export default function ToolCallPanel({ name, input, result, isError, isStreamin
         {isError && (
           <span className="text-red-500 text-[10px]">error</span>
         )}
-        <svg
-          className={`w-3 h-3 text-zinc-400 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
+        <ChevronRight
+          size={12}
+          className={`text-zinc-400 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+        />
       </button>
 
       <div
