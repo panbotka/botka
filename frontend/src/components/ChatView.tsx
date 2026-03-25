@@ -209,12 +209,21 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
   }, [pendingStarterMessage, threadId, loading]);
 
   const prevThreadIdRef = useRef<number | null>(null);
+  const needsScrollAfterLoadRef = useRef(false);
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
     const isThreadSwitch = prevThreadIdRef.current !== threadId;
     if (isThreadSwitch) {
       prevThreadIdRef.current = threadId ?? null;
+      needsScrollAfterLoadRef.current = true;
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView();
+      });
+      return;
+    }
+    if (needsScrollAfterLoadRef.current) {
+      needsScrollAfterLoadRef.current = false;
       requestAnimationFrame(() => {
         bottomRef.current?.scrollIntoView();
       });
