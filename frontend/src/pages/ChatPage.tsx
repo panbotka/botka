@@ -7,6 +7,7 @@ import { useProcesses } from '../hooks/useProcesses'
 import ChatView from '../components/ChatView'
 import ThreadSidebar from '../components/ThreadSidebar'
 import ProcessBar from '../components/ProcessBar'
+import ProjectPicker from '../components/ProjectPicker'
 import { MessageSquare, ArrowLeft } from 'lucide-react'
 
 function parseThreadIdFromPath(pathname: string): number | null {
@@ -155,6 +156,15 @@ export default function ChatPage() {
     loadThreads()
   }, [loadThreads])
 
+  const handleProjectChange = useCallback(async (threadId: number, projectId: string | null) => {
+    try {
+      await api.updateThreadProject(threadId, projectId)
+      setThreads(prev => prev.map(t =>
+        t.id === threadId ? { ...t, project_id: projectId ?? undefined } : t,
+      ))
+    } catch { /* ignore */ }
+  }, [])
+
   const handleToggleArchived = useCallback(() => {
     setShowArchived(prev => !prev)
   }, [])
@@ -217,9 +227,16 @@ export default function ChatPage() {
                 )}
               </div>
               {activeThread && (
-                <span className="text-[11px] text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md flex-shrink-0">
-                  {activeThread.model || 'Default'}
-                </span>
+                <>
+                  <ProjectPicker
+                    projects={projects}
+                    currentProjectId={activeThread.project_id}
+                    onSelect={(projectId) => handleProjectChange(activeThread.id, projectId)}
+                  />
+                  <span className="text-[11px] text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md flex-shrink-0">
+                    {activeThread.model || 'Default'}
+                  </span>
+                </>
               )}
             </header>
             <ProcessBar processes={processes} onKill={killProcess} />
@@ -287,9 +304,16 @@ export default function ChatPage() {
                 )}
               </div>
               {activeThread && (
-                <span className="text-[11px] text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md flex-shrink-0">
-                  {activeThread.model || 'Default'}
-                </span>
+                <>
+                  <ProjectPicker
+                    projects={projects}
+                    currentProjectId={activeThread.project_id}
+                    onSelect={(projectId) => handleProjectChange(activeThread.id, projectId)}
+                  />
+                  <span className="text-[11px] text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md flex-shrink-0">
+                    {activeThread.model || 'Default'}
+                  </span>
+                </>
               )}
             </header>
             <ProcessBar processes={processes} onKill={killProcess} />
