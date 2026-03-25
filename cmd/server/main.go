@@ -180,6 +180,9 @@ func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gi
 	searchHandler := handlers.NewSearchHandler(db)
 	handlers.RegisterSearchRoutes(v1, searchHandler)
 
+	analyticsHandler := handlers.NewAnalyticsHandler(db)
+	handlers.RegisterAnalyticsRoutes(v1, analyticsHandler)
+
 	transcribeHandler := handlers.NewTranscribeHandler(cfg.OpenClawURL, cfg.OpenClawToken, cfg.WhisperEnabled)
 	handlers.RegisterTranscribeRoutes(v1, transcribeHandler)
 

@@ -1,11 +1,12 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, MessageSquare, ListTodo, Settings, HelpCircle } from 'lucide-react'
+import { LayoutDashboard, MessageSquare, ListTodo, DollarSign, Settings, HelpCircle } from 'lucide-react'
 import { clsx } from 'clsx'
 
 const tabs = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { path: '/chat', icon: MessageSquare, label: 'Chat' },
   { path: '/tasks', icon: ListTodo, label: 'Tasks' },
+  { path: '/cost', icon: DollarSign, label: 'Cost' },
   { path: '/settings', icon: Settings, label: 'Settings' },
   { path: '/help', icon: HelpCircle, label: 'Help' },
 ] as const

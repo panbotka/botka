@@ -1,4 +1,4 @@
-import type { Project, Task, Thread, ThreadDetail, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, TaskStats, GlobalSearchResults } from '../types'
+import type { Project, Task, Thread, ThreadDetail, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, TaskStats, GlobalSearchResults, CostAnalytics } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -385,6 +385,15 @@ export function transcribe(blob: Blob, lang?: string): Promise<string> {
   })
 }
 
+// Analytics
+
+export function fetchCostAnalytics(days?: number): Promise<CostAnalytics> {
+  const params = new URLSearchParams()
+  if (days != null) params.set('days', String(days))
+  const qs = params.toString()
+  return requestData<CostAnalytics>(`/analytics/cost${qs ? `?${qs}` : ''}`)
+}
+
 // Streaming
 
 export interface StreamChunk {
@@ -628,6 +637,8 @@ export const api = {
   killProcess,
   // Task Stats
   fetchTaskStats,
+  // Analytics
+  fetchCostAnalytics,
   // Status
   getStatus,
   getModels,

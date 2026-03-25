@@ -5,6 +5,7 @@ import {
   MessageSquare,
   ListTodo,
   FolderGit2,
+  DollarSign,
   Settings,
   HelpCircle,
   Loader2,
@@ -22,6 +23,7 @@ const TasksPage = lazy(() => import('./pages/TasksPage'))
 const TaskDetailPage = lazy(() => import('./pages/TaskDetailPage'))
 const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
 const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage'))
+const CostDashboardPage = lazy(() => import('./pages/CostDashboardPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const HelpPage = lazy(() => import('./pages/HelpPage'))
 
@@ -30,6 +32,7 @@ const navItems = [
   { to: '/chat', icon: MessageSquare, label: 'Chat' },
   { to: '/tasks', icon: ListTodo, label: 'Tasks' },
   { to: '/projects', icon: FolderGit2, label: 'Projects' },
+  { to: '/cost', icon: DollarSign, label: 'Cost' },
   { to: '/settings', icon: Settings, label: 'Settings' },
   { to: '/help', icon: HelpCircle, label: 'Help' },
 ] as const
@@ -113,6 +116,7 @@ export default function App() {
               <Route path="/tasks/:id" element={<TaskDetailPage />} />
               <Route path="/projects" element={<ProjectsPage />} />
               <Route path="/projects/:id" element={<ProjectDetailPage />} />
+              <Route path="/cost" element={<CostDashboardPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/help" element={<HelpPage />} />
             </Routes>

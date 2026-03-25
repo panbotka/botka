@@ -271,3 +271,30 @@ export interface GlobalSearchResults {
   threads: GlobalSearchThreadResult[]
   messages: GlobalSearchMessageResult[]
 }
+
+// Cost analytics types
+
+export interface CostByDate {
+  date: string
+  cost_usd: number
+  input_tokens: number
+  output_tokens: number
+}
+
+export interface CostByThread {
+  thread_id: number
+  title: string
+  cost_usd: number
+}
+
+export interface CostByProject {
+  project_name: string
+  cost_usd: number
+}
+
+export interface CostAnalytics {
+  total_cost_usd: number
+  by_date: CostByDate[]
+  by_thread: CostByThread[]
+  by_project: CostByProject[]
+}
