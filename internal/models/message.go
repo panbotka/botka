@@ -15,6 +15,7 @@ type Message struct {
 	ThinkingDurationMs *int         `json:"thinking_duration_ms,omitempty"`
 	PromptTokens       *int         `json:"prompt_tokens,omitempty"`
 	CompletionTokens   *int         `json:"completion_tokens,omitempty"`
+	CostUSD            *float64     `gorm:"type:numeric(10,6)" json:"cost_usd,omitempty"`
 	Attachments        []Attachment `gorm:"foreignKey:MessageID" json:"attachments,omitempty"`
 	CreatedAt          time.Time    `json:"created_at"`
 }

@@ -485,6 +485,8 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 	var fullResponse strings.Builder
 	var errored bool
 	var lastErrorMsg string
+	var lastCostUSD float64
+	var lastInputTokens, lastOutputTokens int
 
 	for event := range stream {
 		// Check if client disconnected — stop writing but keep reading
@@ -560,6 +562,9 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 				if fullResponse.Len() == 0 && event.ResultText != "" {
 					fullResponse.WriteString(event.ResultText)
 				}
+				lastCostUSD = event.CostUSD
+				lastInputTokens = event.InputTokens
+				lastOutputTokens = event.OutputTokens
 				usageJSON, _ := json.Marshal(map[string]interface{}{
 					"cost_usd":      event.CostUSD,
 					"duration_ms":   event.DurationMs,
@@ -594,10 +599,13 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 		assistantContent := fullResponse.String()
 		if assistantContent != "" {
 			assistantMsg := models.Message{
-				ThreadID: threadID,
-				Role:     "assistant",
-				Content:  assistantContent,
-				ParentID: lastUserMsgID,
+				ThreadID:         threadID,
+				Role:             "assistant",
+				Content:          assistantContent,
+				ParentID:         lastUserMsgID,
+				PromptTokens:     &lastInputTokens,
+				CompletionTokens: &lastOutputTokens,
+				CostUSD:          &lastCostUSD,
 			}
 			if err := h.db.Create(&assistantMsg).Error; err != nil {
 				log.Printf("failed to save assistant message: %v", err)

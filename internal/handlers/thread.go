@@ -53,6 +53,7 @@ type threadListRow struct {
 	models.Thread
 	LastMessagePreview *string    `json:"last_message_preview"`
 	LastMessageAt      *time.Time `json:"last_message_at"`
+	TotalCostUSD       *float64   `json:"total_cost_usd,omitempty"`
 }
 
 // List returns all threads, optionally including archived ones.
@@ -61,7 +62,8 @@ func (h *ThreadHandler) List(c *gin.Context) {
 
 	var rows []threadListRow
 	query := h.db.Table("threads t").
-		Select(`t.*, lm.content AS last_message_preview, lm.created_at AS last_message_at`).
+		Select(`t.*, lm.content AS last_message_preview, lm.created_at AS last_message_at,
+			(SELECT SUM(cost_usd) FROM messages WHERE thread_id = t.id AND cost_usd IS NOT NULL) AS total_cost_usd`).
 		Joins(`LEFT JOIN LATERAL (
 			SELECT LEFT(content, 150) AS content, created_at
 			FROM messages WHERE thread_id = t.id
@@ -410,12 +412,14 @@ func (h *ThreadHandler) Usage(c *gin.Context) {
 	}
 
 	var result struct {
-		PromptTokens     int64 `json:"total_prompt_tokens"`
-		CompletionTokens int64 `json:"total_completion_tokens"`
-		MessageCount     int64 `json:"message_count"`
+		PromptTokens     int64   `json:"total_prompt_tokens"`
+		CompletionTokens int64   `json:"total_completion_tokens"`
+		CostUSD          float64 `json:"total_cost_usd"`
+		MessageCount     int64   `json:"message_count"`
 	}
 	h.db.Raw(`SELECT COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
 		COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+		COALESCE(SUM(cost_usd), 0) AS cost_usd,
 		COUNT(*) AS message_count FROM messages WHERE thread_id = ?`, id).Scan(&result)
 
 	respondOK(c, gin.H{
@@ -423,6 +427,7 @@ func (h *ThreadHandler) Usage(c *gin.Context) {
 		"total_prompt_tokens":     result.PromptTokens,
 		"total_completion_tokens": result.CompletionTokens,
 		"total_tokens":            result.PromptTokens + result.CompletionTokens,
+		"total_cost_usd":          result.CostUSD,
 		"message_count":           result.MessageCount,
 	})
 }

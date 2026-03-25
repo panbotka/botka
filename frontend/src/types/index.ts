@@ -139,6 +139,7 @@ export interface Thread {
   tags?: Tag[]
   created_at: string
   updated_at: string
+  total_cost_usd?: number | null
   last_message_preview?: string
   last_message_at?: string
 }
@@ -153,6 +154,7 @@ export interface Message {
   thinking_duration_ms?: number
   prompt_tokens?: number
   completion_tokens?: number
+  cost_usd?: number | null
   attachments?: Attachment[]
   created_at: string
 }
@@ -218,6 +220,7 @@ export interface ThreadUsage {
   total_prompt_tokens: number
   total_completion_tokens: number
   total_tokens: number
+  total_cost_usd: number
   message_count: number
 }
 

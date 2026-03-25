@@ -932,11 +932,22 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
                 </div>
               );
             })()}
-            {usageInfo.cost_usd != null && (
-              <span>${usageInfo.cost_usd.toFixed(4)}</span>
-            )}
+            {(() => {
+              const historyCost = messages.reduce((sum, m) => sum + (m.cost_usd || 0), 0);
+              const currentCost = usageInfo.cost_usd || 0;
+              const totalCost = historyCost + currentCost;
+              return totalCost > 0 ? <span>${totalCost.toFixed(4)}</span> : null;
+            })()}
           </div>
         )}
+        {!usageInfo && (() => {
+          const totalCost = messages.reduce((sum, m) => sum + (m.cost_usd || 0), 0);
+          return totalCost > 0 ? (
+            <div className="flex items-center justify-end px-4 pb-1 text-[10px] text-zinc-400">
+              <span>${totalCost.toFixed(4)}</span>
+            </div>
+          ) : null;
+        })()}
         <ChatInput key={threadId} ref={chatInputRef} onSend={handleSend} onSlashCommand={handleSlashCommand} queuedCount={queuedIds.size} planMode={planMode} onTogglePlanMode={() => setPlanMode((p) => !p)} />
       </div>
       {lightbox && (

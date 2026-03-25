@@ -301,6 +301,9 @@ export default function ThreadSidebar({
                   <span className="truncate max-w-[80px]">{projectMap.get(thread.project_id)!.name}</span>
                 </span>
               )}
+              {thread.total_cost_usd != null && thread.total_cost_usd > 0 && (
+                <span className="text-[10px] text-zinc-400 ml-auto">${thread.total_cost_usd.toFixed(2)}</span>
+              )}
             </div>
           </div>
 
