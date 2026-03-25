@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useIsMobile } from './hooks/useIsMobile'
+import { SSEProvider } from './context/SSEContext'
 import BottomNav from './components/BottomNav'
 import OfflineIndicator from './components/OfflineIndicator'
 
@@ -79,27 +80,29 @@ export default function App() {
   const hideBottomNav = isMobile && isActiveChatThread
 
   return (
-    <div className="flex h-screen bg-zinc-50">
-      {!isMobile && <AppSidebar />}
-      <main className={clsx(
-        'flex-1',
-        isChat ? 'overflow-hidden' : 'overflow-auto p-6',
-        isMobile && !hideBottomNav && !isChat && 'pb-20',
-      )}>
-        <Suspense fallback={<PageLoader />}>
-          <Routes>
-            <Route path="/" element={<DashboardPage />} />
-            <Route path="/chat/*" element={<ChatPage />} />
-            <Route path="/tasks" element={<TasksPage />} />
-            <Route path="/tasks/:id" element={<TaskDetailPage />} />
-            <Route path="/projects" element={<ProjectsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/help" element={<HelpPage />} />
-          </Routes>
-        </Suspense>
-      </main>
-      {isMobile && !hideBottomNav && <BottomNav />}
-      <OfflineIndicator />
-    </div>
+    <SSEProvider>
+      <div className="flex h-screen bg-zinc-50">
+        {!isMobile && <AppSidebar />}
+        <main className={clsx(
+          'flex-1',
+          isChat ? 'overflow-hidden' : 'overflow-auto p-6',
+          isMobile && !hideBottomNav && !isChat && 'pb-20',
+        )}>
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/chat/*" element={<ChatPage />} />
+              <Route path="/tasks" element={<TasksPage />} />
+              <Route path="/tasks/:id" element={<TaskDetailPage />} />
+              <Route path="/projects" element={<ProjectsPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/help" element={<HelpPage />} />
+            </Routes>
+          </Suspense>
+        </main>
+        {isMobile && !hideBottomNav && <BottomNav />}
+        <OfflineIndicator />
+      </div>
+    </SSEProvider>
   )
 }

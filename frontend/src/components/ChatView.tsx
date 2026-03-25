@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback, type DragEvent } from 'react'
 import type { Message, Thread, ThreadDetail, Attachment, ForkPoint } from '../types';
 import { api, streamChat, streamRegenerate, streamEdit, streamBranch, streamSubscribe } from '../api/client';
 import type { StreamChunk } from '../api/client';
+import { useSSEManager, useSSESession } from '../context/SSEContext';
+import type { ActiveToolCall } from '../context/SSEContext';
 import MessageBubble from './MessageBubble';
 import ChatInput, { isAllowedFile, getFileExtension, MAX_FILE_SIZE } from './ChatInput';
 import type { ChatInputHandle } from './ChatInput';
@@ -12,24 +14,6 @@ import { downloadExport } from '../utils/exportThread';
 import type { ExportFormat } from '../utils/exportThread';
 import { useNotifications } from '../hooks/useNotifications';
 import { useConnectionStatus } from '../hooks/useConnectionStatus';
-
-interface ActiveToolCall {
-  id: string;
-  name: string;
-  input: Record<string, unknown>;
-  result?: string;
-  isError?: boolean;
-}
-
-class StreamError extends Error {
-  connectionLost: boolean;
-  constructor(message: string, connectionLost: boolean) {
-    super(message);
-    this.connectionLost = connectionLost;
-  }
-}
-
-const RETRY_DELAYS = [1000, 2000, 4000];
 
 interface Props {
   threadId: number | null;
@@ -43,42 +27,64 @@ interface Props {
 }
 
 export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread, onOpenSearch, pendingStarterMessage, onStarterMessageConsumed, onStreamingChange }: Props) {
+  // --- State ---
   const [messages, setMessages] = useState<Message[]>([]);
-  const [streamingContent, setStreamingContent] = useState('');
-  const [streamingThinking, setStreamingThinking] = useState('');
-  const [thinkingDurationMs, setThinkingDurationMs] = useState<number | null>(null);
-  const [isStreaming, setIsStreaming] = useState(false);
   const [loading, setLoading] = useState(false);
   const [commandFeedback, setCommandFeedback] = useState<{ type: 'info' | 'error'; text: string } | null>(null);
   const [clearConfirm, setClearConfirm] = useState(false);
   const [lightbox, setLightbox] = useState<{ attachment: Attachment; allImages: Attachment[] } | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [queuedIds, setQueuedIds] = useState<Set<number>>(new Set());
-  const [retryInfo, setRetryInfo] = useState<{ attempt: number; max_attempts: number } | null>(null);
   const [streamError, setStreamError] = useState<string | null>(null);
-  const [reconnecting, setReconnecting] = useState<{ attempt: number; maxAttempts: number } | null>(null);
   const [memorySuggestions, setMemorySuggestions] = useState<string[]>([]);
   const [forkPoints, setForkPoints] = useState<Record<string, ForkPoint>>({});
-  const [activeToolCalls, setActiveToolCalls] = useState<ActiveToolCall[]>([]);
   const [usageInfo, setUsageInfo] = useState<{ cost_usd?: number; input_tokens?: number; output_tokens?: number } | null>(null);
   const [branchFromId, setBranchFromId] = useState<number | null>(null);
   const [planMode, setPlanMode] = useState(false);
+
+  // --- Refs ---
   const dragCounterRef = useRef(0);
   const chatInputRef = useRef<ChatInputHandle>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const userSentRef = useRef(false);
-  const abortRef = useRef<AbortController | null>(null);
   const feedbackTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const messageQueueRef = useRef<{ id: number; content: string; files?: File[] }[]>([]);
-  const streamingForThreadRef = useRef<number | null>(null);
-  const streamContentRef = useRef('');
-  const streamThinkingRef = useRef('');
-  const streamThinkingDurationRef = useRef<number | null>(null);
   const currentThreadIdRef = useRef(threadId);
   currentThreadIdRef.current = threadId;
+
+  // --- SSE Manager ---
+  const sseManager = useSSEManager();
+  const sseSession = useSSESession(threadId);
+
+  // Derived streaming values from the persistent SSE session
+  const streamingContent = sseSession?.content ?? '';
+  const streamingThinking = sseSession?.thinking ?? '';
+  const thinkingDurationMs = sseSession?.thinkingDurationMs ?? null;
+  const activeToolCalls: ActiveToolCall[] = sseSession?.toolCalls ?? [];
+  const reconnecting = sseSession?.reconnecting ?? null;
+  const retryInfo = sseSession?.retryInfo ?? null;
+  const isStreaming = sseSession?.isStreaming ?? false;
+  const isStreamingThisThread = isStreaming;
+
+  // --- Hooks ---
   const { notifyResponse } = useNotifications();
   const { status: connectionStatus, startHealthPolling, stopHealthPolling } = useConnectionStatus();
+
+  // Stable callback refs (used in .then() callbacks to avoid stale closures)
+  const onStreamingChangeRef = useRef(onStreamingChange);
+  onStreamingChangeRef.current = onStreamingChange;
+  const onTitleUpdateRef = useRef(onTitleUpdate);
+  onTitleUpdateRef.current = onTitleUpdate;
+
+  // Track completion context for the current stream
+  const completionContextRef = useRef<{ isBranching: boolean; isEdit: boolean }>({ isBranching: false, isEdit: false });
+
+  // Refs to break circular dependency between startStream and handleCompletion
+  const handleStreamCompletionRef = useRef<(tid: number) => void>(() => {});
+  const startStreamRef = useRef<(content: string, files?: File[], branchParentId?: number | null) => void>(() => {});
+
+  // --- Utility callbacks ---
 
   const showFeedback = useCallback((type: 'info' | 'error', text: string) => {
     setCommandFeedback({ type, text });
@@ -98,7 +104,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     return () => clearTimeout(feedbackTimer.current);
   }, []);
 
-  // Global Shift+Tab handler for plan mode toggle (works regardless of focus)
+  // Global Shift+Tab handler for plan mode toggle
   useEffect(() => {
     if (!threadId) return;
     const handler = (e: KeyboardEvent) => {
@@ -110,6 +116,8 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [threadId]);
+
+  // --- Drag handlers ---
 
   const handleDragEnter = useCallback((e: DragEvent) => {
     e.preventDefault();
@@ -164,6 +172,8 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     }
   }, [showFeedback]);
 
+  // --- Thread data ---
+
   const reloadThread = useCallback(async () => {
     if (!threadId) return;
     try {
@@ -175,17 +185,35 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     }
   }, [threadId]);
 
+  // --- Sync effects from SSE session ---
+
+  // Sync title updates from SSE session to parent
+  useEffect(() => {
+    if (!sseSession?.titleUpdate) return;
+    onTitleUpdateRef.current?.(sseSession.titleUpdate.threadId, sseSession.titleUpdate.title);
+  }, [sseSession?.titleUpdate]);
+
+  // Sync usageInfo from SSE session to local state (persists after stream ends)
+  useEffect(() => {
+    if (sseSession?.usageInfo) setUsageInfo(sseSession.usageInfo);
+  }, [sseSession?.usageInfo]);
+
+  // Sync memorySuggestions from SSE session to local state (persists after stream ends)
+  useEffect(() => {
+    if (sseSession && sseSession.memorySuggestions.length > 0) {
+      setMemorySuggestions(sseSession.memorySuggestions);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sseSession?.memorySuggestions.length]);
+
+  // --- Thread load effect ---
+
   useEffect(() => {
     messageQueueRef.current = [];
     setQueuedIds(new Set());
     setMemorySuggestions([]);
     setBranchFromId(null);
     setForkPoints({});
-    if (streamingForThreadRef.current === threadId) {
-      setStreamingContent(streamContentRef.current);
-      setStreamingThinking(streamThinkingRef.current);
-      setThinkingDurationMs(streamThinkingDurationRef.current);
-    }
     if (!threadId) {
       setMessages([]);
       return;
@@ -200,101 +228,84 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
       .finally(() => setLoading(false));
   }, [threadId]);
 
-  // Reconnect to an active stream when (re)mounting a thread.
-  // This handles the case where the user navigated away while a response
-  // was being generated and then navigated back.
+  // --- Reconnect to active backend stream on mount ---
+  // Handles browser refresh and returning to a thread with an active backend process.
+  // If the SSE manager already has an active session, skip (it's already consuming the stream).
   useEffect(() => {
     if (!threadId) return;
-    // Already streaming for this thread — nothing to reconnect.
-    if (streamingForThreadRef.current === threadId) return;
+    if (sseManager.hasActiveSession(threadId)) return;
 
-    const controller = new AbortController();
+    const subController = new AbortController();
     let active = true;
 
     (async () => {
       try {
-        const stream = streamSubscribe(threadId, controller.signal);
+        const stream = streamSubscribe(threadId, subController.signal);
         const first = await stream.next();
         if (first.done || !active) return;
 
-        // Active stream confirmed — set up streaming state.
-        streamingForThreadRef.current = threadId;
-        streamContentRef.current = '';
-        streamThinkingRef.current = '';
-        streamThinkingDurationRef.current = null;
-        onStreamingChange?.(threadId);
-        setStreamingContent('');
-        setStreamingThinking('');
-        setThinkingDurationMs(null);
-        setStreamError(null);
-        setActiveToolCalls([]);
-        setIsStreaming(true);
+        // Active stream found — register with the SSE manager
+        const managerSignal = sseManager.startSession(threadId);
+        onStreamingChangeRef.current?.(threadId);
 
-        // Wrap the remaining stream to include the first chunk we already read.
-        async function* withFirst(f: StreamChunk, rest: AsyncGenerator<StreamChunk>): AsyncGenerator<StreamChunk> {
-          yield f;
-          yield* rest;
+        // Link manager abort to the subscribe controller so aborting the
+        // manager session also tears down the underlying fetch
+        managerSignal.addEventListener('abort', () => subController.abort(), { once: true });
+
+        async function* wrappedStream(): AsyncGenerator<StreamChunk> {
+          yield first.value!;
+          yield* stream;
         }
 
-        const assistantMsg = await consumeStream(withFirst(first.value!, stream));
-        if (assistantMsg && active) {
-          notifyResponse(assistantMsg.content);
-        }
+        completionContextRef.current = { isBranching: false, isEdit: false };
 
-        // Refetch to get the saved response with correct DB IDs.
-        if (active) {
-          const data: ThreadDetail = await api.getThread(threadId);
-          if (active) {
-            setMessages(data.messages);
-            setForkPoints(data.fork_points || {});
+        sseManager.runStream(threadId, () => wrappedStream()).then(() => {
+          if (!active) return;
+          // Reload from DB to get saved messages with correct IDs
+          if (currentThreadIdRef.current === threadId) {
+            api.getThread(threadId).then((data: ThreadDetail) => {
+              if (currentThreadIdRef.current === threadId) {
+                setMessages(data.messages);
+                setForkPoints(data.fork_points || {});
+              }
+            }).catch(() => {});
           }
-        }
+          handleStreamCompletionRef.current(threadId);
+        });
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return;
-        // On error, refetch messages in case the response completed.
-        if (active) {
-          try {
-            const data: ThreadDetail = await api.getThread(threadId);
-            if (active) {
+        // On error, refetch messages in case the response completed
+        if (active && currentThreadIdRef.current === threadId) {
+          api.getThread(threadId).then((data: ThreadDetail) => {
+            if (currentThreadIdRef.current === threadId) {
               setMessages(data.messages);
               setForkPoints(data.fork_points || {});
             }
-          } catch { /* ignore */ }
-        }
-      } finally {
-        if (active && streamingForThreadRef.current === threadId) {
-          setStreamingContent('');
-          setStreamingThinking('');
-          setThinkingDurationMs(null);
-          streamContentRef.current = '';
-          streamThinkingRef.current = '';
-          streamThinkingDurationRef.current = null;
-          setIsStreaming(false);
-          streamingForThreadRef.current = null;
-          onStreamingChange?.(null);
-          playCompletionSound();
-        }
-        if (abortRef.current === controller) {
-          abortRef.current = null;
+          }).catch(() => {});
         }
       }
     })();
 
     return () => {
       active = false;
-      controller.abort();
+      // Only abort the subscribe controller if the manager isn't handling this thread
+      if (!sseManager.hasActiveSession(threadId)) {
+        subController.abort();
+      }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId]);
 
+  // --- Pending starter message ---
   useEffect(() => {
-    if (pendingStarterMessage && threadId && !(streamingForThreadRef.current === threadId) && !loading) {
+    if (pendingStarterMessage && threadId && !sseManager.hasActiveSession(threadId) && !loading) {
       onStarterMessageConsumed?.();
       handleSend(pendingStarterMessage);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingStarterMessage, threadId, loading]);
 
+  // --- Auto-scroll ---
   const prevThreadIdRef = useRef<number | null>(null);
   const needsScrollAfterLoadRef = useRef(false);
   useEffect(() => {
@@ -327,220 +338,85 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     }
   }, [messages, streamingContent, streamingThinking, threadId]);
 
-  const consumeStream = useCallback(async (stream: AsyncGenerator<StreamChunk>): Promise<Message | null> => {
-    let fullContent = '';
-    let fullThinking = '';
-    let durationMs: number | null = null;
-    let promptTokens: number | undefined;
-    let completionTokens: number | undefined;
+  // --- Stream completion handler ---
 
-    for await (const chunk of stream) {
-      if (chunk.done) break;
-      if (chunk.retry) {
-        setRetryInfo({ attempt: chunk.retry.attempt, max_attempts: chunk.retry.max_attempts });
-        continue;
+  const handleStreamCompletion = useCallback((tid: number) => {
+    const session = sseManager.getSessionState(tid);
+    if (!session || !session.isComplete) return;
+
+    // Update UI state if still viewing this thread
+    if (currentThreadIdRef.current === tid) {
+      if (session.completedMessage) {
+        setMessages(prev => [...prev, session.completedMessage!]);
+        notifyResponse(session.completedMessage.content);
       }
-      if (chunk.error) {
-        setRetryInfo(null);
-        throw new StreamError(chunk.error, chunk.connectionLost ?? false);
-      }
-      if (chunk.title && onTitleUpdate && threadId) {
-        onTitleUpdate(threadId, chunk.title);
-        continue;
-      }
-      if (chunk.usage) {
-        promptTokens = chunk.usage.prompt_tokens;
-        completionTokens = chunk.usage.completion_tokens;
-        setUsageInfo({
-          cost_usd: chunk.usage.cost_usd,
-          input_tokens: chunk.usage.input_tokens,
-          output_tokens: chunk.usage.output_tokens,
-        });
-        continue;
-      }
-      if (chunk.memory_suggestion) {
-        setMemorySuggestions((prev) => [...prev, chunk.memory_suggestion!]);
-        continue;
-      }
-      if (chunk.tool_use) {
-        const tc = chunk.tool_use;
-        setActiveToolCalls((prev) => [...prev, { id: tc.id, name: tc.name, input: tc.input }]);
-        continue;
-      }
-      if (chunk.tool_result) {
-        const tr = chunk.tool_result;
-        setActiveToolCalls((prev) =>
-          prev.map((tc) =>
-            tc.id === tr.tool_use_id ? { ...tc, result: tr.content, isError: tr.is_error } : tc
-          )
-        );
-        continue;
-      }
-      if (chunk.content || chunk.thinking) {
-        setRetryInfo(null);
-      }
-      if (chunk.thinking) {
-        fullThinking += chunk.thinking;
-        streamThinkingRef.current = fullThinking;
-        if (currentThreadIdRef.current === threadId) {
-          setStreamingThinking(fullThinking);
-        }
-      }
-      if (chunk.thinking_done) {
-        durationMs = chunk.thinking_done.duration_ms;
-        streamThinkingDurationRef.current = durationMs;
-        if (currentThreadIdRef.current === threadId) {
-          setThinkingDurationMs(durationMs);
-        }
-      }
-      if (chunk.content) {
-        fullContent += chunk.content;
-        const clean = fullContent.replace(/<memory>.*?<\/memory>/gs, '').trim();
-        streamContentRef.current = clean;
-        if (currentThreadIdRef.current === threadId) {
-          setStreamingContent(clean);
-        }
+
+      if (session.streamError === 'Server unavailable') {
+        setStreamError('Server unavailable');
+        startHealthPolling();
+      } else if (session.streamError) {
+        setStreamError(session.streamError);
       }
     }
 
-    setRetryInfo(null);
-    const cleanContent = fullContent.replace(/<memory>.*?<\/memory>/gs, '').trim();
-    if (cleanContent) {
-      return {
-        id: Date.now() + 1,
-        thread_id: threadId!,
-        role: 'assistant',
-        content: cleanContent,
-        thinking: fullThinking || undefined,
-        thinking_duration_ms: durationMs ?? undefined,
-        prompt_tokens: promptTokens,
-        completion_tokens: completionTokens,
-        created_at: new Date().toISOString(),
-      };
-    }
-    return null;
-  }, [threadId, onTitleUpdate]);
+    if (session.gotResponse) playCompletionSound();
 
-  const sendToBackend = useCallback(async (content: string, files?: File[], branchParentId?: number | null) => {
+    const ctx = completionContextRef.current;
+    if (ctx.isBranching && currentThreadIdRef.current === tid) {
+      setBranchFromId(null);
+      reloadThread();
+    }
+    if (ctx.isEdit && currentThreadIdRef.current === tid) {
+      reloadThread();
+    }
+
+    // Process message queue
+    if (currentThreadIdRef.current === tid && messageQueueRef.current.length > 0) {
+      const next = messageQueueRef.current.shift()!;
+      setQueuedIds(new Set(messageQueueRef.current.map(q => q.id)));
+      startStreamRef.current(next.content, next.files);
+    } else {
+      onStreamingChangeRef.current?.(null);
+    }
+
+    sseManager.clearSession(tid);
+  }, [sseManager, notifyResponse, playCompletionSound, startHealthPolling, reloadThread]);
+
+  handleStreamCompletionRef.current = handleStreamCompletion;
+
+  // --- Start a stream via the SSE manager ---
+
+  const startStreamInManager = useCallback((content: string, files?: File[], branchParentId?: number | null) => {
     if (!threadId) return;
 
-    if (abortRef.current) abortRef.current.abort();
+    const isBranching = branchParentId != null;
+    completionContextRef.current = { isBranching, isEdit: false };
 
-    streamingForThreadRef.current = threadId;
-    streamContentRef.current = '';
-    streamThinkingRef.current = '';
-    streamThinkingDurationRef.current = null;
+    setStreamError(null);
+    stopHealthPolling();
     onStreamingChange?.(threadId);
 
-    setStreamingContent('');
-    setStreamingThinking('');
-    setThinkingDurationMs(null);
-    setStreamError(null);
-    setReconnecting(null);
-    setActiveToolCalls([]);
-    setIsStreaming(true);
-    stopHealthPolling();
+    sseManager.startSession(threadId);
 
-    const isBranching = branchParentId != null;
+    sseManager.runStream(
+      threadId,
+      (signal) => isBranching
+        ? streamBranch(threadId, branchParentId, content, signal)
+        : streamChat(threadId, content, signal, files, planMode),
+      { retryStreamFn: (signal) => streamRegenerate(threadId, signal) },
+    ).then(() => {
+      handleStreamCompletionRef.current(threadId);
+    });
+  }, [threadId, planMode, sseManager, stopHealthPolling, onStreamingChange]);
 
-    const controller = new AbortController();
-    abortRef.current = controller;
+  startStreamRef.current = startStreamInManager;
 
-    let succeeded = false;
-    let gotResponse = false;
-    try {
-      const stream = isBranching
-        ? streamBranch(threadId, branchParentId, content, controller.signal)
-        : streamChat(threadId, content, controller.signal, files, planMode);
-      const assistantMsg = await consumeStream(stream);
-      if (assistantMsg) {
-        if (currentThreadIdRef.current === threadId) {
-          setMessages((prev) => [...prev, assistantMsg]);
-        }
-        notifyResponse(assistantMsg.content);
-        gotResponse = true;
-      }
-      succeeded = true;
-    } catch (err: unknown) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        succeeded = true;
-      } else if (err instanceof StreamError && err.connectionLost) {
-        for (let i = 0; i < RETRY_DELAYS.length; i++) {
-          setStreamingContent('');
-          setStreamingThinking('');
-          setThinkingDurationMs(null);
-          setReconnecting({ attempt: i + 1, maxAttempts: RETRY_DELAYS.length });
+  // --- Wrapper for backward compat ---
+  const sendToBackend = useCallback((content: string, files?: File[], branchParentId?: number | null) => {
+    startStreamInManager(content, files, branchParentId);
+  }, [startStreamInManager]);
 
-          await new Promise((r) => setTimeout(r, RETRY_DELAYS[i]));
-          if (controller.signal.aborted) break;
-
-          try {
-            const retryMsg = await consumeStream(streamRegenerate(threadId, controller.signal));
-            if (retryMsg) {
-              if (currentThreadIdRef.current === threadId) {
-                setMessages((prev) => [...prev, retryMsg]);
-              }
-              notifyResponse(retryMsg.content);
-              gotResponse = true;
-            }
-            succeeded = true;
-            break;
-          } catch (retryErr: unknown) {
-            if (retryErr instanceof Error && retryErr.name === 'AbortError') {
-              succeeded = true;
-              break;
-            }
-            if (!(retryErr instanceof StreamError && retryErr.connectionLost)) {
-              setStreamError(retryErr instanceof Error ? retryErr.message : 'Unknown error');
-              succeeded = true;
-              break;
-            }
-          }
-        }
-
-        if (!succeeded) {
-          setStreamError('Server unavailable');
-          startHealthPolling();
-        }
-      } else {
-        setStreamError(err instanceof Error ? err.message : 'Unknown error');
-        succeeded = true;
-      }
-    } finally {
-      const isActiveStream = streamingForThreadRef.current === threadId;
-
-      if (isActiveStream) {
-        setStreamingContent('');
-        setStreamingThinking('');
-        setThinkingDurationMs(null);
-        streamContentRef.current = '';
-        streamThinkingRef.current = '';
-        streamThinkingDurationRef.current = null;
-      }
-      setRetryInfo(null);
-      setReconnecting(null);
-      if (abortRef.current === controller) {
-        abortRef.current = null;
-      }
-
-      if (isBranching && isActiveStream) {
-        setBranchFromId(null);
-        await reloadThread();
-      }
-
-      if (isActiveStream && messageQueueRef.current.length > 0) {
-        const next = messageQueueRef.current[0];
-        messageQueueRef.current = messageQueueRef.current.slice(1);
-        setQueuedIds(new Set(messageQueueRef.current.map((q) => q.id)));
-        sendToBackend(next!.content, next!.files);
-      } else if (isActiveStream) {
-        setIsStreaming(false);
-        streamingForThreadRef.current = null;
-        onStreamingChange?.(null);
-        if (gotResponse) playCompletionSound();
-      }
-    }
-  }, [threadId, planMode, consumeStream, notifyResponse, startHealthPolling, stopHealthPolling, playCompletionSound, reloadThread, onStreamingChange]);
+  // --- Send message ---
 
   const handleSend = useCallback((content: string, files?: File[]) => {
     if (!threadId) return;
@@ -572,7 +448,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     };
     setMessages((prev) => [...prev, userMsg]);
 
-    if (isStreaming && streamingForThreadRef.current === threadId) {
+    if (sseManager.hasActiveSession(threadId)) {
       const queued = { id: userMsg.id, content, files };
       messageQueueRef.current = [...messageQueueRef.current, queued];
       setQueuedIds(new Set(messageQueueRef.current.map((q) => q.id)));
@@ -580,12 +456,12 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     }
 
     sendToBackend(content, files);
-  }, [threadId, isStreaming, sendToBackend, branchFromId, messages]);
+  }, [threadId, sendToBackend, branchFromId, messages, sseManager]);
+
+  // --- Regenerate ---
 
   const handleRegenerate = useCallback(async () => {
-    if (!threadId || (isStreaming && streamingForThreadRef.current === threadId)) return;
-
-    if (abortRef.current) abortRef.current.abort();
+    if (!threadId || sseManager.hasActiveSession(threadId)) return;
 
     setMessages((prev) => {
       const last = prev[prev.length - 1];
@@ -593,60 +469,24 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
       return prev;
     });
 
-    streamingForThreadRef.current = threadId;
-    streamContentRef.current = '';
-    streamThinkingRef.current = '';
-    streamThinkingDurationRef.current = null;
+    completionContextRef.current = { isBranching: false, isEdit: false };
+    setStreamError(null);
     onStreamingChange?.(threadId);
 
-    setStreamingContent('');
-    setStreamingThinking('');
-    setThinkingDurationMs(null);
-    setStreamError(null);
-    setIsStreaming(true);
+    sseManager.startSession(threadId);
 
-    const controller = new AbortController();
-    abortRef.current = controller;
+    sseManager.runStream(
+      threadId,
+      (signal) => streamRegenerate(threadId, signal),
+    ).then(() => {
+      handleStreamCompletionRef.current(threadId);
+    });
+  }, [threadId, sseManager, onStreamingChange]);
 
-    let gotResponse = false;
-    try {
-      const assistantMsg = await consumeStream(streamRegenerate(threadId, controller.signal));
-      if (assistantMsg) {
-        if (currentThreadIdRef.current === threadId) {
-          setMessages((prev) => [...prev, assistantMsg]);
-        }
-        notifyResponse(assistantMsg.content);
-        gotResponse = true;
-      }
-    } catch (err: unknown) {
-      if (err instanceof Error && err.name !== 'AbortError') {
-        setStreamError(err.message || 'Unknown error');
-      }
-    } finally {
-      const isActiveStream = streamingForThreadRef.current === threadId;
-      if (isActiveStream) {
-        setStreamingContent('');
-        setStreamingThinking('');
-        setThinkingDurationMs(null);
-        streamContentRef.current = '';
-        streamThinkingRef.current = '';
-        streamThinkingDurationRef.current = null;
-        setIsStreaming(false);
-        streamingForThreadRef.current = null;
-        onStreamingChange?.(null);
-      }
-      setRetryInfo(null);
-      if (abortRef.current === controller) {
-        abortRef.current = null;
-      }
-      if (gotResponse) playCompletionSound();
-    }
-  }, [threadId, isStreaming, consumeStream, notifyResponse, playCompletionSound, onStreamingChange]);
+  // --- Edit message ---
 
   const handleEdit = useCallback(async (messageId: number, content: string) => {
-    if (!threadId || (isStreaming && streamingForThreadRef.current === threadId)) return;
-
-    if (abortRef.current) abortRef.current.abort();
+    if (!threadId || sseManager.hasActiveSession(threadId)) return;
 
     setMessages((prev) => {
       const idx = prev.findIndex((m) => m.id === messageId);
@@ -657,56 +497,21 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
       ];
     });
 
-    streamingForThreadRef.current = threadId;
-    streamContentRef.current = '';
-    streamThinkingRef.current = '';
-    streamThinkingDurationRef.current = null;
+    completionContextRef.current = { isBranching: false, isEdit: true };
+    setStreamError(null);
     onStreamingChange?.(threadId);
 
-    setStreamingContent('');
-    setStreamingThinking('');
-    setThinkingDurationMs(null);
-    setStreamError(null);
-    setIsStreaming(true);
+    sseManager.startSession(threadId);
 
-    const controller = new AbortController();
-    abortRef.current = controller;
+    sseManager.runStream(
+      threadId,
+      (signal) => streamEdit(threadId, messageId, content, signal),
+    ).then(() => {
+      handleStreamCompletionRef.current(threadId);
+    });
+  }, [threadId, sseManager, onStreamingChange]);
 
-    let gotResponse = false;
-    try {
-      const assistantMsg = await consumeStream(streamEdit(threadId, messageId, content, controller.signal));
-      if (assistantMsg) {
-        if (currentThreadIdRef.current === threadId) {
-          setMessages((prev) => [...prev, assistantMsg]);
-        }
-        notifyResponse(assistantMsg.content);
-        gotResponse = true;
-      }
-    } catch (err: unknown) {
-      if (err instanceof Error && err.name !== 'AbortError') {
-        setStreamError(err.message || 'Unknown error');
-      }
-    } finally {
-      const isActiveStream = streamingForThreadRef.current === threadId;
-      if (isActiveStream) {
-        setStreamingContent('');
-        setStreamingThinking('');
-        setThinkingDurationMs(null);
-        streamContentRef.current = '';
-        streamThinkingRef.current = '';
-        streamThinkingDurationRef.current = null;
-        setIsStreaming(false);
-        streamingForThreadRef.current = null;
-        onStreamingChange?.(null);
-      }
-      setRetryInfo(null);
-      if (abortRef.current === controller) {
-        abortRef.current = null;
-      }
-      if (gotResponse) playCompletionSound();
-      if (isActiveStream) await reloadThread();
-    }
-  }, [threadId, isStreaming, consumeStream, notifyResponse, playCompletionSound, reloadThread, onStreamingChange]);
+  // --- Queue ---
 
   const removeQueuedMessage = useCallback((msgId: number) => {
     messageQueueRef.current = messageQueueRef.current.filter((q) => q.id !== msgId);
@@ -714,21 +519,25 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     setMessages((prev) => prev.filter((m) => m.id !== msgId));
   }, []);
 
+  // --- Branching ---
+
   const handleBranch = useCallback((messageId: number) => {
-    if (isStreaming && streamingForThreadRef.current === threadId) return;
+    if (threadId && sseManager.hasActiveSession(threadId)) return;
     setBranchFromId(messageId);
     chatInputRef.current?.focus();
-  }, [isStreaming, threadId]);
+  }, [sseManager, threadId]);
 
   const handleSwitchBranch = useCallback(async (forkMessageId: number, childId: number) => {
-    if (!threadId || (isStreaming && streamingForThreadRef.current === threadId)) return;
+    if (!threadId || sseManager.hasActiveSession(threadId)) return;
     try {
       await api.switchBranch(threadId, forkMessageId, childId);
       await reloadThread();
     } catch {
       // ignore
     }
-  }, [threadId, isStreaming, reloadThread]);
+  }, [threadId, sseManager, reloadThread]);
+
+  // --- Slash commands ---
 
   const handleSlashCommand = useCallback(async (command: string, args: string) => {
     const known = COMMANDS.some((c) => c.name === command);
@@ -800,10 +609,10 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
           return;
         }
         try {
+          sseManager.abortSession(threadId);
           await api.clearMessages(threadId);
           await api.clearSession(threadId);
           setMessages([]);
-          setActiveToolCalls([]);
           setUsageInfo(null);
           setClearConfirm(false);
           showFeedback('info', 'Messages and session cleared');
@@ -837,7 +646,9 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
         break;
       }
     }
-  }, [threadId, thread, messages, onNewThread, onOpenSearch, showFeedback, clearConfirm, handleSend]);
+  }, [threadId, thread, messages, onNewThread, onOpenSearch, showFeedback, clearConfirm, handleSend, sseManager]);
+
+  // --- Derived render values ---
 
   const lastAssistantId = (() => {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -845,8 +656,6 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     }
     return null;
   })();
-
-  const isStreamingThisThread = isStreaming && streamingForThreadRef.current === threadId;
 
   if (!threadId) {
     return (
