@@ -37,7 +37,7 @@ type MemoryFunc func(ctx context.Context) (string, error)
 //
 // This layering ensures Claude has full context even when starting a new session
 // (e.g., after a session reset or server restart).
-func AssembleContext(ctx context.Context, cfg ContextConfig, threadID int64, getMemories MemoryFunc, systemPrompt, folderClaudeMD string, messages []models.Message) (string, error) {
+func AssembleContext(ctx context.Context, cfg ContextConfig, threadID int64, getMemories MemoryFunc, systemPrompt, folderClaudeMD, projectName, projectPath string, messages []models.Message) (string, error) {
 	var parts []string
 
 	// Layer 1: SOUL.md (identity)
@@ -75,6 +75,12 @@ func AssembleContext(ctx context.Context, cfg ContextConfig, threadID int64, get
 	// Layer 7: Folder/project CLAUDE.md
 	if folderClaudeMD != "" {
 		parts = append(parts, "# Project Context\n\n"+folderClaudeMD)
+	}
+
+	// Layer 7b: Project assignment note
+	if projectName != "" {
+		note := fmt.Sprintf("# Active Project\n\nThis chat is associated with project %q (%s).\nWhen creating tasks or discussing code, default to this project unless the user specifies otherwise.", projectName, projectPath)
+		parts = append(parts, note)
 	}
 
 	// Layer 8: Conversation history (so Claude knows what was discussed before a session reset)

@@ -345,6 +345,7 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 	// Determine working directory from project
 	workDir := h.defaultDir
 	var projectClaudeMD string
+	var projectName, projectPath string
 	if thread.ProjectID != nil {
 		var project models.Project
 		if err := h.db.First(&project, "id = ?", *thread.ProjectID).Error; err == nil {
@@ -356,6 +357,8 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 				}
 			}
 			projectClaudeMD = project.ClaudeMD
+			projectName = project.Name
+			projectPath = project.Path
 		}
 	}
 
@@ -398,7 +401,7 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 		}
 
 		var err error
-		contextFile, err = claude.AssembleContext(c.Request.Context(), h.contextCfg, threadID, getMemories, thread.SystemPrompt, projectClaudeMD, existingMessages)
+		contextFile, err = claude.AssembleContext(c.Request.Context(), h.contextCfg, threadID, getMemories, thread.SystemPrompt, projectClaudeMD, projectName, projectPath, existingMessages)
 		if err != nil {
 			log.Printf("failed to assemble context: %v", err)
 		}

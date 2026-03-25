@@ -51,7 +51,7 @@ func TestAssembleContext_AllLayers(t *testing.T) {
 		ContextDir:        contextDir,
 	}
 
-	path, err := AssembleContext(context.Background(), cfg, 42, memFn, systemPrompt, folderMD, messages)
+	path, err := AssembleContext(context.Background(), cfg, 42, memFn, systemPrompt, folderMD, "myproject", "/home/pi/projects/myproject", messages)
 	if err != nil {
 		t.Fatalf("AssembleContext error: %v", err)
 	}
@@ -84,6 +84,9 @@ func TestAssembleContext_AllLayers(t *testing.T) {
 		{"section header thread", "# Thread Instructions"},
 		{"section header project", "# Project Context"},
 		{"section header conversation", "# Previous Conversation"},
+		{"active project", `project "myproject"`},
+		{"active project path", "/home/pi/projects/myproject"},
+		{"section header active project", "# Active Project"},
 	}
 
 	for _, c := range checks {
@@ -102,7 +105,7 @@ func TestAssembleContext_EmptyWorkspace(t *testing.T) {
 		ContextDir:        contextDir,
 	}
 
-	path, err := AssembleContext(context.Background(), cfg, 1, nil, "", "", nil)
+	path, err := AssembleContext(context.Background(), cfg, 1, nil, "", "", "", "", nil)
 	if err != nil {
 		t.Fatalf("AssembleContext error: %v", err)
 	}
@@ -132,7 +135,7 @@ func TestAssembleContext_MessageTruncation(t *testing.T) {
 		ContextDir:        contextDir,
 	}
 
-	path, err := AssembleContext(context.Background(), cfg, 1, nil, "", "", messages)
+	path, err := AssembleContext(context.Background(), cfg, 1, nil, "", "", "", "", messages)
 	if err != nil {
 		t.Fatalf("AssembleContext error: %v", err)
 	}
@@ -169,7 +172,7 @@ func TestAssembleContext_MessageLimit(t *testing.T) {
 		ContextDir:        contextDir,
 	}
 
-	path, err := AssembleContext(context.Background(), cfg, 1, nil, "", "", messages)
+	path, err := AssembleContext(context.Background(), cfg, 1, nil, "", "", "", "", messages)
 	if err != nil {
 		t.Fatalf("AssembleContext error: %v", err)
 	}
@@ -199,7 +202,7 @@ func TestAssembleContext_MemoryFuncError(t *testing.T) {
 		ContextDir:        contextDir,
 	}
 
-	_, err := AssembleContext(context.Background(), cfg, 1, memFn, "", "", nil)
+	_, err := AssembleContext(context.Background(), cfg, 1, memFn, "", "", "", "", nil)
 	if err != nil {
 		t.Fatalf("AssembleContext should not fail on memory error: %v", err)
 	}
