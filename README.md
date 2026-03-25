@@ -131,7 +131,7 @@ All settings are loaded from `.env` file and environment variables (env vars tak
 make run              # Run Go backend on :5110
 make frontend-dev     # Run Vite dev server on :5173 (proxies /api to :5110)
 make test             # Run Go tests with race detector
-make lint             # Run golangci-lint
+make lint             # Run golangci-lint (config: .golangci.yml)
 make fmt              # Format code with goimports + gofmt
 make vet              # Run go vet
 make check            # Full CI gate: fmt + vet + lint + test
@@ -141,6 +141,18 @@ make clean            # Remove build artifacts
 make frontend-install # Install frontend npm dependencies
 make frontend-build   # Build frontend only
 ```
+
+### Testing
+
+~295 tests across 28 test files. Handler integration tests use a `botka_test` PostgreSQL database:
+
+```bash
+make test-db          # Create test database (one-time)
+make test             # Run all tests with race detector
+make check            # Full CI gate: fmt + vet + lint + test
+```
+
+Tests auto-skip when the test database is unavailable, so `make test` always passes without it.
 
 ### Database Migrations
 

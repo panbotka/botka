@@ -64,13 +64,43 @@ make migrate-create NAME=add_foo  # Create new migration pair
 make run            # Run Go backend on :5110
 make frontend-dev   # Run Vite dev server on :5173 (proxies /api to :5110)
 make test           # Run Go tests with race detector
-make lint           # Run golangci-lint
+make lint           # Run golangci-lint (config: .golangci.yml)
 make fmt            # Format code with goimports + gofmt
 make check          # Full CI gate: fmt + vet + lint + test
 make build          # Build Go binary to build/botka
 make prod-build     # Build frontend + Go binary to bin/botka
 make clean          # Remove build artifacts
 ```
+
+## Testing
+
+**~295 tests** across 28 test files covering all packages. Tests use stdlib `testing` only (no external test frameworks).
+
+```bash
+make test           # Run all tests with race detector
+make test-db        # Create botka_test database (run once)
+make check          # Full CI gate: fmt + vet + lint + test
+```
+
+### Test Database
+
+Handler integration tests require a `botka_test` PostgreSQL database. Create it once:
+
+```bash
+make test-db
+```
+
+Tests auto-skip when the database is unavailable, so `make test` always passes. The `DATABASE_TEST_URL` env var controls the connection string (default: `postgres://botka:botka@localhost:5432/botka_test?sslmode=disable`).
+
+### Test Structure
+
+- **Unit tests** (no DB): `config`, `middleware`, `runner` (buffer, parser, executor, usage), `projects`
+- **Integration tests** (need `botka_test`): all `handlers` — HTTP-level tests via `httptest` + Gin test mode
+- **Existing tests**: `models` (enums, table names), `mcp` (JSON-RPC, tools, SSE), `claude` (event parsing, context assembly, registry)
+
+### Linting
+
+golangci-lint v2 configured via `.golangci.yml` with strict linters: errcheck, govet, staticcheck, gocritic, revive, misspell, bodyclose, unconvert, whitespace, predeclared.
 
 ## Deployment
 

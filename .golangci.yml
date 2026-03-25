@@ -1,0 +1,85 @@
+version: "2"
+
+run:
+  timeout: 3m
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - gocritic
+    - revive
+    - misspell
+    - unconvert
+    - bodyclose
+    - whitespace
+    - predeclared
+
+  settings:
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+      disabled-checks:
+        - whyNoLint
+        - unnamedResult
+        - ifElseChain
+        - octalLiteral
+        - httpNoBody
+    revive:
+      rules:
+        - name: context-as-argument
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: increment-decrement
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: var-naming
+    misspell:
+      locale: US
+      extra-words:
+        - typo: "cancelled"
+          correction: "cancelled"
+        - typo: "Cancelled"
+          correction: "Cancelled"
+        - typo: "Cancelling"
+          correction: "Cancelling"
+
+  exclusions:
+    presets:
+      - std-error-handling
+      - common-false-positives
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gocritic
+      - path: embed\.go
+        linters:
+          - errcheck
+      - path: cmd/migrate-data/
+        linters:
+          - errcheck
+      - text: "Error return value of `fmt.Fprint"
+        linters:
+          - errcheck
+      - text: "Error return value of `os.Remove` is not checked"
+        linters:
+          - errcheck
+      - text: "Error return value of `(src|dst)\\.Close` is not checked"
+        linters:
+          - errcheck
+      - text: "unnecessary conversion"
+        path: internal/handlers/chat\.go
+        linters:
+          - unconvert
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
