@@ -1014,7 +1014,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
             )}
           </div>
         )}
-        <ChatInput ref={chatInputRef} onSend={handleSend} onSlashCommand={handleSlashCommand} queuedCount={queuedIds.size} planMode={planMode} onTogglePlanMode={() => setPlanMode((p) => !p)} />
+        <ChatInput key={threadId} ref={chatInputRef} onSend={handleSend} onSlashCommand={handleSlashCommand} queuedCount={queuedIds.size} planMode={planMode} onTogglePlanMode={() => setPlanMode((p) => !p)} />
       </div>
       {lightbox && (
         <Lightbox
