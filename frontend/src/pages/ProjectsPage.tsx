@@ -13,6 +13,7 @@ import {
 
 import { useProjects } from '../hooks/useProjects'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { updateProject } from '../api/client'
 import type { Project, BranchStrategy, TaskStatus } from '../types'
 
@@ -236,6 +237,7 @@ function ProjectRow({
 }
 
 export default function ProjectsPage() {
+  useDocumentTitle('Projects')
   const { projects, loading, error, refetch, scan, scanning } = useProjects()
   useRefreshOnFocus(refetch)
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 
 import { useSettings, type Theme, type FontSize } from '../context/SettingsContext'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import {
   fetchPersonas,
   createPersona,
@@ -1038,6 +1039,7 @@ function VoiceTab() {
 // ── Main Settings Page ──
 
 export default function SettingsPage() {
+  useDocumentTitle('Settings')
   const [activeTab, setActiveTab] = useState<TabId>('general')
 
   return (

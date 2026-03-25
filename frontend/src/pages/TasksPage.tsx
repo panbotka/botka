@@ -6,6 +6,7 @@ import { Plus, Loader2 } from 'lucide-react'
 import { TaskList } from '../components/TaskList'
 import { useTasks } from '../hooks/useTasks'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import type { TaskStatus } from '../types'
 
 type Filter = 'all' | TaskStatus
@@ -21,6 +22,7 @@ const filters: { value: Filter; label: string }[] = [
 ]
 
 export default function TasksPage() {
+  useDocumentTitle('Tasks')
   const [activeFilter, setActiveFilter] = useState<Filter>('all')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 

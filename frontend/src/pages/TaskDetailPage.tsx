@@ -17,6 +17,7 @@ import { TaskForm } from '../components/TaskForm'
 import { LiveOutputInline } from '../components/LiveOutput'
 import { fetchTask, retryTask, deleteTask, updateTask } from '../api/client'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import type { Task, TaskStatus, TaskExecution } from '../types'
 
 const statusConfig: Record<
@@ -54,6 +55,7 @@ function formatDate(iso: string): string {
 export default function TaskDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  useDocumentTitle(id === 'new' ? 'New Task' : '')
 
   if (id === 'new') {
     return (
@@ -99,6 +101,7 @@ function TaskDetail({ taskId }: { taskId: string }) {
   }, [load])
 
   useRefreshOnFocus(load)
+  useDocumentTitle(task?.title || 'Task')
 
   async function handleRetry() {
     setActing(true)

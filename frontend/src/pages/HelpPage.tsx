@@ -7,6 +7,8 @@ import {
   ListTodo,
 } from 'lucide-react'
 
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
+
 const contextLayers = [
   {
     num: 1,
@@ -107,6 +109,7 @@ function Section({
 }
 
 export default function HelpPage() {
+  useDocumentTitle('Help')
   return (
     <div className="mx-auto max-w-3xl">
       <h1 className="text-2xl font-bold text-zinc-900 mb-6">Help</h1>

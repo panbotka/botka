@@ -5,6 +5,7 @@ import { api } from '../api/client'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useProcesses } from '../hooks/useProcesses'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import ChatView from '../components/ChatView'
 import ThreadSidebar from '../components/ThreadSidebar'
 import ProcessBar from '../components/ProcessBar'
@@ -79,11 +80,7 @@ export default function ChatPage() {
 
   // Update document title
   const activeThread = threads.find(t => t.id === activeThreadId)
-  useEffect(() => {
-    document.title = activeThread?.title
-      ? `${activeThread.title} — Botka`
-      : 'Chat — Botka'
-  }, [activeThread?.title, activeThreadId])
+  useDocumentTitle(activeThread?.title || 'Chat')
 
   // Data loading
   const threadsLoaded = useRef(false)

@@ -12,6 +12,7 @@ import {
 
 import { RunnerStatus } from '../components/RunnerStatus'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import {
   fetchRunnerStatus,
   fetchTasks,
@@ -240,6 +241,7 @@ function RecentTasks({ tasks }: { tasks: Task[] }) {
 }
 
 export default function DashboardPage() {
+  useDocumentTitle('Dashboard')
   const [runnerStatus, setRunnerStatus] = useState<RunnerStatusType | null>(null)
   const [recentTasks, setRecentTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
