@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type DragEvent } from 'react';
 import type { Message, Thread, ThreadDetail, Attachment, ForkPoint } from '../types';
-import { api, streamChat, streamRegenerate, streamEdit, streamBranch } from '../api/client';
+import { api, streamChat, streamRegenerate, streamEdit, streamBranch, streamSubscribe } from '../api/client';
 import type { StreamChunk } from '../api/client';
 import MessageBubble from './MessageBubble';
 import ChatInput, { isAllowedFile, getFileExtension, MAX_FILE_SIZE } from './ChatInput';
@@ -198,6 +198,93 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
       })
       .catch(() => setMessages([]))
       .finally(() => setLoading(false));
+  }, [threadId]);
+
+  // Reconnect to an active stream when (re)mounting a thread.
+  // This handles the case where the user navigated away while a response
+  // was being generated and then navigated back.
+  useEffect(() => {
+    if (!threadId) return;
+    // Already streaming for this thread — nothing to reconnect.
+    if (streamingForThreadRef.current === threadId) return;
+
+    const controller = new AbortController();
+    let active = true;
+
+    (async () => {
+      try {
+        const stream = streamSubscribe(threadId, controller.signal);
+        const first = await stream.next();
+        if (first.done || !active) return;
+
+        // Active stream confirmed — set up streaming state.
+        streamingForThreadRef.current = threadId;
+        streamContentRef.current = '';
+        streamThinkingRef.current = '';
+        streamThinkingDurationRef.current = null;
+        onStreamingChange?.(threadId);
+        setStreamingContent('');
+        setStreamingThinking('');
+        setThinkingDurationMs(null);
+        setStreamError(null);
+        setActiveToolCalls([]);
+        setIsStreaming(true);
+
+        // Wrap the remaining stream to include the first chunk we already read.
+        async function* withFirst(f: StreamChunk, rest: AsyncGenerator<StreamChunk>): AsyncGenerator<StreamChunk> {
+          yield f;
+          yield* rest;
+        }
+
+        const assistantMsg = await consumeStream(withFirst(first.value!, stream));
+        if (assistantMsg && active) {
+          notifyResponse(assistantMsg.content);
+        }
+
+        // Refetch to get the saved response with correct DB IDs.
+        if (active) {
+          const data: ThreadDetail = await api.getThread(threadId);
+          if (active) {
+            setMessages(data.messages);
+            setForkPoints(data.fork_points || {});
+          }
+        }
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return;
+        // On error, refetch messages in case the response completed.
+        if (active) {
+          try {
+            const data: ThreadDetail = await api.getThread(threadId);
+            if (active) {
+              setMessages(data.messages);
+              setForkPoints(data.fork_points || {});
+            }
+          } catch { /* ignore */ }
+        }
+      } finally {
+        if (active && streamingForThreadRef.current === threadId) {
+          setStreamingContent('');
+          setStreamingThinking('');
+          setThinkingDurationMs(null);
+          streamContentRef.current = '';
+          streamThinkingRef.current = '';
+          streamThinkingDurationRef.current = null;
+          setIsStreaming(false);
+          streamingForThreadRef.current = null;
+          onStreamingChange?.(null);
+          playCompletionSound();
+        }
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId]);
 
   useEffect(() => {

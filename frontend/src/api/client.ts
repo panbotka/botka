@@ -541,6 +541,19 @@ export async function* streamBranch(
   yield* parseSSE(res)
 }
 
+export async function* streamSubscribe(
+  threadId: number,
+  signal: AbortSignal,
+): AsyncGenerator<StreamChunk> {
+  const res = await fetch(`${BASE_URL}/threads/${threadId}/stream/subscribe`, {
+    signal,
+  })
+
+  if (!res.ok) return
+
+  yield* parseSSE(res)
+}
+
 // Convenience object for use in hooks that call api.methodName()
 export const api = {
   // Projects

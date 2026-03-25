@@ -63,6 +63,7 @@ func RegisterChatRoutes(rg *gin.RouterGroup, h *ChatHandler) {
 	rg.PUT("/threads/:id/active-branch", h.SwitchBranch)
 	rg.POST("/threads/:id/session/clear", h.ClearSession)
 	rg.POST("/threads/:id/session/new", h.NewSession)
+	rg.GET("/threads/:id/stream/subscribe", h.SubscribeStream)
 }
 
 type sendMessageRequest struct {
@@ -439,6 +440,9 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 		stream = claude.Run(streamCtx, cfg, lastUserContent)
 	}
 
+	// Start a stream buffer so late-joining clients can reconnect.
+	claude.Streams.Start(threadID)
+
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	c.Writer.Header().Set("Connection", "keep-alive")
@@ -472,47 +476,57 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 		switch event.Kind {
 		case claude.KindContentDelta:
 			fullResponse.WriteString(event.Text)
+			chunk, _ := json.Marshal(map[string]string{"content": event.Text})
+			sseData := fmt.Sprintf("data: %s\n\n", chunk)
+			claude.Streams.Publish(threadID, sseData)
 			if !clientDisconnected {
-				chunk, _ := json.Marshal(map[string]string{"content": event.Text})
-				fmt.Fprintf(c.Writer, "data: %s\n\n", chunk)
+				fmt.Fprint(c.Writer, sseData)
 				flusher.Flush()
 			}
 
 		case claude.KindThinkingDelta:
+			chunk, _ := json.Marshal(map[string]string{"content": event.Thinking})
+			sseData := fmt.Sprintf("event: thinking\ndata: %s\n\n", chunk)
+			claude.Streams.Publish(threadID, sseData)
 			if !clientDisconnected {
-				chunk, _ := json.Marshal(map[string]string{"content": event.Thinking})
-				fmt.Fprintf(c.Writer, "event: thinking\ndata: %s\n\n", chunk)
+				fmt.Fprint(c.Writer, sseData)
 				flusher.Flush()
 			}
 
 		case claude.KindToolUse:
+			toolJSON, _ := json.Marshal(map[string]interface{}{
+				"id":    event.ToolID,
+				"name":  event.ToolName,
+				"input": json.RawMessage(event.ToolInput),
+			})
+			sseData := fmt.Sprintf("event: tool_use\ndata: %s\n\n", toolJSON)
+			claude.Streams.Publish(threadID, sseData)
 			if !clientDisconnected {
-				toolJSON, _ := json.Marshal(map[string]interface{}{
-					"id":    event.ToolID,
-					"name":  event.ToolName,
-					"input": json.RawMessage(event.ToolInput),
-				})
-				fmt.Fprintf(c.Writer, "event: tool_use\ndata: %s\n\n", toolJSON)
+				fmt.Fprint(c.Writer, sseData)
 				flusher.Flush()
 			}
 
 		case claude.KindToolResult:
+			resultJSON, _ := json.Marshal(map[string]interface{}{
+				"tool_use_id": event.ToolUseID,
+				"content":     event.ToolContent,
+				"is_error":    event.ToolIsError,
+			})
+			sseData := fmt.Sprintf("event: tool_result\ndata: %s\n\n", resultJSON)
+			claude.Streams.Publish(threadID, sseData)
 			if !clientDisconnected {
-				resultJSON, _ := json.Marshal(map[string]interface{}{
-					"tool_use_id": event.ToolUseID,
-					"content":     event.ToolContent,
-					"is_error":    event.ToolIsError,
-				})
-				fmt.Fprintf(c.Writer, "event: tool_result\ndata: %s\n\n", resultJSON)
+				fmt.Fprint(c.Writer, sseData)
 				flusher.Flush()
 			}
 
 		case claude.KindResult:
 			if event.IsError {
 				log.Printf("[chat] thread %d result error: %s", threadID, event.ErrorMsg)
+				errJSON, _ := json.Marshal(map[string]string{"error": event.ErrorMsg})
+				sseData := fmt.Sprintf("event: error\ndata: %s\n\n", errJSON)
+				claude.Streams.Publish(threadID, sseData)
 				if !clientDisconnected {
-					errJSON, _ := json.Marshal(map[string]string{"error": event.ErrorMsg})
-					fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", errJSON)
+					fmt.Fprint(c.Writer, sseData)
 					flusher.Flush()
 				}
 				errored = true
@@ -521,24 +535,28 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 				if fullResponse.Len() == 0 && event.ResultText != "" {
 					fullResponse.WriteString(event.ResultText)
 				}
+				usageJSON, _ := json.Marshal(map[string]interface{}{
+					"cost_usd":      event.CostUSD,
+					"duration_ms":   event.DurationMs,
+					"num_turns":     event.NumTurns,
+					"input_tokens":  event.InputTokens,
+					"output_tokens": event.OutputTokens,
+				})
+				sseData := fmt.Sprintf("event: usage\ndata: %s\n\n", usageJSON)
+				claude.Streams.Publish(threadID, sseData)
 				if !clientDisconnected {
-					usageJSON, _ := json.Marshal(map[string]interface{}{
-						"cost_usd":      event.CostUSD,
-						"duration_ms":   event.DurationMs,
-						"num_turns":     event.NumTurns,
-						"input_tokens":  event.InputTokens,
-						"output_tokens": event.OutputTokens,
-					})
-					fmt.Fprintf(c.Writer, "event: usage\ndata: %s\n\n", usageJSON)
+					fmt.Fprint(c.Writer, sseData)
 					flusher.Flush()
 				}
 			}
 
 		case claude.KindError:
 			log.Printf("[chat] thread %d process error: %s", threadID, event.ErrorMsg)
+			errJSON, _ := json.Marshal(map[string]string{"error": event.ErrorMsg})
+			sseData := fmt.Sprintf("event: error\ndata: %s\n\n", errJSON)
+			claude.Streams.Publish(threadID, sseData)
 			if !clientDisconnected {
-				errJSON, _ := json.Marshal(map[string]string{"error": event.ErrorMsg})
-				fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", errJSON)
+				fmt.Fprint(c.Writer, sseData)
 				flusher.Flush()
 			}
 			errored = true
@@ -568,16 +586,21 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 		if msgCount == 2 && needsAutoTitle {
 			generatedTitle := claude.TitleFromContent(lastUserContent)
 			h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("title", generatedTitle)
+			titleJSON, _ := json.Marshal(map[string]string{"title": generatedTitle})
+			sseData := fmt.Sprintf("event: title\ndata: %s\n\n", titleJSON)
+			claude.Streams.Publish(threadID, sseData)
 			if !clientDisconnected {
-				titleJSON, _ := json.Marshal(map[string]string{"title": generatedTitle})
-				fmt.Fprintf(c.Writer, "event: title\ndata: %s\n\n", titleJSON)
+				fmt.Fprint(c.Writer, sseData)
 				flusher.Flush()
 			}
 		}
 	}
 
+	doneData := "data: [DONE]\n\n"
+	claude.Streams.Publish(threadID, doneData)
+	claude.Streams.Finish(threadID)
 	if !clientDisconnected {
-		fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+		fmt.Fprint(c.Writer, doneData)
 		flusher.Flush()
 	}
 
@@ -627,6 +650,58 @@ func (h *ChatHandler) NewSession(c *gin.Context) {
 	h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("claude_session_id", newSessionID)
 
 	respondOK(c, gin.H{"status": "ok", "session_id": newSessionID})
+}
+
+// SubscribeStream allows a client to reconnect to an in-progress SSE stream
+// for a thread. It replays buffered events and then streams new ones until the
+// stream finishes or the client disconnects.
+func (h *ChatHandler) SubscribeStream(c *gin.Context) {
+	threadID, err := paramInt64(c, "id")
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "invalid thread id")
+		return
+	}
+
+	buffered, ch, ok := claude.Streams.Subscribe(threadID)
+	if !ok {
+		respondError(c, http.StatusNotFound, "no active stream")
+		return
+	}
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+
+	flusher, flusherOK := c.Writer.(http.Flusher)
+	if !flusherOK {
+		claude.Streams.Unsubscribe(threadID, ch)
+		respondError(c, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	// Replay buffered events.
+	for _, ev := range buffered {
+		fmt.Fprint(c.Writer, ev)
+	}
+	flusher.Flush()
+
+	// Stream new events until the stream finishes or client disconnects.
+	clientGone := c.Request.Context().Done()
+	for {
+		select {
+		case <-clientGone:
+			claude.Streams.Unsubscribe(threadID, ch)
+			return
+		case ev, open := <-ch:
+			if !open {
+				// Stream finished — all events (including [DONE]) already replayed.
+				return
+			}
+			fmt.Fprint(c.Writer, ev)
+			flusher.Flush()
+		}
+	}
 }
 
 // saveUploadedFile writes a multipart file to disk and creates a DB record.
