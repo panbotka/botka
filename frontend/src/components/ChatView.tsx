@@ -259,19 +259,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
 
         completionContextRef.current = { isBranching: false, isEdit: false };
 
-        sseManager.runStream(threadId, () => wrappedStream()).then(() => {
-          if (!active) return;
-          // Reload from DB to get saved messages with correct IDs
-          if (currentThreadIdRef.current === threadId) {
-            api.getThread(threadId).then((data: ThreadDetail) => {
-              if (currentThreadIdRef.current === threadId) {
-                setMessages(data.messages);
-                setForkPoints(data.fork_points || {});
-              }
-            }).catch(() => {});
-          }
-          handleStreamCompletionRef.current(threadId);
-        });
+        sseManager.runStream(threadId, () => wrappedStream());
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return;
         // On error, refetch messages in case the response completed
@@ -384,6 +372,24 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
 
   handleStreamCompletionRef.current = handleStreamCompletion;
 
+  // --- Reactive stream completion ---
+  // When the SSE session becomes complete, run the completion handler and
+  // reload messages from DB. This handles the case where the user navigated
+  // away and back — the old .then() callbacks have stale closures from the
+  // unmounted component, but this effect always runs in the current instance.
+  useEffect(() => {
+    if (!threadId || !sseSession?.isComplete) return;
+    handleStreamCompletionRef.current(threadId);
+    // Reload to replace temporary message with DB-persisted version
+    api.getThread(threadId).then((data: ThreadDetail) => {
+      if (currentThreadIdRef.current === threadId) {
+        setMessages(data.messages);
+        setForkPoints(data.fork_points || {});
+      }
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId, sseSession?.isComplete]);
+
   // --- Start a stream via the SSE manager ---
 
   const startStreamInManager = useCallback((content: string, files?: File[], branchParentId?: number | null) => {
@@ -404,9 +410,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
         ? streamBranch(threadId, branchParentId, content, signal)
         : streamChat(threadId, content, signal, files, planMode),
       { retryStreamFn: (signal) => streamRegenerate(threadId, signal) },
-    ).then(() => {
-      handleStreamCompletionRef.current(threadId);
-    });
+    );
   }, [threadId, planMode, sseManager, stopHealthPolling, onStreamingChange]);
 
   startStreamRef.current = startStreamInManager;
@@ -478,9 +482,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     sseManager.runStream(
       threadId,
       (signal) => streamRegenerate(threadId, signal),
-    ).then(() => {
-      handleStreamCompletionRef.current(threadId);
-    });
+    );
   }, [threadId, sseManager, onStreamingChange]);
 
   // --- Edit message ---
@@ -506,9 +508,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     sseManager.runStream(
       threadId,
       (signal) => streamEdit(threadId, messageId, content, signal),
-    ).then(() => {
-      handleStreamCompletionRef.current(threadId);
-    });
+    );
   }, [threadId, sseManager, onStreamingChange]);
 
   // --- Queue ---
