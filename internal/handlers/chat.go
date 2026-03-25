@@ -64,6 +64,7 @@ func RegisterChatRoutes(rg *gin.RouterGroup, h *ChatHandler) {
 	rg.POST("/threads/:id/session/clear", h.ClearSession)
 	rg.POST("/threads/:id/session/new", h.NewSession)
 	rg.GET("/threads/:id/stream/subscribe", h.SubscribeStream)
+	rg.GET("/threads/:id/session-health", h.SessionHealth)
 }
 
 type sendMessageRequest struct {
@@ -612,6 +613,9 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 			}
 		}
 
+		// Update session token tracking
+		claude.Sessions.UpdateTokens(threadID, lastInputTokens, lastOutputTokens)
+
 		// Auto-title from first message
 		var msgCount int64
 		h.db.Model(&models.Message{}).Where("thread_id = ?", threadID).Count(&msgCount)
@@ -677,6 +681,30 @@ func (h *ChatHandler) NewSession(c *gin.Context) {
 	h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("claude_session_id", newSessionID)
 
 	respondOK(c, gin.H{"status": "ok", "session_id": newSessionID})
+}
+
+// SessionHealth returns health information for the active Claude session
+// on a thread, including token usage and context window proximity.
+func (h *ChatHandler) SessionHealth(c *gin.Context) {
+	threadID, err := paramInt64(c, "id")
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "invalid thread id")
+		return
+	}
+
+	var thread models.Thread
+	if err := h.db.First(&thread, threadID).Error; err != nil {
+		respondError(c, http.StatusNotFound, "thread not found")
+		return
+	}
+
+	model := h.model
+	if thread.Model != nil && *thread.Model != "" {
+		model = *thread.Model
+	}
+
+	health := claude.Sessions.GetHealth(threadID, model)
+	respondOK(c, health)
 }
 
 // SubscribeStream allows a client to reconnect to an in-progress SSE stream

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, type DragEvent } from 'react';
 import type { Message, Thread, ThreadDetail, Attachment, ForkPoint } from '../types';
-import { api, streamChat, streamRegenerate, streamEdit, streamBranch, streamSubscribe } from '../api/client';
+import { api, streamChat, streamRegenerate, streamEdit, streamBranch, streamSubscribe, fetchSessionHealth } from '../api/client';
+import type { SessionHealthData } from '../api/client';
 import type { StreamChunk } from '../api/client';
 import { useSSEManager, useSSESession } from '../context/SSEContext';
 import type { ActiveToolCall } from '../context/SSEContext';
@@ -40,6 +41,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
   const [memorySuggestions, setMemorySuggestions] = useState<string[]>([]);
   const [forkPoints, setForkPoints] = useState<Record<string, ForkPoint>>({});
   const [usageInfo, setUsageInfo] = useState<{ cost_usd?: number; input_tokens?: number; output_tokens?: number } | null>(null);
+  const [sessionHealth, setSessionHealth] = useState<SessionHealthData | null>(null);
   const [branchFromId, setBranchFromId] = useState<number | null>(null);
   const [planMode, setPlanMode] = useState(false);
 
@@ -222,6 +224,21 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
   useEffect(() => {
     if (sseSession?.usageInfo) setUsageInfo(sseSession.usageInfo);
   }, [sseSession?.usageInfo]);
+
+  // Fetch session health after each message completes (when usageInfo updates)
+  useEffect(() => {
+    if (!threadId || !usageInfo) return;
+    let cancelled = false;
+    fetchSessionHealth(threadId).then(health => {
+      if (!cancelled) setSessionHealth(health);
+    }).catch(() => { /* ignore */ });
+    return () => { cancelled = true; };
+  }, [threadId, usageInfo]);
+
+  // Clear session health when thread changes
+  useEffect(() => {
+    setSessionHealth(null);
+  }, [threadId]);
 
   // Sync memorySuggestions from SSE session to local state (persists after stream ends)
   useEffect(() => {
@@ -916,19 +933,41 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
         {usageInfo && (usageInfo.input_tokens || usageInfo.cost_usd) && (
           <div className="flex items-center gap-3 px-4 pb-1 text-[10px] text-zinc-400">
             {usageInfo.input_tokens != null && usageInfo.input_tokens > 0 && (() => {
-              const contextWindow = 200000;
+              const contextWindow = thread?.model === 'opus' ? 1_000_000 : 200_000;
               const used = usageInfo.input_tokens!;
               const pct = Math.min((used / contextWindow) * 100, 100);
               const formatK = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+              const barColor = pct > 80 ? 'bg-red-500' : pct > 50 ? 'bg-amber-500' : 'bg-emerald-500';
+              const pctColor = pct > 80 ? 'text-red-400' : pct > 50 ? 'text-amber-400' : 'text-zinc-400';
+              const tooltipLines = [
+                `Context: ${formatK(used)} / ${formatK(contextWindow)} (${pct.toFixed(1)}%)`,
+                `Input tokens: ${usageInfo.input_tokens?.toLocaleString()}`,
+                `Output tokens: ${usageInfo.output_tokens?.toLocaleString() || '\u2014'}`,
+              ];
+              if (sessionHealth?.active) {
+                tooltipLines.push(`Total input: ${sessionHealth.total_input_tokens?.toLocaleString()}`);
+                tooltipLines.push(`Total output: ${sessionHealth.total_output_tokens?.toLocaleString()}`);
+                tooltipLines.push(`Messages: ${sessionHealth.message_count}`);
+                if (sessionHealth.started_at) {
+                  const elapsed = Math.floor((Date.now() - new Date(sessionHealth.started_at).getTime()) / 1000);
+                  const mins = Math.floor(elapsed / 60);
+                  const secs = elapsed % 60;
+                  tooltipLines.push(`Session uptime: ${mins}m ${secs}s`);
+                }
+              }
               return (
-                <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 flex-1 min-w-0" title={tooltipLines.join('\n')}>
                   <div className="flex-1 h-1 bg-zinc-200 rounded-full overflow-hidden min-w-[60px]">
                     <div
-                      className={`h-full rounded-full transition-all ${pct > 80 ? 'bg-red-500' : pct > 50 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                      className={`h-full rounded-full transition-all ${barColor}`}
                       style={{ width: `${pct}%` }}
                     />
                   </div>
+                  <span className={pctColor}>{Math.round(pct)}%</span>
                   <span>{formatK(used)} / {formatK(contextWindow)}</span>
+                  {sessionHealth?.active && sessionHealth.message_count != null && (
+                    <span className="text-zinc-300">{sessionHealth.message_count} msg</span>
+                  )}
                 </div>
               );
             })()}

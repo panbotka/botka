@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os/exec"
 	"strings"
 	"sync"
@@ -28,6 +29,29 @@ type SessionManager struct {
 	mu       sync.Mutex
 	sessions map[int64]*Session
 	ttl      time.Duration
+}
+
+// ModelContextLimit returns the context window size for a given model name.
+func ModelContextLimit(model string) int {
+	switch model {
+	case "opus":
+		return 1_000_000
+	default:
+		return 200_000
+	}
+}
+
+// SessionHealth contains health information for an active session.
+type SessionHealth struct {
+	Active                 bool    `json:"active"`
+	TotalInputTokens       int     `json:"total_input_tokens,omitempty"`
+	TotalOutputTokens      int     `json:"total_output_tokens,omitempty"`
+	EstimatedContextTokens int     `json:"estimated_context_tokens,omitempty"`
+	ContextLimit           int     `json:"context_limit,omitempty"`
+	ContextUsagePct        float64 `json:"context_usage_pct,omitempty"`
+	Model                  string  `json:"model,omitempty"`
+	StartedAt              string  `json:"started_at,omitempty"`
+	MessageCount           int     `json:"message_count,omitempty"`
 }
 
 // Session represents a persistent Claude Code process for a single thread.
@@ -59,6 +83,13 @@ type Session struct {
 	dead bool
 
 	sessionPrefix string
+
+	// Token tracking for session health monitoring.
+	totalInputTokens  int
+	totalOutputTokens int
+	lastInputTokens   int
+	messageCount      int
+	startedAt         time.Time
 }
 
 // Sessions is the package-level session manager singleton.
@@ -164,6 +195,7 @@ func (m *SessionManager) startSession(cfg RunConfig, threadID int64, threadTitle
 		threadID:      threadID,
 		threadTitle:   threadTitle,
 		sessionPrefix: sessionPrefix,
+		startedAt:     time.Now(),
 	}
 
 	// Set up the stdout scanner for NDJSON parsing
@@ -371,6 +403,49 @@ func (m *SessionManager) IsBusy(threadID int64) bool {
 		return s.busy
 	}
 	return false
+}
+
+// UpdateTokens records token usage from a completed message on the session
+// for the given thread. Safe to call even if no session exists.
+func (m *SessionManager) UpdateTokens(threadID int64, inputTokens, outputTokens int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s, ok := m.sessions[threadID]; ok && !s.dead {
+		s.totalInputTokens += inputTokens
+		s.totalOutputTokens += outputTokens
+		s.lastInputTokens = inputTokens
+		s.messageCount++
+	}
+}
+
+// GetHealth returns session health information for the given thread.
+// If no active session exists, returns SessionHealth with Active=false.
+func (m *SessionManager) GetHealth(threadID int64, model string) SessionHealth {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.sessions[threadID]
+	if !ok || s.dead {
+		return SessionHealth{Active: false}
+	}
+	limit := ModelContextLimit(model)
+	var pct float64
+	if limit > 0 && s.lastInputTokens > 0 {
+		pct = float64(s.lastInputTokens) / float64(limit) * 100
+		if pct > 100 {
+			pct = 100
+		}
+	}
+	return SessionHealth{
+		Active:                 true,
+		TotalInputTokens:       s.totalInputTokens,
+		TotalOutputTokens:      s.totalOutputTokens,
+		EstimatedContextTokens: s.lastInputTokens,
+		ContextLimit:           limit,
+		ContextUsagePct:        math.Round(pct*10) / 10,
+		Model:                  model,
+		StartedAt:              s.startedAt.Format(time.RFC3339),
+		MessageCount:           s.messageCount,
+	}
 }
 
 // buildStreamArgs builds the command-line arguments for a persistent

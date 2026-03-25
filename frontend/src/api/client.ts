@@ -227,6 +227,22 @@ export function newSession(id: number): Promise<void> {
   return request<void>(`/threads/${id}/session/new`, { method: 'POST' })
 }
 
+export interface SessionHealthData {
+  active: boolean
+  total_input_tokens?: number
+  total_output_tokens?: number
+  estimated_context_tokens?: number
+  context_limit?: number
+  context_usage_pct?: number
+  model?: string
+  started_at?: string
+  message_count?: number
+}
+
+export function fetchSessionHealth(id: number): Promise<SessionHealthData> {
+  return requestData<SessionHealthData>(`/threads/${id}/session-health`)
+}
+
 export function renameThread(id: number, title: string): Promise<Thread> {
   return updateThread(id, { title } as Partial<Thread>)
 }
@@ -608,6 +624,7 @@ export const api = {
   clearMessages,
   clearSession,
   newSession,
+  fetchSessionHealth,
   renameThread,
   updateModel,
   switchBranch,
