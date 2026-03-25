@@ -610,7 +610,9 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 		h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("claude_session_id", nil)
 	}
 
-	// Pre-warm the next session so subsequent messages skip process startup.
+	// Pre-warm the next session so subsequent messages skip process startup latency.
+	// This is a latency optimization only — each message still spawns a new process
+	// that reloads session context, so token usage is unchanged. See pool.go for details.
 	// PreWarm also registers in the Registry, seamlessly replacing the active entry.
 	if !errored && cfg.SessionID != "" {
 		prewarmCfg := cfg

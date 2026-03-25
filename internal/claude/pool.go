@@ -12,10 +12,29 @@ import (
 	"time"
 )
 
-// SessionPool manages pre-warmed Claude Code subprocesses that stay alive
-// between messages. After a response completes, a new idle process is spawned
-// with --resume but no prompt argument. It reads from stdin when the next
-// message arrives. After the configured TTL of inactivity, it is killed.
+// SessionPool manages pre-warmed Claude Code subprocesses to reduce message
+// latency. This is a LATENCY optimization only — it does NOT reduce token usage.
+//
+// How it works:
+//  1. After a response completes, PreWarm spawns a new process with --resume
+//     and writes a keepalive byte to stdin to prevent the 3-second timeout.
+//  2. The process loads the session context and waits for more stdin data.
+//  3. When the next message arrives, RunFromPool writes the prompt and closes
+//     stdin (EOF), which triggers the response. The process exits after responding.
+//  4. A new process is pre-warmed for the next message.
+//
+// Why not true session reuse (keeping one process alive across messages)?
+// Claude Code's -p (print) mode reads stdin until EOF as a single prompt, then
+// exits. There is no delimiter protocol for sending multiple prompts to a single
+// process. The --input-format stream-json flag exists but is undocumented and
+// designed for IDE integrations — adopting it would require understanding its
+// input schema and bidirectional protocol, which aren't publicly specified.
+//
+// Multi-turn conversations in headless mode are designed to use separate
+// `claude -p --resume <id>` invocations, one per message. Each invocation
+// reloads the session context from disk, so token usage is the same whether
+// or not the pool is used. The pool saves ~100-500ms of process startup time
+// by having the next process already running and waiting for input.
 type SessionPool struct {
 	mu       sync.Mutex
 	sessions map[int64]*poolEntry
@@ -47,9 +66,11 @@ func NewSessionPool(ttl time.Duration) *SessionPool {
 }
 
 // PreWarm spawns a new idle Claude process for the given thread.
-// The process loads the session and waits for a prompt on stdin.
-// The process is also registered in the ProcessRegistry so it shows
-// in the UI as an active session.
+// The process starts loading session context from disk immediately, so by the
+// time the next user message arrives, the ~100-500ms startup cost is already paid.
+// A keepalive byte is written to stdin to prevent Claude's 3-second stdin timeout.
+// The process is also registered in the ProcessRegistry so the UI shows a
+// continuous session indicator between messages.
 func (p *SessionPool) PreWarm(cfg RunConfig, threadID int64, threadTitle string) {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -209,6 +230,11 @@ func (p *SessionPool) Shutdown() {
 
 // RunFromPool pipes a prompt to a pre-warmed session's stdin and streams
 // events from its stdout. The event channel has identical semantics to Run.
+//
+// Stdin MUST be closed after writing the prompt because Claude Code's -p mode
+// reads all of stdin until EOF as the prompt. The process will exit after
+// streaming its response — this is by design, not a limitation of our code.
+// A new process is pre-warmed by the caller after the response completes.
 func RunFromPool(entry *poolEntry, prompt string) <-chan StreamEvent {
 	ch := make(chan StreamEvent, 64)
 
@@ -275,8 +301,10 @@ func RunFromPool(entry *poolEntry, prompt string) <-chan StreamEvent {
 	return ch
 }
 
-// buildIdleArgs builds the command-line arguments for a pre-warmed session
-// (same as Run but without the prompt argument).
+// buildIdleArgs builds the command-line arguments for a pre-warmed process.
+// Same flags as Run but without the prompt argument — the prompt is written
+// to stdin later by RunFromPool. The process uses -p (print) mode, which
+// reads all stdin until EOF as the prompt, then exits after responding.
 func buildIdleArgs(cfg RunConfig) []string {
 	args := []string{
 		"-p",
