@@ -28,8 +28,8 @@ internal/
   static/            Frontend static file serving (go:embed)
 frontend/src/
   api/               API client methods
-  components/        React components (24 files)
-  context/           React context (SettingsContext)
+  components/        React components (25 files)
+  context/           React context (SSEContext, SettingsContext)
   hooks/             Custom React hooks (13 hooks)
   pages/             Page components (8 pages)
   types/             TypeScript type definitions
@@ -74,7 +74,7 @@ make clean          # Remove build artifacts
 
 ## Testing
 
-**~312 tests** across 28 test files covering all packages. Tests use stdlib `testing` only (no external test frameworks).
+**~312 tests** across 29 test files covering all packages. Tests use stdlib `testing` only (no external test frameworks).
 
 ```bash
 make test           # Run all tests with race detector

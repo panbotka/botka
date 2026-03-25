@@ -100,7 +100,7 @@ All settings are loaded from `.env` file and environment variables (env vars tak
 |----------|---------|-------------|
 | `PROJECTS_DIR` | `/home/pi/projects` | Directory to scan for git repos |
 | `CLAUDE_PATH` | `claude` | Path to Claude Code CLI binary |
-| `CLAUDE_CREDENTIALS_PATH` | `/home/pi/.claude/.credentials.json` | API credentials for usage monitoring |
+| `CLAUDE_USAGE_CMD` | `/home/pi/bin/claude-usage` | Command to fetch API usage data as JSON |
 | `CLAUDE_CONTEXT_DIR` | `./data/context` | Directory for assembled context files |
 | `CLAUDE_DEFAULT_WORK_DIR` | `/home/pi` | Default working directory for Claude chat sessions |
 | `AI_MODEL` | `sonnet` | Default Claude model for new chats |
@@ -144,7 +144,7 @@ make frontend-build   # Build frontend only
 
 ### Testing
 
-~295 tests across 28 test files. Handler integration tests use a `botka_test` PostgreSQL database:
+~312 tests across 29 test files. Handler integration tests use a `botka_test` PostgreSQL database:
 
 ```bash
 make test-db          # Create test database (one-time)
