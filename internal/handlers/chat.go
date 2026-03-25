@@ -136,16 +136,23 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	}
 	h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("updated_at", time.Now())
 
-	// Save uploaded files
+	// Save uploaded files and collect successful attachments
+	var attachments []*models.Attachment
 	for _, fh := range files {
-		if _, err := h.saveUploadedFile(msg.ID, fh); err != nil {
+		att, err := h.saveUploadedFile(msg.ID, fh)
+		if err != nil {
 			log.Printf("failed to save uploaded file %s: %v", fh.Filename, err)
+			continue
 		}
+		attachments = append(attachments, att)
 	}
 
 	prompt := content
+	if len(attachments) > 0 {
+		prompt = h.buildPromptWithAttachments(content, attachments)
+	}
 	if planMode {
-		prompt = "[PLAN MODE] You are in PLAN mode. Only analyze, read, search, and discuss. Do NOT edit, write, or create files. Do NOT run destructive commands. Plan your approach and explain what you would do.\n\n" + content
+		prompt = "[PLAN MODE] You are in PLAN mode. Only analyze, read, search, and discuss. Do NOT edit, write, or create files. Do NOT run destructive commands. Plan your approach and explain what you would do.\n\n" + prompt
 	}
 
 	h.streamResponse(c, &thread, prompt, &msg.ID)
@@ -714,6 +721,36 @@ func (h *ChatHandler) SubscribeStream(c *gin.Context) {
 			flusher.Flush()
 		}
 	}
+}
+
+// buildPromptWithAttachments appends file references to the prompt so Claude can read them.
+func (h *ChatHandler) buildPromptWithAttachments(content string, attachments []*models.Attachment) string {
+	absDir, err := filepath.Abs(h.uploadDir)
+	if err != nil {
+		absDir = h.uploadDir
+	}
+
+	var b strings.Builder
+	if content == "(attached files)" {
+		// Files-only message — don't include the placeholder
+	} else {
+		b.WriteString(content)
+	}
+
+	b.WriteString("\n\nAttached files:\n")
+	hasImage := false
+	for _, att := range attachments {
+		absPath := filepath.Join(absDir, att.StoredName)
+		fmt.Fprintf(&b, "- %s (%s, original: %s)\n", absPath, att.MimeType, att.OriginalName)
+		if strings.HasPrefix(att.MimeType, "image/") {
+			hasImage = true
+		}
+	}
+	if hasImage {
+		b.WriteString("\nUse the Read tool to view image files.")
+	}
+
+	return b.String()
 }
 
 // saveUploadedFile writes a multipart file to disk and creates a DB record.
