@@ -338,7 +338,9 @@ func (h *ChatHandler) SwitchBranch(c *gin.Context) {
 	respondOK(c, gin.H{"status": "ok"})
 }
 
-// streamResponse is the core function that spawns Claude and streams SSE events.
+// streamResponse is the core function that sends a message to Claude and streams SSE events.
+// It uses persistent sessions via SessionManager: a single Claude Code process stays alive
+// across all messages in a thread using the --input-format stream-json protocol.
 func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, lastUserContent string, lastUserMsgID *int64) {
 	threadID := thread.ID
 
@@ -423,25 +425,38 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 	cfg.WorkDir = workDir
 	cfg.Name = thread.Title
 
-	// Use a background context for the Claude process so it completes even
-	// if the HTTP client disconnects. This prevents losing responses when the
-	// browser has a network hiccup or the user switches tabs on mobile.
-	streamCtx, streamCancel := context.WithCancel(context.Background())
-	defer streamCancel()
-	claude.Registry.Register(threadID, thread.Title, streamCancel)
-	// NOTE: we do NOT defer Registry.Unregister here. Instead, Pool.PreWarm
-	// seamlessly replaces the active entry with the pre-warmed one, keeping
-	// the ProcessBar visible continuously. On error (no PreWarm), we
-	// unregister explicitly below.
-
-	// Try to use a pre-warmed session from the pool (avoids process startup).
-	var stream <-chan claude.StreamEvent
-	if entry := claude.Pool.Acquire(threadID, cfg); entry != nil {
-		log.Printf("[chat] using pre-warmed session for thread %d", threadID)
-		stream = claude.RunFromPool(entry, lastUserContent)
-	} else {
-		stream = claude.Run(streamCtx, cfg, lastUserContent)
+	// Get or create a persistent session for this thread.
+	// The session stays alive across messages — no need for pre-warming or
+	// per-message process spawns. Registry is managed by SessionManager.
+	session, isNew := claude.Sessions.GetOrCreate(cfg, threadID, thread.Title)
+	if session == nil {
+		// Failed to start process — fall back to one-shot Run
+		log.Printf("[chat] failed to create session for thread %d, falling back to Run", threadID)
+		streamCtx, streamCancel := context.WithCancel(context.Background())
+		defer streamCancel()
+		claude.Registry.Register(threadID, thread.Title, streamCancel)
+		stream := claude.Run(streamCtx, cfg, lastUserContent)
+		h.streamEventsToClient(c, thread, stream, lastUserContent, lastUserMsgID, cfg, true)
+		return
 	}
+
+	_ = isNew // session manager handles registration
+
+	// Send the message to the persistent session
+	stream := claude.Sessions.SendMessage(session, lastUserContent)
+
+	// Start a stream buffer so late-joining clients can reconnect.
+	claude.Streams.Start(threadID)
+
+	h.streamEventsToClient(c, thread, stream, lastUserContent, lastUserMsgID, cfg, false)
+}
+
+// streamEventsToClient reads events from a stream channel and sends them to the
+// HTTP client as SSE. It also saves the response to the database and handles
+// stale session cleanup. If isFallback is true, the registry entry is cleaned up
+// on completion (one-shot Run mode); otherwise the persistent session stays registered.
+func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread, stream <-chan claude.StreamEvent, lastUserContent string, lastUserMsgID *int64, cfg claude.RunConfig, isFallback bool) {
+	threadID := thread.ID
 
 	// Start a stream buffer so late-joining clients can reconnect.
 	claude.Streams.Start(threadID)
@@ -611,20 +626,12 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 	if errored && strings.Contains(lastErrorMsg, "No conversation found") {
 		log.Printf("[chat] thread %d: stale session %s, clearing for next attempt", threadID, cfg.SessionID)
 		h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("claude_session_id", nil)
+		claude.Sessions.Evict(threadID)
 	}
 
-	// Pre-warm the next session so subsequent messages skip process startup latency.
-	// This is a latency optimization only — each message still spawns a new process
-	// that reloads session context, so token usage is unchanged. See pool.go for details.
-	// PreWarm also registers in the Registry, seamlessly replacing the active entry.
-	if !errored && cfg.SessionID != "" {
-		prewarmCfg := cfg
-		prewarmCfg.Resume = true
-		prewarmCfg.SystemPromptFile = ""
-		prewarmCfg.Name = ""
-		go claude.Pool.PreWarm(prewarmCfg, threadID, thread.Title)
-	} else {
-		// No pre-warm (error or no session), clean up the registry entry
+	// For fallback one-shot Run mode, clean up registry. For persistent sessions,
+	// the session stays registered — it's alive and waiting for the next message.
+	if isFallback && errored {
 		claude.Registry.Unregister(threadID)
 	}
 }
@@ -637,7 +644,7 @@ func (h *ChatHandler) ClearSession(c *gin.Context) {
 		return
 	}
 
-	claude.Pool.Evict(threadID)
+	claude.Sessions.Evict(threadID)
 	h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("claude_session_id", nil)
 	respondOK(c, gin.H{"status": "ok"})
 }
@@ -650,7 +657,7 @@ func (h *ChatHandler) NewSession(c *gin.Context) {
 		return
 	}
 
-	claude.Pool.Evict(threadID)
+	claude.Sessions.Evict(threadID)
 	newSessionID := uuid.New().String()
 	h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("claude_session_id", newSessionID)
 

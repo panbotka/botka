@@ -255,7 +255,7 @@ func (h *ThreadHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	claude.Pool.Evict(id)
+	claude.Sessions.Evict(id)
 
 	// Delete branch_selections, messages (with attachments), thread_tags, then thread
 	tx := h.db.Begin()
@@ -363,7 +363,7 @@ func (h *ThreadHandler) UpdateModel(c *gin.Context) {
 		return
 	}
 
-	claude.Pool.Evict(id)
+	claude.Sessions.Evict(id)
 	h.db.Model(&models.Thread{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"model":      req.Model,
 		"updated_at": time.Now(),
@@ -390,7 +390,7 @@ func (h *ThreadHandler) SetProject(c *gin.Context) {
 		return
 	}
 
-	claude.Pool.Evict(id)
+	claude.Sessions.Evict(id)
 	// Clear session ID — the old session was created for a different directory/context
 	h.db.Model(&models.Thread{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"project_id":        req.ProjectID,
@@ -451,7 +451,7 @@ func (h *ThreadHandler) ClearMessages(c *gin.Context) {
 	tx.Commit()
 
 	// Clear session since messages are gone
-	claude.Pool.Evict(id)
+	claude.Sessions.Evict(id)
 	h.db.Model(&models.Thread{}).Where("id = ?", id).Update("claude_session_id", nil)
 
 	respondOK(c, gin.H{"status": "ok"})

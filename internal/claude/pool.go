@@ -3,6 +3,7 @@ package claude
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -12,69 +13,105 @@ import (
 	"time"
 )
 
-// SessionPool manages pre-warmed Claude Code subprocesses to reduce message
-// latency. This is a LATENCY optimization only — it does NOT reduce token usage.
+// SessionManager manages persistent Claude Code processes that stay alive across
+// multiple messages in a thread. Instead of spawning a new process per message,
+// a single process uses --input-format stream-json to accept NDJSON user messages
+// on stdin and streams responses on stdout.
 //
-// How it works:
-//  1. After a response completes, PreWarm spawns a new process with --resume
-//     and writes a keepalive byte to stdin to prevent the 3-second timeout.
-//  2. The process loads the session context and waits for more stdin data.
-//  3. When the next message arrives, RunFromPool writes the prompt and closes
-//     stdin (EOF), which triggers the response. The process exits after responding.
-//  4. A new process is pre-warmed for the next message.
-//
-// Why not true session reuse (keeping one process alive across messages)?
-// Claude Code's -p (print) mode reads stdin until EOF as a single prompt, then
-// exits. There is no delimiter protocol for sending multiple prompts to a single
-// process. The --input-format stream-json flag exists but is undocumented and
-// designed for IDE integrations — adopting it would require understanding its
-// input schema and bidirectional protocol, which aren't publicly specified.
-//
-// Multi-turn conversations in headless mode are designed to use separate
-// `claude -p --resume <id>` invocations, one per message. Each invocation
-// reloads the session context from disk, so token usage is the same whether
-// or not the pool is used. The pool saves ~100-500ms of process startup time
-// by having the next process already running and waiting for input.
-type SessionPool struct {
+// Process lifecycle:
+//  1. First message to a thread spawns a new process with stream-json I/O
+//  2. Each subsequent message writes NDJSON to the existing process's stdin
+//  3. The process responds with NDJSON events, ending with a "result" event
+//  4. After 5 minutes idle (no messages), the process is killed
+//  5. Model/project changes or session clears kill the process; next message restarts
+type SessionManager struct {
 	mu       sync.Mutex
-	sessions map[int64]*poolEntry
+	sessions map[int64]*Session
 	ttl      time.Duration
 }
 
-type poolEntry struct {
-	cmd         *exec.Cmd
-	stdin       io.WriteCloser
-	stdout      io.ReadCloser
-	stderr      io.ReadCloser
-	stderrBuf   *stderrBuffer
-	cancel      context.CancelFunc
-	timer       *time.Timer
-	cfg         RunConfig
+// Session represents a persistent Claude Code process for a single thread.
+type Session struct {
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
+	stdout    io.ReadCloser
+	stderr    io.ReadCloser
+	stderrBuf *stderrBuffer
+	scanner   *bufio.Scanner
+	cancel    context.CancelFunc
+	timer     *time.Timer
+	cfg       RunConfig
+
 	threadID    int64
 	threadTitle string
+
+	// busy is true while a message is being processed (between writing the
+	// user message and receiving the result event). Only one message at a
+	// time per session.
+	busy bool
+
+	// msgMu serializes message sends to this session. A second message
+	// arriving while one is in-flight blocks until the first completes.
+	msgMu sync.Mutex
+
+	// dead is set when the process exits or is killed. Once dead, the
+	// session must be removed and a new one created.
+	dead bool
+
+	sessionPrefix string
 }
 
-// Pool is the package-level session pool singleton.
-var Pool = NewSessionPool(5 * time.Minute)
+// Sessions is the package-level session manager singleton.
+var Sessions = NewSessionManager(5 * time.Minute)
 
-// NewSessionPool creates a session pool with the given idle timeout.
-func NewSessionPool(ttl time.Duration) *SessionPool {
-	return &SessionPool{
-		sessions: make(map[int64]*poolEntry),
+// NewSessionManager creates a session manager with the given idle timeout.
+func NewSessionManager(ttl time.Duration) *SessionManager {
+	return &SessionManager{
+		sessions: make(map[int64]*Session),
 		ttl:      ttl,
 	}
 }
 
-// PreWarm spawns a new idle Claude process for the given thread.
-// The process starts loading session context from disk immediately, so by the
-// time the next user message arrives, the ~100-500ms startup cost is already paid.
-// A keepalive byte is written to stdin to prevent Claude's 3-second stdin timeout.
-// The process is also registered in the ProcessRegistry so the UI shows a
-// continuous session indicator between messages.
-func (p *SessionPool) PreWarm(cfg RunConfig, threadID int64, threadTitle string) {
+// GetOrCreate returns the existing persistent session for a thread, or creates
+// a new one. If the existing session's config doesn't match (model, workdir,
+// session ID changed), it kills the old session and creates a fresh one.
+// Returns the session and true if it was newly created.
+func (m *SessionManager) GetOrCreate(cfg RunConfig, threadID int64, threadTitle string) (*Session, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if s, ok := m.sessions[threadID]; ok && !s.dead {
+		// Check config compatibility
+		if s.cfg.SessionID == cfg.SessionID &&
+			s.cfg.Model == cfg.Model &&
+			s.cfg.WorkDir == cfg.WorkDir {
+			// Reset idle timer
+			s.timer.Stop()
+			s.timer = time.AfterFunc(m.ttl, func() { m.idleTimeout(threadID) })
+			return s, false
+		}
+		// Config mismatch — kill old session
+		log.Printf("[session] config mismatch for thread %d, killing old session", threadID)
+		s.timer.Stop()
+		s.cancel()
+		s.dead = true
+		delete(m.sessions, threadID)
+	}
+
+	// Start a new persistent process
+	s := m.startSession(cfg, threadID, threadTitle)
+	if s == nil {
+		return nil, true
+	}
+	m.sessions[threadID] = s
+	return s, true
+}
+
+// startSession spawns a new Claude Code process with stream-json I/O.
+func (m *SessionManager) startSession(cfg RunConfig, threadID int64, threadTitle string) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	args := buildIdleArgs(cfg)
+	args := buildStreamArgs(cfg)
 	cmd := exec.CommandContext(ctx, cfg.ClaudePath, args...)
 	if cfg.WorkDir != "" {
 		cmd.Dir = cfg.WorkDir
@@ -83,190 +120,140 @@ func (p *SessionPool) PreWarm(cfg RunConfig, threadID int64, threadTitle string)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()
-		log.Printf("[pool] stdin pipe error for thread %d: %v", threadID, err)
-		return
+		log.Printf("[session] stdin pipe error for thread %d: %v", threadID, err)
+		return nil
 	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		cancel()
-		log.Printf("[pool] stdout pipe error for thread %d: %v", threadID, err)
-		return
+		log.Printf("[session] stdout pipe error for thread %d: %v", threadID, err)
+		return nil
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		cancel()
-		log.Printf("[pool] stderr pipe error for thread %d: %v", threadID, err)
-		return
-	}
-
-	if err := cmd.Start(); err != nil {
-		cancel()
-		log.Printf("[pool] failed to pre-warm for thread %d: %v", threadID, err)
-		return
-	}
-
-	// Write a space immediately to prevent Claude's 3-second stdin timeout.
-	// Claude reads all of stdin until EOF as the prompt, so the leading space
-	// is harmless — it just keeps the process alive waiting for more input.
-	if _, err := stdin.Write([]byte(" ")); err != nil {
-		cancel()
-		log.Printf("[pool] failed to write keepalive for thread %d: %v", threadID, err)
-		return
+		log.Printf("[session] stderr pipe error for thread %d: %v", threadID, err)
+		return nil
 	}
 
 	sessionPrefix := cfg.SessionID
 	if len(sessionPrefix) > 8 {
 		sessionPrefix = sessionPrefix[:8]
 	}
-	log.Printf("[pool] pre-warmed session %s for thread %d (pid %d)", sessionPrefix, threadID, cmd.Process.Pid)
 
-	// Register in the process registry so the UI shows the session as active.
-	Registry.Register(threadID, threadTitle, cancel)
+	log.Printf("[session] spawning: %s %v (dir=%s)", cfg.ClaudePath, args, cmd.Dir)
 
-	entry := &poolEntry{
-		cmd:         cmd,
-		stdin:       stdin,
-		stdout:      stdout,
-		stderr:      stderr,
-		stderrBuf:   &stderrBuffer{},
-		cancel:      cancel,
-		cfg:         cfg,
-		threadID:    threadID,
-		threadTitle: threadTitle,
+	if err := cmd.Start(); err != nil {
+		cancel()
+		log.Printf("[session] failed to start for thread %d: %v", threadID, err)
+		return nil
 	}
 
-	// Drain stderr in background, keeping last lines for error reporting
+	log.Printf("[session] started session %s for thread %d (pid %d)", sessionPrefix, threadID, cmd.Process.Pid)
+
+	s := &Session{
+		cmd:           cmd,
+		stdin:         stdin,
+		stdout:        stdout,
+		stderr:        stderr,
+		stderrBuf:     &stderrBuffer{},
+		cancel:        cancel,
+		cfg:           cfg,
+		threadID:      threadID,
+		threadTitle:   threadTitle,
+		sessionPrefix: sessionPrefix,
+	}
+
+	// Set up the stdout scanner for NDJSON parsing
+	s.scanner = bufio.NewScanner(stdout)
+	s.scanner.Buffer(make([]byte, 0), 1<<20) // 1MB buffer
+
+	// Drain stderr in background
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		scanner.Buffer(make([]byte, 0), 1<<20)
 		for scanner.Scan() {
 			line := scanner.Text()
-			log.Printf("[pool:%s] stderr: %s", sessionPrefix, line)
-			entry.stderrBuf.Add(line)
+			log.Printf("[session:%s] stderr: %s", sessionPrefix, line)
+			s.stderrBuf.Add(line)
 		}
 	}()
 
-	entry.timer = time.AfterFunc(p.ttl, func() {
-		p.mu.Lock()
-		defer p.mu.Unlock()
-		if current, ok := p.sessions[threadID]; ok && current == entry {
-			log.Printf("[pool] idle timeout for thread %d, killing pre-warmed session", threadID)
-			delete(p.sessions, threadID)
-			Registry.Unregister(threadID)
-			cancel()
+	// Monitor process exit in background to mark session dead
+	go func() {
+		_ = cmd.Wait()
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if !s.dead {
+			s.dead = true
+			log.Printf("[session] process exited for thread %d (session %s)", threadID, sessionPrefix)
 		}
-	})
+	}()
 
-	p.mu.Lock()
-	// Kill any existing pre-warmed session for this thread
-	if old, ok := p.sessions[threadID]; ok {
-		old.timer.Stop()
-		old.cancel()
-		// Registry entry is replaced by the new Register call above
-	}
-	p.sessions[threadID] = entry
-	p.mu.Unlock()
+	// Set idle timer
+	s.timer = time.AfterFunc(m.ttl, func() { m.idleTimeout(threadID) })
+
+	// Register in the process registry
+	Registry.Register(threadID, threadTitle, cancel)
+
+	return s
 }
 
-// Acquire removes and returns a pre-warmed session for the given thread.
-// Returns nil if no session exists or if the config doesn't match.
-func (p *SessionPool) Acquire(threadID int64, cfg RunConfig) *poolEntry {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	entry, ok := p.sessions[threadID]
-	if !ok {
-		return nil
-	}
-
-	delete(p.sessions, threadID)
-	entry.timer.Stop()
-	// Don't unregister from the registry here. The caller (streamResponse)
-	// already called Registry.Register before Acquire, replacing the idle
-	// entry with the active session's cancel func. Unregistering would
-	// create a brief gap where the session disappears from /api/v1/processes.
-
-	// Check config compatibility
-	if entry.cfg.SessionID != cfg.SessionID ||
-		entry.cfg.Model != cfg.Model ||
-		entry.cfg.WorkDir != cfg.WorkDir {
-		log.Printf("[pool] config mismatch for thread %d, killing stale session", threadID)
-		entry.cancel()
-		return nil
-	}
-
-	return entry
-}
-
-// Evict kills and removes a pre-warmed session for the given thread.
-func (p *SessionPool) Evict(threadID int64) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if entry, ok := p.sessions[threadID]; ok {
-		entry.timer.Stop()
-		entry.cancel()
-		Registry.Unregister(threadID)
-		delete(p.sessions, threadID)
-		log.Printf("[pool] evicted pre-warmed session for thread %d", threadID)
-	}
-}
-
-// Shutdown kills all pre-warmed sessions.
-func (p *SessionPool) Shutdown() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	for id, entry := range p.sessions {
-		entry.timer.Stop()
-		entry.cancel()
-		Registry.Unregister(id)
-		delete(p.sessions, id)
-	}
-	log.Printf("[pool] shutdown: all pre-warmed sessions killed")
-}
-
-// RunFromPool pipes a prompt to a pre-warmed session's stdin and streams
-// events from its stdout. The event channel has identical semantics to Run.
-//
-// Stdin MUST be closed after writing the prompt because Claude Code's -p mode
-// reads all of stdin until EOF as the prompt. The process will exit after
-// streaming its response — this is by design, not a limitation of our code.
-// A new process is pre-warmed by the caller after the response completes.
-func RunFromPool(entry *poolEntry, prompt string) <-chan StreamEvent {
+// SendMessage writes a user message to the persistent session and streams
+// events until the result event. The returned channel has the same semantics
+// as Run(). Only one message can be in-flight per session at a time.
+func (m *SessionManager) SendMessage(s *Session, prompt string) <-chan StreamEvent {
 	ch := make(chan StreamEvent, 64)
 
 	go func() {
 		defer close(ch)
 
-		sessionPrefix := entry.cfg.SessionID
-		if len(sessionPrefix) > 8 {
-			sessionPrefix = sessionPrefix[:8]
+		// Serialize messages — only one in-flight per session
+		s.msgMu.Lock()
+		defer s.msgMu.Unlock()
+
+		if s.dead {
+			ch <- StreamEvent{Kind: KindError, ErrorMsg: "session process has exited"}
+			return
 		}
 
-		log.Printf("[pool] sending prompt to pre-warmed session %s", sessionPrefix)
+		s.busy = true
+		defer func() { s.busy = false }()
 
-		// Write prompt to stdin and close to signal EOF
-		if _, err := fmt.Fprintln(entry.stdin, prompt); err != nil {
+		// Reset idle timer while processing
+		m.mu.Lock()
+		s.timer.Stop()
+		m.mu.Unlock()
+
+		// Build NDJSON user message
+		userMsg := map[string]interface{}{
+			"type": "user",
+			"message": map[string]interface{}{
+				"role":    "user",
+				"content": prompt,
+			},
+		}
+		msgBytes, err := json.Marshal(userMsg)
+		if err != nil {
+			ch <- StreamEvent{Kind: KindError, ErrorMsg: fmt.Sprintf("marshal message: %v", err)}
+			return
+		}
+
+		log.Printf("[session] sending message to session %s for thread %d", s.sessionPrefix, s.threadID)
+
+		// Write NDJSON line to stdin
+		if _, err := s.stdin.Write(append(msgBytes, '\n')); err != nil {
 			ch <- StreamEvent{Kind: KindError, ErrorMsg: fmt.Sprintf("write stdin: %v", err)}
-			entry.cancel()
-			return
-		}
-		if err := entry.stdin.Close(); err != nil {
-			ch <- StreamEvent{Kind: KindError, ErrorMsg: fmt.Sprintf("close stdin: %v", err)}
-			entry.cancel()
+			m.markDead(s)
 			return
 		}
 
-		// Read stdout NDJSON events (same as Run)
-		scanner := bufio.NewScanner(entry.stdout)
-		scanner.Buffer(make([]byte, 0), 1<<20)
-
+		// Read events from stdout until result event
 		var gotResultError bool
-		for scanner.Scan() {
-			line := scanner.Bytes()
+		for s.scanner.Scan() {
+			line := s.scanner.Bytes()
 			if len(line) == 0 {
 				continue
 			}
@@ -279,52 +266,142 @@ func RunFromPool(entry *poolEntry, prompt string) <-chan StreamEvent {
 				gotResultError = true
 			}
 			ch <- event
-		}
-
-		if err := scanner.Err(); err != nil {
-			ch <- StreamEvent{Kind: KindError, ErrorMsg: fmt.Sprintf("read stdout: %v", err)}
-		}
-
-		if err := entry.cmd.Wait(); err != nil {
-			if !gotResultError {
-				errMsg := fmt.Sprintf("claude exited: %v", err)
-				if entry.stderrBuf != nil {
-					if detail := entry.stderrBuf.String(); detail != "" {
-						errMsg += "\n" + detail
-					}
-				}
-				ch <- StreamEvent{Kind: KindError, ErrorMsg: errMsg}
+			if event.Kind == KindResult {
+				// Turn complete — process is idle, ready for next message
+				break
 			}
 		}
+
+		if err := s.scanner.Err(); err != nil {
+			ch <- StreamEvent{Kind: KindError, ErrorMsg: fmt.Sprintf("read stdout: %v", err)}
+			m.markDead(s)
+			return
+		}
+
+		// If scanner ended without a result event, process likely died
+		if !gotResultError {
+			// Check if the process is still alive
+			if s.dead {
+				errMsg := "claude process exited unexpectedly"
+				if detail := s.stderrBuf.String(); detail != "" {
+					errMsg += "\n" + detail
+				}
+				ch <- StreamEvent{Kind: KindError, ErrorMsg: errMsg}
+				return
+			}
+		}
+
+		// Reset idle timer after message completes
+		m.mu.Lock()
+		if !s.dead {
+			s.timer = time.AfterFunc(m.ttl, func() { m.idleTimeout(s.threadID) })
+		}
+		m.mu.Unlock()
 	}()
 
 	return ch
 }
 
-// buildIdleArgs builds the command-line arguments for a pre-warmed process.
-// Same flags as Run but without the prompt argument — the prompt is written
-// to stdin later by RunFromPool. The process uses -p (print) mode, which
-// reads all stdin until EOF as the prompt, then exits after responding.
-func buildIdleArgs(cfg RunConfig) []string {
+// markDead marks a session as dead and cleans up its manager entry.
+func (m *SessionManager) markDead(s *Session) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !s.dead {
+		s.dead = true
+		s.cancel()
+		if current, ok := m.sessions[s.threadID]; ok && current == s {
+			delete(m.sessions, s.threadID)
+		}
+	}
+}
+
+// idleTimeout is called when a session has been idle too long.
+func (m *SessionManager) idleTimeout(threadID int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	s, ok := m.sessions[threadID]
+	if !ok || s.dead {
+		return
+	}
+
+	log.Printf("[session] idle timeout for thread %d, killing session %s", threadID, s.sessionPrefix)
+	s.dead = true
+	s.cancel()
+	delete(m.sessions, threadID)
+	Registry.Unregister(threadID)
+}
+
+// Evict kills and removes a persistent session for the given thread.
+func (m *SessionManager) Evict(threadID int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if s, ok := m.sessions[threadID]; ok {
+		s.timer.Stop()
+		s.dead = true
+		s.cancel()
+		Registry.Unregister(threadID)
+		delete(m.sessions, threadID)
+		log.Printf("[session] evicted session for thread %d", threadID)
+	}
+}
+
+// Shutdown kills all persistent sessions.
+func (m *SessionManager) Shutdown() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for id, s := range m.sessions {
+		s.timer.Stop()
+		s.dead = true
+		s.cancel()
+		Registry.Unregister(id)
+		delete(m.sessions, id)
+	}
+	log.Printf("[session] shutdown: all sessions killed")
+}
+
+// IsBusy returns true if the session for the given thread is currently
+// processing a message.
+func (m *SessionManager) IsBusy(threadID int64) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s, ok := m.sessions[threadID]; ok {
+		return s.busy
+	}
+	return false
+}
+
+// buildStreamArgs builds the command-line arguments for a persistent
+// stream-json process. Unlike the old pool's -p mode, this process stays
+// alive and reads NDJSON user messages from stdin.
+func buildStreamArgs(cfg RunConfig) []string {
 	args := []string{
-		"-p",
-		"--verbose",
 		"--output-format", "stream-json",
-		"--include-partial-messages",
+		"--input-format", "stream-json",
+		"--verbose",
 		"--dangerously-skip-permissions",
 	}
 
-	if cfg.SessionID != "" {
+	if cfg.Resume && cfg.SessionID != "" {
 		args = append(args, "--resume", cfg.SessionID)
+	} else if cfg.SessionID != "" {
+		args = append(args, "--session-id", cfg.SessionID)
 	}
 
+	// Only pass --model for Claude Code model names (sonnet, opus, haiku)
 	if cfg.Model != "" && !strings.Contains(cfg.Model, "/") {
 		args = append(args, "--model", cfg.Model)
 	}
 
-	// No --append-system-prompt-file for resumed sessions
-	// No --name for resumed sessions
-	// No prompt argument — process reads from stdin
+	if cfg.SystemPromptFile != "" && !cfg.Resume {
+		args = append(args, "--append-system-prompt-file", cfg.SystemPromptFile)
+	}
+
+	if cfg.Name != "" && !cfg.Resume {
+		args = append(args, "--name", cfg.Name)
+	}
 
 	return args
 }
