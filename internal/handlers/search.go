@@ -3,6 +3,7 @@ package handlers
 import (
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// SearchHandler handles full-text search across chat messages.
+// SearchHandler handles full-text search across chat messages and global search.
 type SearchHandler struct {
 	db *gorm.DB
 }
@@ -23,6 +24,7 @@ func NewSearchHandler(db *gorm.DB) *SearchHandler {
 // RegisterSearchRoutes attaches search endpoints to the given router group.
 func RegisterSearchRoutes(rg *gin.RouterGroup, h *SearchHandler) {
 	rg.GET("/search", h.Search)
+	rg.GET("/search/global", h.GlobalSearch)
 }
 
 type searchMatch struct {
@@ -114,6 +116,160 @@ func (h *SearchHandler) Search(c *gin.Context) {
 	}
 
 	respondOK(c, results)
+}
+
+// --- Global search types ---
+
+type globalTaskResult struct {
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Status      string    `json:"status"`
+	ProjectName string    `json:"project_name"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type globalProjectResult struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+type globalThreadResult struct {
+	ID        int64     `json:"id"`
+	Title     string    `json:"title"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type globalMessageResult struct {
+	ID          int64     `json:"id"`
+	ThreadID    int64     `json:"thread_id"`
+	ThreadTitle string    `json:"thread_title"`
+	Snippet     string    `json:"snippet"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type globalSearchData struct {
+	Tasks    []globalTaskResult    `json:"tasks"`
+	Projects []globalProjectResult `json:"projects"`
+	Threads  []globalThreadResult  `json:"threads"`
+	Messages []globalMessageResult `json:"messages"`
+}
+
+// GlobalSearch searches across tasks, projects, threads, and messages using
+// diacritic-insensitive substring matching.
+func (h *SearchHandler) GlobalSearch(c *gin.Context) {
+	q := strings.TrimSpace(c.Query("q"))
+	if len(q) < 2 {
+		respondOK(c, globalSearchData{
+			Tasks:    []globalTaskResult{},
+			Projects: []globalProjectResult{},
+			Threads:  []globalThreadResult{},
+			Messages: []globalMessageResult{},
+		})
+		return
+	}
+
+	limit := 5
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 20 {
+			limit = parsed
+		}
+	}
+
+	result := globalSearchData{
+		Tasks:    []globalTaskResult{},
+		Projects: []globalProjectResult{},
+		Threads:  []globalThreadResult{},
+		Messages: []globalMessageResult{},
+	}
+
+	// Tasks: search title and spec, prefer title matches, exclude deleted
+	{
+		var rows []globalTaskResult
+		err := h.db.Raw(`
+			SELECT t.id, t.title, t.status, COALESCE(p.name, '') AS project_name, t.updated_at
+			FROM tasks t
+			LEFT JOIN projects p ON p.id = t.project_id
+			WHERE t.status != 'deleted'
+			AND (unaccent(lower(t.title)) LIKE '%' || unaccent(lower($1)) || '%'
+			     OR unaccent(lower(t.spec)) LIKE '%' || unaccent(lower($1)) || '%')
+			ORDER BY
+				CASE WHEN unaccent(lower(t.title)) LIKE '%' || unaccent(lower($1)) || '%' THEN 0 ELSE 1 END,
+				t.updated_at DESC
+			LIMIT $2`, q, limit).Scan(&rows).Error
+		if err != nil {
+			slog.Error("global search: tasks", "error", err)
+		} else {
+			result.Tasks = append(result.Tasks, rows...)
+		}
+	}
+
+	// Projects: search name
+	{
+		var rows []globalProjectResult
+		err := h.db.Raw(`
+			SELECT id, name, path
+			FROM projects
+			WHERE active = true
+			AND unaccent(lower(name)) LIKE '%' || unaccent(lower($1)) || '%'
+			ORDER BY name ASC
+			LIMIT $2`, q, limit).Scan(&rows).Error
+		if err != nil {
+			slog.Error("global search: projects", "error", err)
+		} else {
+			result.Projects = append(result.Projects, rows...)
+		}
+	}
+
+	// Threads: search title
+	{
+		var rows []globalThreadResult
+		err := h.db.Raw(`
+			SELECT id, title, updated_at
+			FROM threads
+			WHERE unaccent(lower(title)) LIKE '%' || unaccent(lower($1)) || '%'
+			ORDER BY updated_at DESC
+			LIMIT $2`, q, limit).Scan(&rows).Error
+		if err != nil {
+			slog.Error("global search: threads", "error", err)
+		} else {
+			result.Threads = append(result.Threads, rows...)
+		}
+	}
+
+	// Messages: search content, return snippet
+	{
+		type msgRow struct {
+			ID          int64
+			ThreadID    int64
+			ThreadTitle string
+			Content     string
+			CreatedAt   time.Time
+		}
+		var rows []msgRow
+		err := h.db.Raw(`
+			SELECT m.id, m.thread_id, t.title AS thread_title, m.content, m.created_at
+			FROM messages m
+			JOIN threads t ON t.id = m.thread_id
+			WHERE unaccent(lower(m.content)) LIKE '%' || unaccent(lower($1)) || '%'
+			ORDER BY m.created_at DESC
+			LIMIT $2`, q, limit).Scan(&rows).Error
+		if err != nil {
+			slog.Error("global search: messages", "error", err)
+		} else {
+			for _, r := range rows {
+				result.Messages = append(result.Messages, globalMessageResult{
+					ID:          r.ID,
+					ThreadID:    r.ThreadID,
+					ThreadTitle: r.ThreadTitle,
+					Snippet:     buildSnippet(r.Content, q),
+					CreatedAt:   r.CreatedAt,
+				})
+			}
+		}
+	}
+
+	respondOK(c, result)
 }
 
 // buildSnippet extracts a ~120-char window around the first match of query in

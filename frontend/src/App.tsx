@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useState, useEffect, useCallback } from 'react'
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -14,6 +14,7 @@ import { useIsMobile } from './hooks/useIsMobile'
 import { SSEProvider } from './context/SSEContext'
 import BottomNav from './components/BottomNav'
 import OfflineIndicator from './components/OfflineIndicator'
+import SearchOverlay from './components/SearchOverlay'
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const ChatPage = lazy(() => import('./pages/ChatPage'))
@@ -80,6 +81,21 @@ export default function App() {
   const isActiveChatThread = /^\/chat\/\d+$/.test(location.pathname)
   const hideBottomNav = isMobile && isActiveChatThread
 
+  const [searchOpen, setSearchOpen] = useState(false)
+  const closeSearch = useCallback(() => setSearchOpen(false), [])
+
+  // Global Cmd+K / Ctrl+K shortcut
+  useEffect(() => {
+    function handler(e: KeyboardEvent) {
+      if (e.key === 'k' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        e.preventDefault()
+        setSearchOpen((prev) => !prev)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
   return (
     <SSEProvider>
       <div className="flex h-screen bg-zinc-50">
@@ -104,6 +120,7 @@ export default function App() {
         </main>
         {isMobile && !hideBottomNav && <BottomNav />}
         <OfflineIndicator />
+        <SearchOverlay open={searchOpen} onClose={closeSearch} />
       </div>
     </SSEProvider>
   )

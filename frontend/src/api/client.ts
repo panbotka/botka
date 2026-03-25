@@ -1,4 +1,4 @@
-import type { Project, Task, Thread, ThreadDetail, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, TaskStats } from '../types'
+import type { Project, Task, Thread, ThreadDetail, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, TaskStats, GlobalSearchResults } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -263,6 +263,12 @@ export function updateThreadProject(id: number, projectId: string | null): Promi
 
 export function searchMessages(query: string): Promise<SearchResult[]> {
   return requestData<SearchResult[]>(`/search?q=${encodeURIComponent(query)}`)
+}
+
+export function globalSearch(query: string, limit?: number): Promise<GlobalSearchResults> {
+  const params = new URLSearchParams({ q: query })
+  if (limit != null) params.set('limit', String(limit))
+  return requestData<GlobalSearchResults>(`/search/global?${params}`)
 }
 
 // Tags
@@ -600,6 +606,7 @@ export const api = {
   updateThreadProject,
   // Search
   searchMessages,
+  globalSearch,
   // Tags
   fetchTags,
   createTag,

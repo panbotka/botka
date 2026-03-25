@@ -232,3 +232,39 @@ export interface SearchResult {
   thread: Thread
   matches: SearchMatch[]
 }
+
+// Global search types
+export interface GlobalSearchTaskResult {
+  id: string
+  title: string
+  status: TaskStatus
+  project_name: string
+  updated_at: string
+}
+
+export interface GlobalSearchProjectResult {
+  id: string
+  name: string
+  path: string
+}
+
+export interface GlobalSearchThreadResult {
+  id: number
+  title: string
+  updated_at: string
+}
+
+export interface GlobalSearchMessageResult {
+  id: number
+  thread_id: number
+  thread_title: string
+  snippet: string
+  created_at: string
+}
+
+export interface GlobalSearchResults {
+  tasks: GlobalSearchTaskResult[]
+  projects: GlobalSearchProjectResult[]
+  threads: GlobalSearchThreadResult[]
+  messages: GlobalSearchMessageResult[]
+}
