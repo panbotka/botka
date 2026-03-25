@@ -162,8 +162,10 @@ func (p *SessionPool) Acquire(threadID int64, cfg RunConfig) *poolEntry {
 
 	delete(p.sessions, threadID)
 	entry.timer.Stop()
-	// Unregister the idle session — the caller will re-register the active one
-	Registry.Unregister(threadID)
+	// Don't unregister from the registry here. The caller (streamResponse)
+	// already called Registry.Register before Acquire, replacing the idle
+	// entry with the active session's cancel func. Unregistering would
+	// create a brief gap where the session disappears from /api/v1/processes.
 
 	// Check config compatibility
 	if entry.cfg.SessionID != cfg.SessionID ||
