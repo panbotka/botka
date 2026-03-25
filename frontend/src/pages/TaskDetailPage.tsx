@@ -259,10 +259,10 @@ function TaskDetail({ taskId }: { taskId: string }) {
       )}
 
       {/* Spec */}
-      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-5">
+      <div className="overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50 p-5">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">Spec</h2>
         {task.spec ? (
-          <div className="prose prose-sm prose-zinc max-w-none">
+          <div className="prose prose-sm prose-zinc max-w-none min-w-0 break-words overflow-x-auto">
             <ReactMarkdown>{task.spec}</ReactMarkdown>
           </div>
         ) : (
