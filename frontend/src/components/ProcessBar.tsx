@@ -13,12 +13,18 @@ interface Props {
 }
 
 export default function ProcessBar({ processes, onKill }: Props) {
-  if (processes.length === 0) return null;
+  const hasProcesses = processes.length > 0;
 
   return (
     <div className="flex items-center gap-2 px-4 py-1 bg-zinc-100 border-b border-zinc-200 text-[11px] text-zinc-500 overflow-x-auto">
-      <span className="text-emerald-500 animate-pulse shrink-0">●</span>
-      <span className="text-zinc-400 shrink-0">Active:</span>
+      {hasProcesses ? (
+        <>
+          <span className="text-emerald-500 animate-pulse shrink-0">●</span>
+          <span className="text-zinc-400 shrink-0">Active:</span>
+        </>
+      ) : (
+        <span className="text-zinc-400 shrink-0">No active sessions</span>
+      )}
       {processes.map((p) => (
         <span
           key={p.thread_id}
