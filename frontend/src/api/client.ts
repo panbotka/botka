@@ -204,11 +204,11 @@ export function clearMessages(id: number): Promise<void> {
 }
 
 export function clearSession(id: number): Promise<void> {
-  return request<void>(`/threads/${id}/session`, { method: 'DELETE' })
+  return request<void>(`/threads/${id}/session/clear`, { method: 'POST' })
 }
 
 export function newSession(id: number): Promise<void> {
-  return request<void>(`/threads/${id}/session`, { method: 'POST' })
+  return request<void>(`/threads/${id}/session/new`, { method: 'POST' })
 }
 
 export function renameThread(id: number, title: string): Promise<Thread> {
