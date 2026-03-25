@@ -180,7 +180,7 @@ Exposes task management tools: create_task, list_tasks, get_task, update_task, l
 | `DATABASE_URL` | `postgres://botka:botka@localhost:5432/botka?sslmode=disable` | PostgreSQL connection string |
 | `PROJECTS_DIR` | `/home/pi/projects` | Directory to scan for git repos |
 | `CLAUDE_PATH` | `claude` | Path to Claude Code CLI binary |
-| `CLAUDE_CREDENTIALS_PATH` | `/home/pi/.claude/.credentials.json` | Anthropic API credentials for usage monitoring |
+| `CLAUDE_USAGE_CMD` | `/home/pi/bin/claude-usage` | Command to fetch API usage data as JSON |
 | `CLAUDE_CONTEXT_DIR` | `./data/context` | Directory for assembled context files |
 | `CLAUDE_DEFAULT_WORK_DIR` | `/home/pi` | Default working directory for Claude chat sessions |
 | `MAX_WORKERS` | `2` | Concurrent task execution slots |

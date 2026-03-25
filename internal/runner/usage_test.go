@@ -1,31 +1,19 @@
 package runner
 
 import (
-	"encoding/json"
-	"errors"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 )
 
-func TestNewUsageMonitor_DefaultEndpoint(t *testing.T) {
-	m := NewUsageMonitor("/tmp/creds.json", 0.90, 0.95, 15*time.Minute, "")
-	if m.endpoint != defaultAPIEndpoint {
-		t.Errorf("expected default endpoint %q, got %q", defaultAPIEndpoint, m.endpoint)
-	}
-}
-
-func TestNewUsageMonitor_CustomEndpoint(t *testing.T) {
-	custom := "https://custom.example.com/usage"
-	m := NewUsageMonitor("/tmp/creds.json", 0.90, 0.95, 15*time.Minute, custom)
-	if m.endpoint != custom {
-		t.Errorf("expected custom endpoint %q, got %q", custom, m.endpoint)
+func TestNewUsageMonitor(t *testing.T) {
+	m := NewUsageMonitor("/usr/bin/test-cmd", 0.90, 0.95, 15*time.Minute)
+	if m.cmdPath != "/usr/bin/test-cmd" {
+		t.Errorf("expected cmdPath %q, got %q", "/usr/bin/test-cmd", m.cmdPath)
 	}
 }
 
 func TestIsRateLimited_BelowBothThresholds(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute, "")
+	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
 	m.info = UsageInfo{
 		FiveHourPct: 0.50,
 		SevenDayPct: 0.60,
@@ -41,7 +29,7 @@ func TestIsRateLimited_BelowBothThresholds(t *testing.T) {
 }
 
 func TestIsRateLimited_FiveHourExceedsThreshold(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute, "")
+	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
 	m.info = UsageInfo{
 		FiveHourPct: 0.95,
 		SevenDayPct: 0.50,
@@ -57,7 +45,7 @@ func TestIsRateLimited_FiveHourExceedsThreshold(t *testing.T) {
 }
 
 func TestIsRateLimited_SevenDayExceedsThreshold(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute, "")
+	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
 	m.info = UsageInfo{
 		FiveHourPct: 0.50,
 		SevenDayPct: 0.98,
@@ -73,7 +61,7 @@ func TestIsRateLimited_SevenDayExceedsThreshold(t *testing.T) {
 }
 
 func TestIsRateLimited_StaleDataPastResetTime(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute, "")
+	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
 	m.info = UsageInfo{
 		FiveHourPct: 0.99,
 		SevenDayPct: 0.99,
@@ -87,7 +75,7 @@ func TestIsRateLimited_StaleDataPastResetTime(t *testing.T) {
 }
 
 func TestCurrentUsage_ReturnsStoredSnapshot(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute, "")
+	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
 	now := time.Now()
 	resetTime := now.Add(2 * time.Hour)
 	m.info = UsageInfo{
@@ -113,7 +101,7 @@ func TestCurrentUsage_ReturnsStoredSnapshot(t *testing.T) {
 }
 
 func TestResetsAt_ReturnsStoredResetTime(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute, "")
+	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
 	resetTime := time.Date(2026, 3, 25, 14, 0, 0, 0, time.UTC)
 	m.info = UsageInfo{
 		ResetsAt: resetTime,
@@ -126,7 +114,7 @@ func TestResetsAt_ReturnsStoredResetTime(t *testing.T) {
 }
 
 func TestAdaptiveInterval_LowUsage(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute, "")
+	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
 	m.info = UsageInfo{
 		FiveHourPct: 0.20,
 		SevenDayPct: 0.30,
@@ -140,7 +128,7 @@ func TestAdaptiveInterval_LowUsage(t *testing.T) {
 }
 
 func TestAdaptiveInterval_MediumUsage(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute, "")
+	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
 	m.info = UsageInfo{
 		FiveHourPct: 0.55,
 		SevenDayPct: 0.60,
@@ -155,7 +143,7 @@ func TestAdaptiveInterval_MediumUsage(t *testing.T) {
 
 func TestAdaptiveInterval_HighUsage(t *testing.T) {
 	configured := 10 * time.Minute
-	m := NewUsageMonitor("", 0.90, 0.95, configured, "")
+	m := NewUsageMonitor("", 0.90, 0.95, configured)
 	m.info = UsageInfo{
 		FiveHourPct: 0.85,
 		SevenDayPct: 0.40,
@@ -167,93 +155,139 @@ func TestAdaptiveInterval_HighUsage(t *testing.T) {
 	}
 }
 
-func TestDoFetch_SuccessfulResponse(t *testing.T) {
-	resetTime := time.Date(2026, 3, 25, 18, 30, 0, 0, time.UTC)
-	resp := apiResponse{}
-	resp.FiveHour.Utilization = 45.5
-	resp.FiveHour.ResetsAt = resetTime.Format(time.RFC3339)
-	resp.SevenDay.Utilization = 72.3
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
-			t.Errorf("expected Authorization 'Bearer test-token', got %q", got)
+func TestParseUsageJSON_FullResponse(t *testing.T) {
+	input := []byte(`{
+		"fetched_at": "2026-03-25T13:00:01Z",
+		"fetched_epoch": 1774443601,
+		"data": {
+			"five_hour": {
+				"utilization": 35.0,
+				"resets_at": "2026-03-25T17:00:00.500386+00:00"
+			},
+			"seven_day": {
+				"utilization": 59.0,
+				"resets_at": "2026-03-27T07:00:00.500406+00:00"
+			},
+			"seven_day_opus": null,
+			"seven_day_sonnet": null,
+			"extra_usage": {
+				"is_enabled": false,
+				"monthly_limit": null,
+				"used_credits": null,
+				"utilization": null
+			}
 		}
-		if got := r.Header.Get("anthropic-beta"); got != "oauth-2025-04-20" {
-			t.Errorf("expected anthropic-beta header 'oauth-2025-04-20', got %q", got)
-		}
+	}`)
 
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
-	}))
-	defer srv.Close()
-
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute, srv.URL)
-	info, err := m.doFetch("test-token")
+	info, err := parseUsageJSON(input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Utilization is divided by 100 in doFetch
-	wantFiveHour := 0.455
+	wantFiveHour := 0.35
 	if info.FiveHourPct != wantFiveHour {
 		t.Errorf("expected FiveHourPct %f, got %f", wantFiveHour, info.FiveHourPct)
 	}
-	wantSevenDay := 0.723
+	wantSevenDay := 0.59
 	if info.SevenDayPct != wantSevenDay {
 		t.Errorf("expected SevenDayPct %f, got %f", wantSevenDay, info.SevenDayPct)
 	}
-	if !info.ResetsAt.Equal(resetTime) {
-		t.Errorf("expected ResetsAt %v, got %v", resetTime, info.ResetsAt)
+	if info.ResetsAt.IsZero() {
+		t.Error("expected ResetsAt to be set")
+	}
+	wantReset := time.Date(2026, 3, 25, 17, 0, 0, 500386000, time.UTC)
+	if !info.ResetsAt.Equal(wantReset) {
+		t.Errorf("expected ResetsAt %v, got %v", wantReset, info.ResetsAt)
 	}
 	if info.LastChecked.IsZero() {
 		t.Error("expected LastChecked to be set")
 	}
 }
 
-func TestDoFetch_Unauthorized(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-	}))
-	defer srv.Close()
+func TestParseUsageJSON_NullWindows(t *testing.T) {
+	input := []byte(`{
+		"fetched_at": "2026-03-25T13:00:01Z",
+		"data": {
+			"five_hour": null,
+			"seven_day": null
+		}
+	}`)
 
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute, srv.URL)
-	_, err := m.doFetch("bad-token")
-	if err == nil {
-		t.Fatal("expected error, got nil")
+	info, err := parseUsageJSON(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if !errors.Is(err, errUnauthorized) {
-		t.Errorf("expected errUnauthorized, got %v", err)
-	}
-}
 
-func TestDoFetch_TooManyRequests(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusTooManyRequests)
-	}))
-	defer srv.Close()
-
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute, srv.URL)
-	_, err := m.doFetch("some-token")
-	if err == nil {
-		t.Fatal("expected error, got nil")
+	if info.FiveHourPct != 0 {
+		t.Errorf("expected FiveHourPct 0, got %f", info.FiveHourPct)
 	}
-	if !errors.Is(err, errTooManyRequests) {
-		t.Errorf("expected errTooManyRequests, got %v", err)
+	if info.SevenDayPct != 0 {
+		t.Errorf("expected SevenDayPct 0, got %f", info.SevenDayPct)
+	}
+	if !info.ResetsAt.IsZero() {
+		t.Errorf("expected zero ResetsAt, got %v", info.ResetsAt)
 	}
 }
 
-func TestDoFetch_InternalServerError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer srv.Close()
-
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute, srv.URL)
-	_, err := m.doFetch("some-token")
+func TestParseUsageJSON_InvalidJSON(t *testing.T) {
+	_, err := parseUsageJSON([]byte(`not json`))
 	if err == nil {
-		t.Fatal("expected error, got nil")
+		t.Fatal("expected error for invalid JSON, got nil")
 	}
-	if errors.Is(err, errUnauthorized) || errors.Is(err, errTooManyRequests) {
-		t.Errorf("expected generic error, got specific sentinel: %v", err)
+}
+
+func TestParseUsageJSON_ZeroUtilization(t *testing.T) {
+	input := []byte(`{
+		"data": {
+			"five_hour": {
+				"utilization": 0.0,
+				"resets_at": "2026-03-25T17:00:00+00:00"
+			},
+			"seven_day": {
+				"utilization": 0.0,
+				"resets_at": "2026-03-27T07:00:00+00:00"
+			}
+		}
+	}`)
+
+	info, err := parseUsageJSON(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if info.FiveHourPct != 0 {
+		t.Errorf("expected FiveHourPct 0, got %f", info.FiveHourPct)
+	}
+	if info.SevenDayPct != 0 {
+		t.Errorf("expected SevenDayPct 0, got %f", info.SevenDayPct)
+	}
+}
+
+func TestParseUsageJSON_HighUtilization(t *testing.T) {
+	input := []byte(`{
+		"data": {
+			"five_hour": {
+				"utilization": 95.5,
+				"resets_at": "2026-03-25T17:00:00+00:00"
+			},
+			"seven_day": {
+				"utilization": 100.0,
+				"resets_at": "2026-03-27T07:00:00+00:00"
+			}
+		}
+	}`)
+
+	info, err := parseUsageJSON(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantFiveHour := 0.955
+	if info.FiveHourPct != wantFiveHour {
+		t.Errorf("expected FiveHourPct %f, got %f", wantFiveHour, info.FiveHourPct)
+	}
+	wantSevenDay := 1.0
+	if info.SevenDayPct != wantSevenDay {
+		t.Errorf("expected SevenDayPct %f, got %f", wantSevenDay, info.SevenDayPct)
 	}
 }

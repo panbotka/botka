@@ -86,11 +86,10 @@ func run() error {
 
 	// Usage monitor: tracks Anthropic API rate limits.
 	usageMon := runner.NewUsageMonitor(
-		cfg.ClaudeCredentialsPath,
+		cfg.ClaudeUsageCmd,
 		cfg.UsageThreshold5h,
 		cfg.UsageThreshold7d,
 		cfg.UsagePollInterval,
-		"",
 	)
 	usageMon.Start(context.Background())
 	defer usageMon.Stop()

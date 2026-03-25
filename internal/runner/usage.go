@@ -4,16 +4,12 @@ package runner
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
-	"os"
+	"os/exec"
 	"sync"
 	"time"
 )
-
-const defaultAPIEndpoint = "https://api.anthropic.com/api/oauth/usage"
 
 // UsageInfo holds the current usage state returned by CurrentUsage.
 type UsageInfo struct {
@@ -23,14 +19,13 @@ type UsageInfo struct {
 	LastChecked time.Time `json:"last_checked"`
 }
 
-// UsageMonitor polls the Anthropic OAuth usage API to track rate limits.
+// UsageMonitor polls the claude-usage command to track rate limits.
 // It is safe for concurrent use.
 type UsageMonitor struct {
-	credPath    string
+	cmdPath     string
 	threshold5h float64
 	threshold7d float64
 	interval    time.Duration
-	endpoint    string
 
 	mu   sync.RWMutex
 	info UsageInfo
@@ -39,21 +34,17 @@ type UsageMonitor struct {
 	done   chan struct{}
 }
 
-// NewUsageMonitor creates a new usage monitor. If apiEndpoint is empty,
-// the default Anthropic API endpoint is used.
+// NewUsageMonitor creates a new usage monitor that shells out to cmdPath
+// to fetch usage data.
 func NewUsageMonitor(
-	credPath string, threshold5h, threshold7d float64,
-	pollInterval time.Duration, apiEndpoint string,
+	cmdPath string, threshold5h, threshold7d float64,
+	pollInterval time.Duration,
 ) *UsageMonitor {
-	if apiEndpoint == "" {
-		apiEndpoint = defaultAPIEndpoint
-	}
 	return &UsageMonitor{
-		credPath:    credPath,
+		cmdPath:     cmdPath,
 		threshold5h: threshold5h,
 		threshold7d: threshold7d,
 		interval:    pollInterval,
-		endpoint:    apiEndpoint,
 	}
 }
 
@@ -86,7 +77,7 @@ func (m *UsageMonitor) Start(ctx context.Context) {
 }
 
 // adaptiveInterval returns the next poll delay based on current usage levels.
-// Lower usage means longer cache duration to minimize API calls.
+// Lower usage means longer intervals since the data changes slowly.
 func (m *UsageMonitor) adaptiveInterval() time.Duration {
 	m.mu.RLock()
 	maxPct := max(m.info.FiveHourPct, m.info.SevenDayPct)
@@ -148,129 +139,70 @@ func (m *UsageMonitor) ResetsAt() time.Time {
 	return m.info.ResetsAt
 }
 
-// Poll fetches usage data from the API and updates the stored state.
+// claudeUsageResponse represents the JSON output of the claude-usage command.
+type claudeUsageResponse struct {
+	Data struct {
+		FiveHour *struct {
+			Utilization float64 `json:"utilization"`
+			ResetsAt    string  `json:"resets_at"`
+		} `json:"five_hour"`
+		SevenDay *struct {
+			Utilization float64 `json:"utilization"`
+			ResetsAt    string  `json:"resets_at"`
+		} `json:"seven_day"`
+	} `json:"data"`
+}
+
+// Poll executes the claude-usage command and updates the stored state.
 // It is called automatically by the background goroutine.
 func (m *UsageMonitor) Poll() {
-	token := m.readToken()
-	if token == "" {
-		slog.Warn("usage monitor: no access token found, skipping poll")
-		return
-	}
-
-	resp, err := m.fetchUsage(token)
+	info, err := m.fetchUsage()
 	if err != nil {
-		if errors.Is(err, errTooManyRequests) {
-			slog.Warn("usage monitor: rate limited by API, using cached data")
-		} else {
-			slog.Error("usage monitor: fetch failed", "error", err)
-		}
+		slog.Error("usage monitor: fetch failed", "error", err)
 		return
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.info = *resp
+	m.info = *info
 }
 
-// credentialsFile represents the structure of Claude's credentials JSON.
-type credentialsFile struct {
-	ClaudeAiOauth struct {
-		Token string `json:"accessToken"` //nolint:gosec // JSON field name, not a hardcoded credential
-	} `json:"claudeAiOauth"`
-}
-
-// readToken reads the access token from the credentials file.
-func (m *UsageMonitor) readToken() string {
-	data, err := os.ReadFile(m.credPath)
+// fetchUsage runs the claude-usage command and parses its JSON output.
+func (m *UsageMonitor) fetchUsage() (*UsageInfo, error) {
+	out, err := exec.Command(m.cmdPath).Output() //nolint:gosec // cmdPath is set from config
 	if err != nil {
-		slog.Warn("usage monitor: cannot read credentials", "path", m.credPath, "error", err)
-		return ""
+		return nil, fmt.Errorf("run %s: %w", m.cmdPath, err)
 	}
-	var creds credentialsFile
-	if err := json.Unmarshal(data, &creds); err != nil {
-		slog.Warn("usage monitor: cannot parse credentials", "error", err)
-		return ""
-	}
-	return creds.ClaudeAiOauth.Token
+	return parseUsageJSON(out)
 }
 
-// apiResponse represents the Anthropic usage API response.
-type apiResponse struct {
-	FiveHour struct {
-		Utilization float64 `json:"utilization"`
-		ResetsAt    string  `json:"resets_at"`
-	} `json:"five_hour"`
-	SevenDay struct {
-		Utilization float64 `json:"utilization"`
-	} `json:"seven_day"`
-}
-
-// fetchUsage calls the Anthropic usage API. On a 401 response, it re-reads
-// the credentials file and retries once (Claude CLI may have refreshed the token).
-func (m *UsageMonitor) fetchUsage(token string) (*UsageInfo, error) {
-	info, err := m.doFetch(token)
-	if errors.Is(err, errUnauthorized) {
-		// Re-read credentials and retry once
-		newToken := m.readToken()
-		if newToken == "" || newToken == token {
-			return nil, fmt.Errorf("unauthorized and no new token available")
-		}
-		slog.Info("usage monitor: retrying with refreshed token")
-		return m.doFetch(newToken)
-	}
-	return info, err
-}
-
-var (
-	errUnauthorized    = errors.New("401 unauthorized")
-	errTooManyRequests = errors.New("429 too many requests")
-)
-
-// doFetch performs a single API request.
-func (m *UsageMonitor) doFetch(token string) (*UsageInfo, error) {
-	req, err := http.NewRequest(http.MethodGet, m.endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req) //nolint:gosec // endpoint is set from config, not user input
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, errUnauthorized
-	}
-	if resp.StatusCode == http.StatusTooManyRequests {
-		return nil, errTooManyRequests
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+// parseUsageJSON parses the JSON output from the claude-usage command
+// into a UsageInfo. Exported for testing.
+func parseUsageJSON(data []byte) (*UsageInfo, error) {
+	var resp claudeUsageResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("parse usage JSON: %w", err)
 	}
 
-	var apiResp apiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
-	}
-
-	var resetsAt time.Time
-	if apiResp.FiveHour.ResetsAt != "" {
-		resetsAt, err = time.Parse(time.RFC3339, apiResp.FiveHour.ResetsAt)
-		if err != nil {
-			slog.Warn("usage monitor: cannot parse resets_at", "value", apiResp.FiveHour.ResetsAt, "error", err)
-		}
-	}
-
-	return &UsageInfo{
-		FiveHourPct: apiResp.FiveHour.Utilization / 100.0,
-		SevenDayPct: apiResp.SevenDay.Utilization / 100.0,
-		ResetsAt:    resetsAt,
+	info := &UsageInfo{
 		LastChecked: time.Now(),
-	}, nil
+	}
+
+	if resp.Data.FiveHour != nil {
+		info.FiveHourPct = resp.Data.FiveHour.Utilization / 100.0
+		if resp.Data.FiveHour.ResetsAt != "" {
+			t, err := time.Parse(time.RFC3339Nano, resp.Data.FiveHour.ResetsAt)
+			if err != nil {
+				slog.Warn("usage monitor: cannot parse five_hour resets_at", "value", resp.Data.FiveHour.ResetsAt, "error", err)
+			} else {
+				info.ResetsAt = t
+			}
+		}
+	}
+
+	if resp.Data.SevenDay != nil {
+		info.SevenDayPct = resp.Data.SevenDay.Utilization / 100.0
+	}
+
+	return info, nil
 }

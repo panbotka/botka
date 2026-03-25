@@ -12,24 +12,24 @@ import (
 
 // Config holds all application configuration values.
 type Config struct {
-	Port                  string
-	DatabaseURL           string
-	ProjectsDir           string
-	ClaudePath            string
-	ClaudeCredentialsPath string
-	MaxWorkers            int
-	UsagePollInterval     time.Duration
-	UsageThreshold5h      float64
-	UsageThreshold7d      float64
-	OpenClawURL           string
-	OpenClawToken         string
-	OpenClawWorkspace     string
-	ClaudeContextDir      string
-	ClaudeDefaultWorkDir  string
-	WhisperEnabled        bool
-	UploadDir             string
-	AIModel               string
-	AvailableModels       []string
+	Port                 string
+	DatabaseURL          string
+	ProjectsDir          string
+	ClaudePath           string
+	ClaudeUsageCmd       string
+	MaxWorkers           int
+	UsagePollInterval    time.Duration
+	UsageThreshold5h     float64
+	UsageThreshold7d     float64
+	OpenClawURL          string
+	OpenClawToken        string
+	OpenClawWorkspace    string
+	ClaudeContextDir     string
+	ClaudeDefaultWorkDir string
+	WhisperEnabled       bool
+	UploadDir            string
+	AIModel              string
+	AvailableModels      []string
 }
 
 // Load reads configuration from the .env file and environment variables.
@@ -66,24 +66,24 @@ func Load() (*Config, error) {
 	availableModels := getEnvCSV("AVAILABLE_MODELS", []string{"sonnet", "opus", "haiku"})
 
 	return &Config{
-		Port:                  getEnv("PORT", "5110"),
-		DatabaseURL:           getEnv("DATABASE_URL", "postgres://botka:botka@localhost:5432/botka?sslmode=disable"),
-		ProjectsDir:           getEnv("PROJECTS_DIR", "/home/pi/projects"),
-		ClaudePath:            getEnv("CLAUDE_PATH", "claude"),
-		ClaudeCredentialsPath: getEnv("CLAUDE_CREDENTIALS_PATH", "/home/pi/.claude/.credentials.json"),
-		MaxWorkers:            maxWorkers,
-		UsagePollInterval:     pollInterval,
-		UsageThreshold5h:      threshold5h,
-		UsageThreshold7d:      threshold7d,
-		OpenClawURL:           getEnv("OPENCLAW_URL", "http://localhost:18789"),
-		OpenClawToken:         getEnv("OPENCLAW_TOKEN", ""),
-		OpenClawWorkspace:     getEnv("OPENCLAW_WORKSPACE", "/home/pi/.openclaw/workspace"),
-		ClaudeContextDir:      getEnv("CLAUDE_CONTEXT_DIR", "./data/context"),
-		ClaudeDefaultWorkDir:  getEnv("CLAUDE_DEFAULT_WORK_DIR", "/home/pi"),
-		WhisperEnabled:        whisperEnabled,
-		UploadDir:             getEnv("UPLOAD_DIR", "./data/uploads"),
-		AIModel:               getEnv("AI_MODEL", "sonnet"),
-		AvailableModels:       availableModels,
+		Port:                 getEnv("PORT", "5110"),
+		DatabaseURL:          getEnv("DATABASE_URL", "postgres://botka:botka@localhost:5432/botka?sslmode=disable"),
+		ProjectsDir:          getEnv("PROJECTS_DIR", "/home/pi/projects"),
+		ClaudePath:           getEnv("CLAUDE_PATH", "claude"),
+		ClaudeUsageCmd:       getEnv("CLAUDE_USAGE_CMD", "/home/pi/bin/claude-usage"),
+		MaxWorkers:           maxWorkers,
+		UsagePollInterval:    pollInterval,
+		UsageThreshold5h:     threshold5h,
+		UsageThreshold7d:     threshold7d,
+		OpenClawURL:          getEnv("OPENCLAW_URL", "http://localhost:18789"),
+		OpenClawToken:        getEnv("OPENCLAW_TOKEN", ""),
+		OpenClawWorkspace:    getEnv("OPENCLAW_WORKSPACE", "/home/pi/.openclaw/workspace"),
+		ClaudeContextDir:     getEnv("CLAUDE_CONTEXT_DIR", "./data/context"),
+		ClaudeDefaultWorkDir: getEnv("CLAUDE_DEFAULT_WORK_DIR", "/home/pi"),
+		WhisperEnabled:       whisperEnabled,
+		UploadDir:            getEnv("UPLOAD_DIR", "./data/uploads"),
+		AIModel:              getEnv("AI_MODEL", "sonnet"),
+		AvailableModels:      availableModels,
 	}, nil
 }
 
