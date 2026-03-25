@@ -72,8 +72,8 @@ export default function TasksPage() {
       : mainTasks
     const hasStatus = (s: TaskStatus) => projectTasks.some((t) => t.status === s)
     if (hasStatus('running')) autoSelectedFilter.current = 'running'
-    else if (hasStatus('pending')) autoSelectedFilter.current = 'pending'
     else if (hasStatus('queued')) autoSelectedFilter.current = 'queued'
+    else if (hasStatus('pending')) autoSelectedFilter.current = 'pending'
     else autoSelectedFilter.current = 'all'
   }, [mainTasks, hasValidUrlParam, activeProject])
 
