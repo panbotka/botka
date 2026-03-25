@@ -341,16 +341,6 @@ func (h *ChatHandler) SwitchBranch(c *gin.Context) {
 func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, lastUserContent string, lastUserMsgID *int64) {
 	threadID := thread.ID
 
-	// Determine if this is a new session or resume
-	isNewSession := thread.ClaudeSessionID == nil || *thread.ClaudeSessionID == ""
-	sessionID := ""
-	if !isNewSession {
-		sessionID = *thread.ClaudeSessionID
-	} else {
-		sessionID = uuid.New().String()
-		h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("claude_session_id", sessionID)
-	}
-
 	// Determine working directory from project
 	workDir := h.defaultDir
 	var projectClaudeMD string
@@ -366,6 +356,23 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 			}
 			projectClaudeMD = project.ClaudeMD
 		}
+	}
+
+	// Determine if this is a new session or resume
+	isNewSession := thread.ClaudeSessionID == nil || *thread.ClaudeSessionID == ""
+	sessionID := ""
+	if !isNewSession {
+		sessionID = *thread.ClaudeSessionID
+		// Check if the session file actually exists for this working directory
+		if !claude.SessionExists(sessionID, workDir) {
+			log.Printf("[chat] thread %d: session %s not found for dir %s, starting fresh", threadID, sessionID[:8], workDir)
+			isNewSession = true
+			sessionID = uuid.New().String()
+			h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("claude_session_id", sessionID)
+		}
+	} else {
+		sessionID = uuid.New().String()
+		h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("claude_session_id", sessionID)
 	}
 
 	// Assemble context file for new sessions
@@ -448,6 +455,7 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 
 	var fullResponse strings.Builder
 	var errored bool
+	var lastErrorMsg string
 
 	for event := range stream {
 		// Check if client disconnected — stop writing but keep reading
@@ -501,12 +509,14 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 
 		case claude.KindResult:
 			if event.IsError {
+				log.Printf("[chat] thread %d result error: %s", threadID, event.ErrorMsg)
 				if !clientDisconnected {
 					errJSON, _ := json.Marshal(map[string]string{"error": event.ErrorMsg})
 					fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", errJSON)
 					flusher.Flush()
 				}
 				errored = true
+				lastErrorMsg = event.ErrorMsg
 			} else {
 				if fullResponse.Len() == 0 && event.ResultText != "" {
 					fullResponse.WriteString(event.ResultText)
@@ -525,12 +535,14 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 			}
 
 		case claude.KindError:
+			log.Printf("[chat] thread %d process error: %s", threadID, event.ErrorMsg)
 			if !clientDisconnected {
 				errJSON, _ := json.Marshal(map[string]string{"error": event.ErrorMsg})
 				fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", errJSON)
 				flusher.Flush()
 			}
 			errored = true
+			lastErrorMsg = event.ErrorMsg
 		}
 	}
 
@@ -567,6 +579,12 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 	if !clientDisconnected {
 		fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
 		flusher.Flush()
+	}
+
+	// If the session was not found, clear it so the next message starts a fresh session
+	if errored && strings.Contains(lastErrorMsg, "No conversation found") {
+		log.Printf("[chat] thread %d: stale session %s, clearing for next attempt", threadID, cfg.SessionID)
+		h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("claude_session_id", nil)
 	}
 
 	// Pre-warm the next session so subsequent messages skip process startup.

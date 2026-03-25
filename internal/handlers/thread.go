@@ -391,9 +391,11 @@ func (h *ThreadHandler) SetProject(c *gin.Context) {
 	}
 
 	claude.Pool.Evict(id)
+	// Clear session ID — the old session was created for a different directory/context
 	h.db.Model(&models.Thread{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"project_id": req.ProjectID,
-		"updated_at": time.Now(),
+		"project_id":        req.ProjectID,
+		"claude_session_id": nil,
+		"updated_at":        time.Now(),
 	})
 
 	respondOK(c, gin.H{"status": "ok"})

@@ -16,8 +16,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // StreamEvent represents a parsed event from Claude Code's stream-json output.
@@ -150,12 +153,15 @@ func Run(ctx context.Context, cfg RunConfig, prompt string) <-chan StreamEvent {
 			return
 		}
 
-		// Drain stderr in background to prevent pipe deadlock
+		// Drain stderr in background, keeping last lines for error reporting
+		var stderrBuf stderrBuffer
 		go func() {
 			scanner := bufio.NewScanner(stderr)
 			scanner.Buffer(make([]byte, 0), 1<<20)
 			for scanner.Scan() {
-				log.Printf("[claude:%s] stderr: %s", sessionPrefix, scanner.Text())
+				line := scanner.Text()
+				log.Printf("[claude:%s] stderr: %s", sessionPrefix, line)
+				stderrBuf.Add(line)
 			}
 		}()
 
@@ -163,6 +169,7 @@ func Run(ctx context.Context, cfg RunConfig, prompt string) <-chan StreamEvent {
 		scanner := bufio.NewScanner(stdout)
 		scanner.Buffer(make([]byte, 0), 1<<20) // 1MB buffer for large events
 
+		var gotResultError bool
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			if len(line) == 0 {
@@ -173,6 +180,9 @@ func Run(ctx context.Context, cfg RunConfig, prompt string) <-chan StreamEvent {
 			if event.Kind == KindIgnored {
 				continue
 			}
+			if event.Kind == KindResult && event.IsError {
+				gotResultError = true
+			}
 			ch <- event
 		}
 
@@ -181,9 +191,13 @@ func Run(ctx context.Context, cfg RunConfig, prompt string) <-chan StreamEvent {
 		}
 
 		if err := cmd.Wait(); err != nil {
-			// Only report if context wasn't cancelled
-			if ctx.Err() == nil {
-				ch <- StreamEvent{Kind: KindError, ErrorMsg: fmt.Sprintf("claude exited: %v", err)}
+			// Only report if context wasn't cancelled and no result error was already sent
+			if ctx.Err() == nil && !gotResultError {
+				errMsg := fmt.Sprintf("claude exited: %v", err)
+				if detail := stderrBuf.String(); detail != "" {
+					errMsg += "\n" + detail
+				}
+				ch <- StreamEvent{Kind: KindError, ErrorMsg: errMsg}
 			}
 		}
 	}()
@@ -330,12 +344,13 @@ func parseAssistantEvent(raw map[string]json.RawMessage) StreamEvent {
 // parseResultEvent extracts the final result with cost and duration.
 func parseResultEvent(_ map[string]json.RawMessage, fullLine []byte) StreamEvent {
 	var result struct {
-		Subtype      string  `json:"subtype"`
-		IsError      bool    `json:"is_error"`
-		Result       string  `json:"result"`
-		DurationMs   int     `json:"duration_ms"`
-		NumTurns     int     `json:"num_turns"`
-		TotalCostUSD float64 `json:"total_cost_usd"`
+		Subtype      string   `json:"subtype"`
+		IsError      bool     `json:"is_error"`
+		Result       string   `json:"result"`
+		Errors       []string `json:"errors"`
+		DurationMs   int      `json:"duration_ms"`
+		NumTurns     int      `json:"num_turns"`
+		TotalCostUSD float64  `json:"total_cost_usd"`
 		Usage        struct {
 			InputTokens              int `json:"input_tokens"`
 			OutputTokens             int `json:"output_tokens"`
@@ -362,9 +377,53 @@ func parseResultEvent(_ map[string]json.RawMessage, fullLine []byte) StreamEvent
 	if result.IsError || result.Subtype == "error" {
 		evt.IsError = true
 		evt.ErrorMsg = result.Result
+		// Claude Code may put errors in the "errors" array instead of "result"
+		if evt.ErrorMsg == "" && len(result.Errors) > 0 {
+			evt.ErrorMsg = strings.Join(result.Errors, "; ")
+		}
 	}
 
 	return evt
+}
+
+// stderrBuffer collects the last N lines of stderr for inclusion in error messages.
+type stderrBuffer struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+const maxStderrLines = 20
+
+// Add appends a line to the buffer, evicting the oldest if full.
+func (b *stderrBuffer) Add(line string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.lines) >= maxStderrLines {
+		b.lines = b.lines[1:]
+	}
+	b.lines = append(b.lines, line)
+}
+
+// String returns the buffered lines joined by newlines.
+func (b *stderrBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return strings.Join(b.lines, "\n")
+}
+
+// SessionExists checks whether a Claude Code session file exists for the given
+// working directory. Claude stores sessions at ~/.claude/projects/<encoded-dir>/<id>.jsonl
+// where the encoded dir replaces both '/' and '.' with '-'.
+func SessionExists(sessionID, workDir string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return true // assume it exists if we can't check
+	}
+	r := strings.NewReplacer(string(filepath.Separator), "-", ".", "-")
+	encoded := r.Replace(workDir)
+	sessionFile := filepath.Join(home, ".claude", "projects", encoded, sessionID+".jsonl")
+	_, err = os.Stat(sessionFile)
+	return err == nil
 }
 
 // Compact sends a /compact command to a Claude Code session.

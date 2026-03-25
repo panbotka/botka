@@ -173,6 +173,7 @@ Exposes task management tools: create_task, list_tasks, get_task, update_task, l
 - **Task scheduling** uses `SELECT ... FOR UPDATE SKIP LOCKED` for safe concurrent task picking.
 - **One task per project:** The scheduler ensures only one task runs per project at a time (keyed by `project_id` in the executors map).
 - **Session pool:** After each chat response, a pre-warmed Claude process is spawned with `--resume` and kept alive for 5 minutes via a stdin keepalive byte. The next message pipes its prompt to the waiting process, skipping startup. Sessions are evicted on model/project changes, session clears, or thread deletion.
+- **Session validation:** Claude Code stores sessions per working directory at `~/.claude/projects/<encoded-dir>/<id>.jsonl`. Before resuming, `SessionExists()` checks the file exists for the current directory. Changing a thread's project clears the session ID. Stale session errors ("No conversation found") auto-clear the session for the next attempt.
 
 ## Source Projects
 

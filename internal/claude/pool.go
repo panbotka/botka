@@ -27,6 +27,7 @@ type poolEntry struct {
 	stdin       io.WriteCloser
 	stdout      io.ReadCloser
 	stderr      io.ReadCloser
+	stderrBuf   *stderrBuffer
 	cancel      context.CancelFunc
 	timer       *time.Timer
 	cfg         RunConfig
@@ -100,15 +101,6 @@ func (p *SessionPool) PreWarm(cfg RunConfig, threadID int64, threadTitle string)
 	}
 	log.Printf("[pool] pre-warmed session %s for thread %d (pid %d)", sessionPrefix, threadID, cmd.Process.Pid)
 
-	// Drain stderr in background
-	go func() {
-		scanner := bufio.NewScanner(stderr)
-		scanner.Buffer(make([]byte, 0), 1<<20)
-		for scanner.Scan() {
-			log.Printf("[pool:%s] stderr: %s", sessionPrefix, scanner.Text())
-		}
-	}()
-
 	// Register in the process registry so the UI shows the session as active.
 	Registry.Register(threadID, threadTitle, cancel)
 
@@ -117,11 +109,23 @@ func (p *SessionPool) PreWarm(cfg RunConfig, threadID int64, threadTitle string)
 		stdin:       stdin,
 		stdout:      stdout,
 		stderr:      stderr,
+		stderrBuf:   &stderrBuffer{},
 		cancel:      cancel,
 		cfg:         cfg,
 		threadID:    threadID,
 		threadTitle: threadTitle,
 	}
+
+	// Drain stderr in background, keeping last lines for error reporting
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		scanner.Buffer(make([]byte, 0), 1<<20)
+		for scanner.Scan() {
+			line := scanner.Text()
+			log.Printf("[pool:%s] stderr: %s", sessionPrefix, line)
+			entry.stderrBuf.Add(line)
+		}
+	}()
 
 	entry.timer = time.AfterFunc(p.ttl, func() {
 		p.mu.Lock()
@@ -232,6 +236,7 @@ func RunFromPool(entry *poolEntry, prompt string) <-chan StreamEvent {
 		scanner := bufio.NewScanner(entry.stdout)
 		scanner.Buffer(make([]byte, 0), 1<<20)
 
+		var gotResultError bool
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			if len(line) == 0 {
@@ -242,6 +247,9 @@ func RunFromPool(entry *poolEntry, prompt string) <-chan StreamEvent {
 			if event.Kind == KindIgnored {
 				continue
 			}
+			if event.Kind == KindResult && event.IsError {
+				gotResultError = true
+			}
 			ch <- event
 		}
 
@@ -250,7 +258,15 @@ func RunFromPool(entry *poolEntry, prompt string) <-chan StreamEvent {
 		}
 
 		if err := entry.cmd.Wait(); err != nil {
-			ch <- StreamEvent{Kind: KindError, ErrorMsg: fmt.Sprintf("claude exited: %v", err)}
+			if !gotResultError {
+				errMsg := fmt.Sprintf("claude exited: %v", err)
+				if entry.stderrBuf != nil {
+					if detail := entry.stderrBuf.String(); detail != "" {
+						errMsg += "\n" + detail
+					}
+				}
+				ch <- StreamEvent{Kind: KindError, ErrorMsg: errMsg}
+			}
 		}
 	}()
 
