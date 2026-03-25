@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { linkifyTasksReact } from '../utils/linkifyTasks';
+import DiffView from './DiffView';
 import {
   Terminal,
   FileText,
@@ -52,10 +53,20 @@ function getToolLabel(name: string, input: Record<string, unknown>): string {
       return String(input.command || '').slice(0, 80) || 'command';
     case 'Read':
       return String(input.file_path || '').split('/').pop() || 'file';
-    case 'Edit':
-      return String(input.file_path || '').split('/').pop() || 'file';
-    case 'Write':
-      return String(input.file_path || '').split('/').pop() || 'file';
+    case 'Edit': {
+      const editFile = String(input.file_path || '').split('/').pop() || 'file';
+      if (input.old_string || input.new_string) {
+        const oldLines = String(input.old_string || '').split('\n').length;
+        const newLines = String(input.new_string || '').split('\n').length;
+        return `${editFile} (+${newLines} \u2212${oldLines})`;
+      }
+      return editFile;
+    }
+    case 'Write': {
+      const writeFile = String(input.file_path || '').split('/').pop() || 'file';
+      const writeLines = String(input.content || '').split('\n').length;
+      return `${writeFile} (+${writeLines})`;
+    }
     case 'Grep':
       return String(input.pattern || '');
     case 'Glob':
@@ -106,12 +117,22 @@ export default function ToolCallPanel({ name, input, result, isError, isStreamin
       >
         <div className="overflow-hidden">
           <div className="border-t border-zinc-200">
-            <div className="px-3 py-2 bg-zinc-100/50">
-              <div className="text-zinc-400 mb-1">Input</div>
-              <pre className="text-zinc-700 whitespace-pre-wrap break-all font-mono leading-relaxed max-h-40 overflow-y-auto">
-                {name === 'Bash' ? String(input.command || '') : JSON.stringify(input, null, 2)}
-              </pre>
-            </div>
+            {(name === 'Edit' || name === 'Write') && input.file_path ? (
+              <DiffView
+                filePath={String(input.file_path)}
+                mode={name === 'Edit' ? 'edit' : 'write'}
+                oldString={name === 'Edit' ? String(input.old_string || '') : undefined}
+                newString={name === 'Edit' ? String(input.new_string || '') : undefined}
+                content={name === 'Write' ? String(input.content || '') : undefined}
+              />
+            ) : (
+              <div className="px-3 py-2 bg-zinc-100/50">
+                <div className="text-zinc-400 mb-1">Input</div>
+                <pre className="text-zinc-700 whitespace-pre-wrap break-all font-mono leading-relaxed max-h-40 overflow-y-auto">
+                  {name === 'Bash' ? String(input.command || '') : JSON.stringify(input, null, 2)}
+                </pre>
+              </div>
+            )}
 
             {result != null && (
               <div className="px-3 py-2 border-t border-zinc-200">
