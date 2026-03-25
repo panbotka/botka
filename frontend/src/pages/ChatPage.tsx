@@ -102,15 +102,7 @@ export default function ChatPage() {
   }, [])
 
   const loadProjects = useCallback(async () => {
-    try {
-      const { data } = await api.fetchProjects() as unknown as { data: Project[] }
-      setProjects(Array.isArray(data) ? data : [])
-    } catch {
-      try {
-        const result = await api.fetchProjects()
-        setProjects(Array.isArray(result) ? result : [])
-      } catch { /* ignore */ }
-    }
+    try { setProjects(await api.fetchProjects()) } catch { /* ignore */ }
   }, [])
 
   useEffect(() => {
