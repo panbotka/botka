@@ -14,6 +14,7 @@ import { downloadExport } from '../utils/exportThread';
 import type { ExportFormat } from '../utils/exportThread';
 import { useNotifications } from '../hooks/useNotifications';
 import { useConnectionStatus } from '../hooks/useConnectionStatus';
+import { useChatSync } from '../hooks/useChatSync';
 
 interface Props {
   threadId: number | null;
@@ -70,6 +71,30 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
   // --- Hooks ---
   const { notifyResponse } = useNotifications();
   const { status: connectionStatus, startHealthPolling, stopHealthPolling } = useConnectionStatus();
+
+  // --- Cross-tab message sync ---
+  const handleSyncNewMessage = useCallback((message: Message) => {
+    setMessages(prev => {
+      if (prev.some(m => m.id === message.id)) return prev;
+      return [...prev, message];
+    });
+  }, []);
+
+  const handleSyncThreadUpdated = useCallback(() => {
+    if (!threadId) return;
+    api.getThread(threadId).then((data: ThreadDetail) => {
+      if (currentThreadIdRef.current === threadId) {
+        setMessages(data.messages);
+        setForkPoints(data.fork_points || {});
+      }
+    }).catch(() => {});
+  }, [threadId]);
+
+  const { broadcastNewMessage, broadcastThreadUpdated } = useChatSync({
+    threadId,
+    onNewMessage: handleSyncNewMessage,
+    onThreadUpdated: handleSyncThreadUpdated,
+  });
 
   // Stable callback refs (used in .then() callbacks to avoid stale closures)
   const onStreamingChangeRef = useRef(onStreamingChange);
@@ -385,6 +410,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
       if (currentThreadIdRef.current === threadId) {
         setMessages(data.messages);
         setForkPoints(data.fork_points || {});
+        broadcastThreadUpdated(threadId);
       }
     }).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -451,6 +477,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
       created_at: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, userMsg]);
+    broadcastNewMessage(threadId, userMsg);
 
     if (sseManager.hasActiveSession(threadId)) {
       const queued = { id: userMsg.id, content, files };
@@ -460,7 +487,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     }
 
     sendToBackend(content, files);
-  }, [threadId, sendToBackend, branchFromId, messages, sseManager]);
+  }, [threadId, sendToBackend, branchFromId, messages, sseManager, broadcastNewMessage]);
 
   // --- Regenerate ---
 
