@@ -27,6 +27,7 @@ func NewFileHandler(db *gorm.DB, uploadDir string) *FileHandler {
 func RegisterFileRoutes(rg *gin.RouterGroup, h *FileHandler) {
 	rg.GET("/files/:id", h.ServeFile)
 	rg.GET("/files/:id/download", h.DownloadFile)
+	rg.GET("/uploads/:filename", h.ServeByName)
 }
 
 // ServeFile serves an uploaded file inline with the correct MIME type.
@@ -76,6 +77,34 @@ func (h *FileHandler) DownloadFile(c *gin.Context) {
 
 	c.Header("Content-Type", "application/octet-stream")
 	c.Header("Content-Disposition", "attachment; filename=\""+sanitizeFilename(attachment.OriginalName)+"\"")
+	c.File(filePath)
+}
+
+// ServeByName serves an uploaded file by its stored filename.
+func (h *FileHandler) ServeByName(c *gin.Context) {
+	filename := c.Param("filename")
+
+	// Prevent path traversal
+	if strings.ContainsAny(filename, "/\\") || filename == ".." || filename == "." {
+		respondError(c, http.StatusBadRequest, "invalid filename")
+		return
+	}
+
+	var attachment models.Attachment
+	if err := h.db.Where("stored_name = ?", filename).First(&attachment).Error; err != nil {
+		respondError(c, http.StatusNotFound, "file not found")
+		return
+	}
+
+	filePath := filepath.Join(h.uploadDir, attachment.StoredName)
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		respondError(c, http.StatusNotFound, "file not found on disk")
+		return
+	}
+
+	c.Header("Content-Type", attachment.MimeType)
+	c.Header("Content-Disposition", "inline; filename=\""+sanitizeFilename(attachment.OriginalName)+"\"")
+	c.Header("Cache-Control", "public, max-age=86400")
 	c.File(filePath)
 }
 

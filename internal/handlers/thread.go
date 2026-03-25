@@ -197,8 +197,9 @@ func (h *ThreadHandler) GetByID(c *gin.Context) {
 		h.db.Where("message_id IN ?", msgIDs).Find(&attachments)
 
 		attachByMsg := make(map[int64][]models.Attachment)
-		for _, a := range attachments {
-			attachByMsg[a.MessageID] = append(attachByMsg[a.MessageID], a)
+		for i := range attachments {
+			attachments[i].ComputeURL()
+			attachByMsg[attachments[i].MessageID] = append(attachByMsg[attachments[i].MessageID], attachments[i])
 		}
 		for i := range messages {
 			if atts, ok := attachByMsg[messages[i].ID]; ok {

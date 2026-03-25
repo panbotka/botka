@@ -12,7 +12,13 @@ type Attachment struct {
 	OriginalName string    `gorm:"size:500;not null" json:"original_name"`
 	MimeType     string    `gorm:"size:100;not null" json:"mime_type"`
 	Size         int64     `gorm:"not null;default:0" json:"size"`
+	URL          string    `gorm:"-" json:"url"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+// ComputeURL sets the URL field based on the stored filename.
+func (a *Attachment) ComputeURL() {
+	a.URL = "/api/v1/uploads/" + a.StoredName
 }
 
 // TableName returns the database table name for the Attachment model.

@@ -62,6 +62,107 @@ function AssistantAvatar() {
   );
 }
 
+function PdfIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className={className}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+    </svg>
+  );
+}
+
+function TextIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className={className}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+    </svg>
+  );
+}
+
+function FileCard({ attachment, icon, action, variant }: { attachment: Attachment; icon: React.ReactNode; action?: React.ReactNode; variant: 'user' | 'assistant' }) {
+  const isUser = variant === 'user';
+  return (
+    <div className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm ${isUser ? 'bg-white/10' : 'bg-zinc-100 border border-zinc-200'}`}>
+      <div className={`flex-shrink-0 ${isUser ? 'text-white/70' : 'text-zinc-500'}`}>
+        {icon}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className={`truncate font-medium ${isUser ? 'text-white' : 'text-zinc-700'}`}>{attachment.original_name}</div>
+        <div className={`text-xs ${isUser ? 'text-white/50' : 'text-zinc-400'}`}>{formatFileSize(attachment.size)}</div>
+      </div>
+      {action}
+    </div>
+  );
+}
+
+function AttachmentPreviews({ imageAttachments, pdfAttachments, textAttachments, otherAttachments, onImageClick, variant }: {
+  imageAttachments: Attachment[];
+  pdfAttachments: Attachment[];
+  textAttachments: Attachment[];
+  otherAttachments: Attachment[];
+  onImageClick?: (attachment: Attachment, allImages: Attachment[]) => void;
+  variant: 'user' | 'assistant';
+}) {
+  const hasAny = imageAttachments.length + pdfAttachments.length + textAttachments.length + otherAttachments.length > 0;
+  if (!hasAny) return null;
+
+  const isUser = variant === 'user';
+  const linkClass = isUser ? 'text-white/70 hover:text-white' : 'text-emerald-600 hover:text-emerald-700';
+
+  return (
+    <div className="mt-2 flex flex-wrap gap-2">
+      {imageAttachments.map((att) => (
+        <button
+          key={att.id}
+          type="button"
+          onClick={() => onImageClick?.(att, imageAttachments)}
+          className="cursor-pointer rounded-lg overflow-hidden hover:opacity-80 transition-opacity border border-white/20"
+        >
+          <img
+            src={att.url}
+            alt={att.original_name}
+            className="max-w-[300px] max-h-[200px] rounded-lg object-cover"
+          />
+        </button>
+      ))}
+      {pdfAttachments.map((att) => (
+        <FileCard
+          key={att.id}
+          attachment={att}
+          variant={variant}
+          icon={<PdfIcon className="w-5 h-5" />}
+          action={
+            <a
+              href={att.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`text-xs font-medium transition-colors flex-shrink-0 ${linkClass}`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              Open
+            </a>
+          }
+        />
+      ))}
+      {textAttachments.map((att) => (
+        <FileCard
+          key={att.id}
+          attachment={att}
+          variant={variant}
+          icon={<TextIcon className="w-5 h-5" />}
+        />
+      ))}
+      {otherAttachments.map((att) => (
+        <FileCard
+          key={att.id}
+          attachment={att}
+          variant={variant}
+          icon={<PdfIcon className="w-5 h-5" />}
+        />
+      ))}
+    </div>
+  );
+}
+
 export default function MessageBubble({ message, isStreaming, isLastAssistant, isPending, forkPoint, onEdit, onRegenerate, onBranch, onSwitchBranch, onImageClick, onRemoveQueued, onOptionSelect }: Props) {
   const isUser = message.role === 'user';
   const [editing, setEditing] = useState(false);
@@ -70,7 +171,9 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
 
   const attachments = message.attachments || [];
   const imageAttachments = attachments.filter((a) => a.mime_type.startsWith('image/'));
-  const fileAttachments = attachments.filter((a) => !a.mime_type.startsWith('image/'));
+  const pdfAttachments = attachments.filter((a) => a.mime_type === 'application/pdf');
+  const textAttachments = attachments.filter((a) => a.mime_type.startsWith('text/'));
+  const otherAttachments = attachments.filter((a) => !a.mime_type.startsWith('image/') && a.mime_type !== 'application/pdf' && !a.mime_type.startsWith('text/'));
 
   useEffect(() => {
     if (editing && textareaRef.current) {
@@ -150,43 +253,15 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
             </div>
           ) : isUser ? (
             <>
-              {imageAttachments.length > 0 && (
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {imageAttachments.map((att) => (
-                    <button
-                      key={att.id}
-                      type="button"
-                      onClick={() => onImageClick?.(att, imageAttachments)}
-                      className="cursor-pointer rounded-lg overflow-hidden hover:opacity-80 transition-opacity"
-                    >
-                      <img
-                        src={`/api/v1/files/${att.id}`}
-                        alt={att.original_name}
-                        className="max-w-[200px] max-h-[150px] rounded-lg object-cover"
-                      />
-                    </button>
-                  ))}
-                </div>
-              )}
-              {fileAttachments.length > 0 && (
-                <div className="flex flex-col gap-1 mb-2">
-                  {fileAttachments.map((att) => (
-                    <a
-                      key={att.id}
-                      href={`/api/v1/files/${att.id}/download`}
-                      className="flex items-center gap-2 text-xs text-white/70 hover:text-white transition-colors"
-                      download
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0">
-                        <path d="M3 3.5A1.5 1.5 0 014.5 2h6.879a1.5 1.5 0 011.06.44l.44.44v.001l.44.44A1.5 1.5 0 0113.5 4.378V12.5A1.5 1.5 0 0112 14H4.5A1.5 1.5 0 013 12.5v-9z" />
-                      </svg>
-                      <span className="truncate">{att.original_name}</span>
-                      <span className="text-white/50 flex-shrink-0">({formatFileSize(att.size)})</span>
-                    </a>
-                  ))}
-                </div>
-              )}
               <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{message.content}</p>
+              <AttachmentPreviews
+                imageAttachments={imageAttachments}
+                pdfAttachments={pdfAttachments}
+                textAttachments={textAttachments}
+                otherAttachments={otherAttachments}
+                onImageClick={onImageClick}
+                variant="user"
+              />
             </>
           ) : (
             <div className="text-[15px]" style={{ lineHeight: 1.7 }}>
@@ -198,6 +273,16 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
                 />
               )}
               {message.content && <MarkdownContent content={message.content} onOptionSelect={onOptionSelect} />}
+              {attachments.length > 0 && (
+                <AttachmentPreviews
+                  imageAttachments={imageAttachments}
+                  pdfAttachments={pdfAttachments}
+                  textAttachments={textAttachments}
+                  otherAttachments={otherAttachments}
+                  onImageClick={onImageClick}
+                  variant="assistant"
+                />
+              )}
               {isStreaming && (
                 <span className="inline-block w-1.5 h-4 bg-emerald-500/70 ml-0.5 rounded-sm" style={{ animation: 'pulse-glow 1s ease-in-out infinite' }} />
               )}

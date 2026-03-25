@@ -162,10 +162,11 @@ export interface Message {
 export interface Attachment {
   id: number
   message_id: number
-  filename: string
+  stored_name: string
   original_name: string
   mime_type: string
   size: number
+  url: string
   created_at: string
 }
 

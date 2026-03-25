@@ -47,7 +47,7 @@ export default function Lightbox({ attachment, allImages, onClose }: Props) {
       </button>
 
       <a
-        href={`/api/v1/files/${current.id}/download`}
+        href={current.url}
         download
         onClick={(e) => e.stopPropagation()}
         className="absolute top-4 right-16 text-white/70 hover:text-white p-2 transition-colors z-10"
@@ -80,7 +80,7 @@ export default function Lightbox({ attachment, allImages, onClose }: Props) {
       )}
 
       <img
-        src={`/api/v1/files/${current.id}`}
+        src={current.url}
         alt={current.original_name}
         className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg"
         onClick={(e) => e.stopPropagation()}
