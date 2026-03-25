@@ -384,6 +384,7 @@ async function* parseSSE(response: Response): AsyncGenerator<StreamChunk> {
   const reader = response.body!.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let currentEventType = ''
 
   try {
     while (true) {
@@ -395,6 +396,10 @@ async function* parseSSE(response: Response): AsyncGenerator<StreamChunk> {
       buffer = lines.pop() || ''
 
       for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          currentEventType = line.slice(7).trim()
+          continue
+        }
         if (line.startsWith('data: ')) {
           const data = line.slice(6)
           if (data === '[DONE]') {
@@ -402,10 +407,34 @@ async function* parseSSE(response: Response): AsyncGenerator<StreamChunk> {
             return
           }
           try {
-            yield JSON.parse(data) as StreamChunk
+            const parsed = JSON.parse(data)
+            switch (currentEventType) {
+              case 'tool_use':
+                yield { tool_use: parsed } as StreamChunk
+                break
+              case 'tool_result':
+                yield { tool_result: parsed } as StreamChunk
+                break
+              case 'thinking':
+                yield { thinking: parsed.content } as StreamChunk
+                break
+              case 'usage':
+                yield { usage: parsed } as StreamChunk
+                break
+              case 'error':
+                yield { error: parsed.error } as StreamChunk
+                break
+              case 'title':
+                yield { title: parsed.title } as StreamChunk
+                break
+              default:
+                yield parsed as StreamChunk
+                break
+            }
           } catch {
             // skip malformed
           }
+          currentEventType = ''
         }
       }
     }
