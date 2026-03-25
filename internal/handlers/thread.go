@@ -71,7 +71,7 @@ func (h *ThreadHandler) List(c *gin.Context) {
 	if !includeArchived {
 		query = query.Where("t.archived = ?", false)
 	}
-	query = query.Order("t.pinned DESC, t.updated_at DESC")
+	query = query.Order("t.pinned DESC, COALESCE(lm.created_at, t.created_at) DESC")
 
 	if err := query.Find(&rows).Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "failed to list threads")
