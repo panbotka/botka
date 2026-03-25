@@ -267,6 +267,9 @@ export default function ThreadSidebar({
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-1.5">
               <span className="font-medium text-sm truncate flex items-center gap-1">
+                {streamingThreadId === thread.id && activeThreadId !== thread.id && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
+                )}
                 {thread.pinned && <Pin className="w-3 h-3 text-amber-500 flex-shrink-0" />}
                 {thread.persona_icon && <span className="flex-shrink-0">{thread.persona_icon}</span>}
                 {thread.title || 'New conversation'}
@@ -281,9 +284,6 @@ export default function ThreadSidebar({
               </div>
             )}
             <div className="flex items-center gap-1.5 mt-0.5">
-              {streamingThreadId === thread.id && activeThreadId !== thread.id && (
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
-              )}
               {thread.tags && thread.tags.length > 0 && (
                 <span className="flex items-center gap-0.5 flex-shrink-0">
                   {thread.tags.slice(0, 3).map(tag => (
