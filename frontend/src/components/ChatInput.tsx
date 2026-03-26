@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useImperativeHandle, forwardRef, type FormEvent, type KeyboardEvent } from 'react';
 import { useAutoResize } from '../hooks/useAutoResize';
+import { useInputHistory } from '../hooks/useInputHistory';
 import { useVoiceInput } from '../hooks/useVoiceInput';
 import { useSettings } from '../context/SettingsContext';
 import SlashCommandMenu, { getFilteredCommands } from './SlashCommandMenu';
@@ -46,6 +47,7 @@ const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ onSend
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   useAutoResize(textareaRef);
+  const history = useInputHistory();
 
   const showMenu = value.startsWith('/') && !value.includes('\n');
   const filtered = showMenu ? getFilteredCommands(value.split(' ')[0] || '/') : [];
@@ -92,6 +94,8 @@ const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ onSend
       onSend(trimmed, files.length > 0 ? files : undefined);
     }
 
+    history.push(trimmed);
+    history.reset();
     setValue('');
     setFiles([]);
     setSelectedIndex(0);
@@ -146,6 +150,37 @@ const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ onSend
         setValue('');
         setSelectedIndex(0);
         return;
+      }
+    }
+    // Input history navigation (bash-style)
+    if (e.key === 'ArrowUp') {
+      const ta = textareaRef.current;
+      if (ta) {
+        const isSingleLine = !value.includes('\n');
+        const cursorAtStart = ta.selectionStart === 0;
+        if (isSingleLine || cursorAtStart) {
+          const result = history.navigateUp(value);
+          if (result !== null) {
+            e.preventDefault();
+            setValue(result);
+          }
+          return;
+        }
+      }
+    }
+    if (e.key === 'ArrowDown') {
+      const ta = textareaRef.current;
+      if (ta) {
+        const isSingleLine = !value.includes('\n');
+        const cursorAtEnd = ta.selectionStart === value.length;
+        if (isSingleLine || cursorAtEnd) {
+          const result = history.navigateDown();
+          if (result !== null) {
+            e.preventDefault();
+            setValue(result);
+          }
+          return;
+        }
       }
     }
     if (e.key === 'Escape' && voiceState === 'recording') {
