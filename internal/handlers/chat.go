@@ -65,6 +65,7 @@ func RegisterChatRoutes(rg *gin.RouterGroup, h *ChatHandler) {
 	rg.POST("/threads/:id/session/new", h.NewSession)
 	rg.GET("/threads/:id/stream/subscribe", h.SubscribeStream)
 	rg.GET("/threads/:id/session-health", h.SessionHealth)
+	rg.POST("/threads/:id/interrupt", h.Interrupt)
 }
 
 type sendMessageRequest struct {
@@ -838,4 +839,25 @@ func (h *ChatHandler) saveUploadedFile(messageID int64, fh *multipart.FileHeader
 	}
 
 	return &attachment, nil
+}
+
+// Interrupt sends SIGINT to the Claude process for a thread, stopping the
+// current response without killing the session.
+func (h *ChatHandler) Interrupt(c *gin.Context) {
+	threadID, err := paramInt64(c, "id")
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "invalid thread id")
+		return
+	}
+
+	switch err = claude.Sessions.Interrupt(threadID); err {
+	case nil:
+		respondOK(c, gin.H{"status": "interrupted"})
+	case claude.ErrNoSession:
+		respondError(c, http.StatusNotFound, "no active session")
+	case claude.ErrNotBusy:
+		respondError(c, http.StatusConflict, "not currently streaming")
+	default:
+		respondError(c, http.StatusInternalServerError, err.Error())
+	}
 }

@@ -29,6 +29,8 @@ interface Props {
   queuedCount?: number;
   planMode?: boolean;
   onTogglePlanMode?: () => void;
+  isStreaming?: boolean;
+  onStop?: () => void;
 }
 
 export interface ChatInputHandle {
@@ -36,7 +38,7 @@ export interface ChatInputHandle {
   focus: () => void;
 }
 
-const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ onSend, onSlashCommand, queuedCount = 0, planMode, onTogglePlanMode }, ref) {
+const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ onSend, onSlashCommand, queuedCount = 0, planMode, onTogglePlanMode, isStreaming, onStop }, ref) {
   const { settings } = useSettings();
   const [value, setValue] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -338,20 +340,33 @@ const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ onSend
               )}
             </button>
           )}
-          {/* Send button */}
-          <button
-            type="submit"
-            disabled={!hasContent}
-            className={`p-2.5 m-1.5 rounded-xl transition-all duration-200 flex-shrink-0 cursor-pointer
-              ${hasContent
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md'
-                : 'text-zinc-300 opacity-0 pointer-events-none'
-              }`}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4.5 h-4.5">
-              <path d="M3.105 2.289a.75.75 0 00-.826.95l1.414 4.925A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.896 28.896 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.289z" />
-            </svg>
-          </button>
+          {/* Stop / Send button */}
+          {isStreaming ? (
+            <button
+              type="button"
+              onClick={onStop}
+              className="p-2.5 m-1.5 rounded-xl transition-all duration-200 flex-shrink-0 cursor-pointer bg-zinc-700 hover:bg-zinc-800 text-white shadow-md"
+              title="Stop response"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4.5 h-4.5">
+                <rect x="5" y="5" width="10" height="10" rx="1.5" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!hasContent}
+              className={`p-2.5 m-1.5 rounded-xl transition-all duration-200 flex-shrink-0 cursor-pointer
+                ${hasContent
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md'
+                  : 'text-zinc-300 opacity-0 pointer-events-none'
+                }`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4.5 h-4.5">
+                <path d="M3.105 2.289a.75.75 0 00-.826.95l1.414 4.925A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.896 28.896 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.289z" />
+              </svg>
+            </button>
+          )}
         </div>
         {queuedCount > 0 && (
           <div className="flex justify-end px-3 pb-2">

@@ -223,6 +223,10 @@ export function clearSession(id: number): Promise<void> {
   return request<void>(`/threads/${id}/session/clear`, { method: 'POST' })
 }
 
+export function interruptThread(id: number): Promise<void> {
+  return request<void>(`/threads/${id}/interrupt`, { method: 'POST' })
+}
+
 export function newSession(id: number): Promise<void> {
   return request<void>(`/threads/${id}/session/new`, { method: 'POST' })
 }
@@ -623,6 +627,7 @@ export const api = {
   unarchiveThread,
   clearMessages,
   clearSession,
+  interruptThread,
   newSession,
   fetchSessionHealth,
   renameThread,

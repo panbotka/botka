@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type DragEvent } from 'react';
 import type { Message, Thread, ThreadDetail, Attachment, ForkPoint } from '../types';
-import { api, streamChat, streamRegenerate, streamEdit, streamBranch, streamSubscribe, fetchSessionHealth } from '../api/client';
+import { api, interruptThread, streamChat, streamRegenerate, streamEdit, streamBranch, streamSubscribe, fetchSessionHealth } from '../api/client';
 import type { SessionHealthData } from '../api/client';
 import type { StreamChunk } from '../api/client';
 import { useSSEManager, useSSESession } from '../context/SSEContext';
@@ -506,6 +506,15 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     sendToBackend(content, files);
   }, [threadId, sendToBackend, branchFromId, messages, sseManager, broadcastNewMessage]);
 
+  // --- Stop (interrupt) ---
+
+  const handleStop = useCallback(() => {
+    if (!threadId) return;
+    interruptThread(threadId).catch(() => {
+      // Ignore errors — response may have already finished
+    });
+  }, [threadId]);
+
   // --- Regenerate ---
 
   const handleRegenerate = useCallback(async () => {
@@ -987,7 +996,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
             </div>
           ) : null;
         })()}
-        <ChatInput key={threadId} ref={chatInputRef} onSend={handleSend} onSlashCommand={handleSlashCommand} queuedCount={queuedIds.size} planMode={planMode} onTogglePlanMode={() => setPlanMode((p) => !p)} />
+        <ChatInput key={threadId} ref={chatInputRef} onSend={handleSend} onSlashCommand={handleSlashCommand} queuedCount={queuedIds.size} planMode={planMode} onTogglePlanMode={() => setPlanMode((p) => !p)} isStreaming={isStreamingThisThread} onStop={handleStop} />
       </div>
       {lightbox && (
         <Lightbox

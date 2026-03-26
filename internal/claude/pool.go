@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"math"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -403,6 +405,39 @@ func (m *SessionManager) IsBusy(threadID int64) bool {
 		return s.busy
 	}
 	return false
+}
+
+// ErrNoSession is returned when no session exists for the given thread.
+var ErrNoSession = errors.New("no active session")
+
+// ErrNotBusy is returned when the session is not currently processing a message.
+var ErrNotBusy = errors.New("session is not streaming")
+
+// Interrupt sends SIGINT to the Claude process for the given thread, which
+// stops the current response without killing the session. The process emits
+// a result event after receiving SIGINT, so the SendMessage scanner loop
+// ends naturally and the session remains alive for the next message.
+func (m *SessionManager) Interrupt(threadID int64) error {
+	m.mu.Lock()
+	s, ok := m.sessions[threadID]
+	m.mu.Unlock()
+
+	if !ok || s.dead {
+		return ErrNoSession
+	}
+	if !s.busy {
+		return ErrNotBusy
+	}
+
+	log.Printf("[session] sending SIGINT to session %s for thread %d (pid %d)",
+		s.sessionPrefix, threadID, s.cmd.Process.Pid)
+
+	if err := s.cmd.Process.Signal(os.Interrupt); err != nil {
+		log.Printf("[session] failed to send SIGINT to thread %d: %v", threadID, err)
+		return fmt.Errorf("signal interrupt: %w", err)
+	}
+
+	return nil
 }
 
 // UpdateTokens records token usage from a completed message on the session
