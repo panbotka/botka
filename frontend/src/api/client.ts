@@ -733,10 +733,11 @@ export function deletePasskey(id: number): Promise<void> {
   return request<void>(`/auth/passkeys/${id}`, { method: 'DELETE' })
 }
 
-export function passkeyRegisterBegin(): Promise<{ data: PublicKeyCredentialCreationOptions }> {
-  return request<{ data: PublicKeyCredentialCreationOptions }>('/auth/passkey/register/begin', {
+export async function passkeyRegisterBegin(): Promise<{ data: PublicKeyCredentialCreationOptions }> {
+  const res = await request<{ data: { publicKey: PublicKeyCredentialCreationOptions } }>('/auth/passkey/register/begin', {
     method: 'POST',
   })
+  return { data: res.data.publicKey }
 }
 
 export function passkeyRegisterFinish(credential: Credential, name: string): Promise<PasskeyInfo> {
@@ -756,10 +757,11 @@ export function passkeyRegisterFinish(credential: Credential, name: string): Pro
   })
 }
 
-export function passkeyLoginBegin(): Promise<{ data: PublicKeyCredentialRequestOptions }> {
-  return request<{ data: PublicKeyCredentialRequestOptions }>('/auth/passkey/login/begin', {
+export async function passkeyLoginBegin(): Promise<{ data: PublicKeyCredentialRequestOptions }> {
+  const res = await request<{ data: { publicKey: PublicKeyCredentialRequestOptions } }>('/auth/passkey/login/begin', {
     method: 'POST',
   })
+  return { data: res.data.publicKey }
 }
 
 export function passkeyLoginFinish(credential: Credential): Promise<AuthUser> {
