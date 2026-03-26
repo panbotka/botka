@@ -430,6 +430,7 @@ export interface StreamChunk {
   tool_result?: { tool_use_id: string; content: string; is_error: boolean }
   retry?: { attempt: number; max_attempts: number }
   memory_suggestion?: string
+  attachments?: { id: number; message_id: number; stored_name: string; original_name: string; mime_type: string; size: number; url: string; created_at: string }[]
 }
 
 async function* parseSSE(response: Response): AsyncGenerator<StreamChunk> {
@@ -478,6 +479,9 @@ async function* parseSSE(response: Response): AsyncGenerator<StreamChunk> {
                 break
               case 'title':
                 yield { title: parsed.title } as StreamChunk
+                break
+              case 'attachments':
+                yield { attachments: parsed } as StreamChunk
                 break
               default:
                 yield parsed as StreamChunk

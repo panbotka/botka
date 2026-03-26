@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useReducer, type ReactNode } from 'react';
-import type { Message } from '../types';
+import type { Attachment, Message } from '../types';
 import type { StreamChunk } from '../api/client';
 
 // ============= Types =============
@@ -26,6 +26,7 @@ export interface SSESessionState {
   isStreaming: boolean;
   isComplete: boolean;
   completedMessage: Message | null;
+  attachments: Attachment[];
   titleUpdate: { threadId: number; title: string } | null;
   gotResponse: boolean;
 }
@@ -72,6 +73,7 @@ function createSessionState(): SSESessionState {
     isStreaming: true,
     isComplete: false,
     completedMessage: null,
+    attachments: [],
     titleUpdate: null,
     gotResponse: false,
   };
@@ -317,6 +319,12 @@ export class SSESessionManager {
         continue;
       }
 
+      if (chunk.attachments) {
+        session.state.attachments = [...session.state.attachments, ...chunk.attachments];
+        this.notify(session);
+        continue;
+      }
+
       if (chunk.content || chunk.thinking) {
         session.state.retryInfo = null;
       }
@@ -356,6 +364,7 @@ export class SSESessionManager {
         thinking_duration_ms: session.state.thinkingDurationMs ?? undefined,
         prompt_tokens: promptTokens,
         completion_tokens: completionTokens,
+        attachments: session.state.attachments.length > 0 ? session.state.attachments : undefined,
         created_at: new Date().toISOString(),
       };
       session.state.gotResponse = true;

@@ -30,6 +30,21 @@ var allowedMimeTypes = map[string]bool{
 	"text/plain":      true,
 }
 
+// extToMime maps file extensions to MIME types for AI-generated file detection.
+var extToMime = map[string]string{
+	".png":  "image/png",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".gif":  "image/gif",
+	".webp": "image/webp",
+	".pdf":  "application/pdf",
+	".txt":  "text/plain",
+	".md":   "text/plain",
+	".csv":  "text/csv",
+	".html": "text/html",
+	".svg":  "image/svg+xml",
+}
+
 const maxUploadSize = 10 << 20 // 10 MB
 
 // isTransientError reports whether the given error message is a known transient
@@ -508,6 +523,7 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 	var lastErrorMsg string
 	var lastCostUSD float64
 	var lastInputTokens, lastOutputTokens int
+	var writtenFiles []writeToolCall
 
 	for event := range stream {
 		// Check if client disconnected — stop writing but keep reading
@@ -555,6 +571,16 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 			if !clientDisconnected {
 				fmt.Fprint(c.Writer, sseData)
 				flusher.Flush()
+			}
+
+			// Collect Write/Edit tool calls for AI-generated file attachment
+			if event.ToolName == "Write" || event.ToolName == "Edit" {
+				var toolInput struct {
+					FilePath string `json:"file_path"`
+				}
+				if json.Unmarshal(event.ToolInput, &toolInput) == nil && toolInput.FilePath != "" {
+					writtenFiles = append(writtenFiles, writeToolCall{FilePath: toolInput.FilePath})
+				}
 			}
 
 		case claude.KindToolResult:
@@ -654,6 +680,33 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 			}
 			if err := h.db.Create(&assistantMsg).Error; err != nil {
 				log.Printf("failed to save assistant message: %v", err)
+			} else if len(writtenFiles) > 0 {
+				// Deduplicate by file path — keep only the last Write per path
+				seen := make(map[string]bool)
+				var unique []writeToolCall
+				for i := len(writtenFiles) - 1; i >= 0; i-- {
+					if !seen[writtenFiles[i].FilePath] {
+						seen[writtenFiles[i].FilePath] = true
+						unique = append(unique, writtenFiles[i])
+					}
+				}
+
+				var attachments []models.Attachment
+				for _, wf := range unique {
+					if att := h.captureWrittenFile(assistantMsg.ID, wf.FilePath); att != nil {
+						attachments = append(attachments, *att)
+					}
+				}
+
+				if len(attachments) > 0 {
+					attJSON, _ := json.Marshal(attachments)
+					sseData := fmt.Sprintf("event: attachments\ndata: %s\n\n", attJSON)
+					claude.Streams.Publish(threadID, sseData)
+					if !clientDisconnected {
+						fmt.Fprint(c.Writer, sseData)
+						flusher.Flush()
+					}
+				}
 			}
 		}
 
@@ -884,6 +937,72 @@ func (h *ChatHandler) saveUploadedFile(messageID int64, fh *multipart.FileHeader
 	}
 
 	return &attachment, nil
+}
+
+// writeToolCall records a Write or Edit tool call with the target file path.
+type writeToolCall struct {
+	FilePath string
+}
+
+// captureWrittenFile copies a file from disk to the uploads directory and creates
+// an Attachment DB record linked to the given message. It returns nil if the file
+// doesn't exist, is too large, or has an unsupported extension.
+func (h *ChatHandler) captureWrittenFile(messageID int64, filePath string) *models.Attachment {
+	ext := strings.ToLower(filepath.Ext(filePath))
+	mimeType, ok := extToMime[ext]
+	if !ok {
+		return nil
+	}
+
+	info, err := os.Stat(filePath)
+	if err != nil || info.IsDir() {
+		return nil
+	}
+	if info.Size() > maxUploadSize {
+		log.Printf("[chat] skipping AI-generated file %s: too large (%d bytes)", filePath, info.Size())
+		return nil
+	}
+
+	src, err := os.Open(filePath)
+	if err != nil {
+		return nil
+	}
+	defer src.Close()
+
+	storedName := uuid.New().String() + ext
+	if err := os.MkdirAll(h.uploadDir, 0755); err != nil {
+		log.Printf("[chat] failed to create upload dir: %v", err)
+		return nil
+	}
+
+	dstPath := filepath.Join(h.uploadDir, storedName)
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		log.Printf("[chat] failed to create file %s: %v", dstPath, err)
+		return nil
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		os.Remove(dstPath)
+		return nil
+	}
+
+	attachment := models.Attachment{
+		MessageID:    messageID,
+		StoredName:   storedName,
+		OriginalName: filepath.Base(filePath),
+		MimeType:     mimeType,
+		Size:         info.Size(),
+	}
+	if err := h.db.Create(&attachment).Error; err != nil {
+		os.Remove(dstPath)
+		log.Printf("[chat] failed to save AI attachment record: %v", err)
+		return nil
+	}
+
+	attachment.ComputeURL()
+	return &attachment
 }
 
 // Interrupt sends SIGINT to the Claude process for a thread, stopping the
