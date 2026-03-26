@@ -98,7 +98,7 @@ export default function ProjectPicker({ projects, currentProjectId, onSelect }: 
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search..."
-                className="w-full pl-7 pr-2 py-1 text-sm bg-white border border-zinc-200 rounded-lg
+                className="w-full pl-7 pr-2 py-1 text-sm bg-white dark:bg-zinc-100 border border-zinc-200 rounded-lg
                            text-zinc-700 placeholder:text-zinc-400 outline-none focus:border-amber-300
                            focus:ring-1 focus:ring-amber-200"
               />

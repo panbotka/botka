@@ -177,7 +177,7 @@ export default function SearchOverlay({ open, onClose }: Props) {
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
       <div
-        className="relative bg-white border border-zinc-200 rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden animate-palette-in"
+        className="relative bg-white dark:bg-zinc-100 border border-zinc-200 rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden animate-palette-in"
         onKeyDown={handleKeyDown}
       >
         {/* Search input */}

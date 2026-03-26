@@ -70,12 +70,12 @@ function StatCard({ label, value, icon, color, bgColor, subtitle, link }: StatCa
   const content = (
     <div className={clsx(
       'h-full rounded-xl border p-5 transition-shadow',
-      'border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800',
+      'border-zinc-200 bg-white dark:bg-zinc-100',
       link && 'hover:shadow-md cursor-pointer',
     )}>
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">{label}</p>
+          <p className="text-sm font-medium text-zinc-500">{label}</p>
           <p className={clsx('mt-1 text-3xl font-bold tabular-nums', color)}>{value}</p>
           {subtitle && (
             <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">{subtitle}</p>
@@ -129,12 +129,12 @@ function UsageMeters({ usage, onRefresh }: { usage: UsageInfo | null; onRefresh:
 
   if (!usage) {
     return (
-      <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-800">
+      <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:bg-zinc-100">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
             API Usage
           </h2>
-          <button onClick={handleRefresh} disabled={refreshing} className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 disabled:opacity-50 dark:hover:bg-zinc-700 dark:hover:text-zinc-300">
+          <button onClick={handleRefresh} disabled={refreshing} className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 disabled:opacity-50">
             <RefreshCw className={clsx('h-4 w-4', refreshing && 'animate-spin')} />
           </button>
         </div>
@@ -155,11 +155,11 @@ function UsageMeters({ usage, onRefresh }: { usage: UsageInfo | null; onRefresh:
       'rounded-xl border p-5',
       isStale
         ? 'border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30'
-        : 'border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800',
+        : 'border-zinc-200 bg-white dark:bg-zinc-100',
     )}>
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
             API Usage
           </h2>
           {isStale && (
@@ -179,7 +179,7 @@ function UsageMeters({ usage, onRefresh }: { usage: UsageInfo | null; onRefresh:
             'rounded p-1 disabled:opacity-50',
             isStale
               ? 'text-amber-600 hover:bg-amber-200 hover:text-amber-800 dark:text-amber-400 dark:hover:bg-amber-900 dark:hover:text-amber-300 animate-pulse'
-              : 'text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-700 dark:hover:text-zinc-300',
+              : 'text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600',
           )}>
             <RefreshCw className={clsx('h-4 w-4', refreshing && 'animate-spin')} />
           </button>
@@ -189,8 +189,8 @@ function UsageMeters({ usage, onRefresh }: { usage: UsageInfo | null; onRefresh:
         {meters.map((m) => (
           <div key={m.label}>
             <div className="mb-1.5 flex items-baseline justify-between">
-              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{m.label}</span>
-              <span className="text-sm tabular-nums text-zinc-900 dark:text-zinc-100">
+              <span className="text-sm font-medium text-zinc-700">{m.label}</span>
+              <span className="text-sm tabular-nums text-zinc-900">
                 {Math.round(m.pct * 100)}%
               </span>
             </div>
@@ -244,17 +244,17 @@ function RunnerControls({ status, onStart, onPause, onStop, toggling }: {
   }
 
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-800">
+    <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:bg-zinc-100">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className={clsx('inline-block h-3 w-3 rounded-full', cfg.dot)} />
-          <span className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">{cfg.label}</span>
+          <span className="text-lg font-semibold text-zinc-900">{cfg.label}</span>
           {hasLimit && status.state === 'running' && (
             <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300">
               {status.completed_count}/{status.task_limit} tasks
             </span>
           )}
-          <span className="text-sm text-zinc-500 dark:text-zinc-400">
+          <span className="text-sm text-zinc-500">
             {activeCount}/{status.max_workers} active
           </span>
         </div>
@@ -268,7 +268,7 @@ function RunnerControls({ status, onStart, onPause, onStop, toggling }: {
                 value={taskCount}
                 onChange={(e) => setTaskCount(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleStart() }}
-                className="w-16 rounded-md border border-zinc-300 px-2 py-1.5 text-sm tabular-nums text-zinc-900 placeholder:text-zinc-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+                className="w-16 rounded-md border border-zinc-300 px-2 py-1.5 text-sm tabular-nums text-zinc-900 placeholder:text-zinc-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:placeholder:text-zinc-500"
               />
               <button
                 type="button"
@@ -286,7 +286,7 @@ function RunnerControls({ status, onStart, onPause, onStop, toggling }: {
               type="button"
               disabled={toggling}
               onClick={onPause}
-              className="inline-flex items-center gap-1.5 rounded-md bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200 disabled:opacity-50 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
+              className="inline-flex items-center gap-1.5 rounded-md bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200 disabled:opacity-50"
             >
               <Pause className="h-3.5 w-3.5" />
               Pause
@@ -311,10 +311,10 @@ function RunnerControls({ status, onStart, onPause, onStop, toggling }: {
             <Link
               key={t.task_id}
               to={`/tasks/${t.task_id}`}
-              className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-700/50"
+              className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-zinc-50/50"
             >
               <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
-              <span className="truncate text-zinc-700 dark:text-zinc-300">{t.task_title}</span>
+              <span className="truncate text-zinc-700">{t.task_title}</span>
               <span className="ml-auto shrink-0 text-xs text-zinc-400 dark:text-zinc-500">{t.project_name}</span>
             </Link>
           ))}
@@ -398,7 +398,7 @@ export default function DashboardPage() {
     return (
       <div className="flex h-64 items-center justify-center text-center">
         <div>
-          <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+          <p className="text-sm font-medium text-zinc-500">
             {error ? 'Failed to connect' : 'Loading...'}
           </p>
           {error && (
@@ -413,7 +413,7 @@ export default function DashboardPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Dashboard</h1>
+      <h1 className="text-2xl font-bold text-zinc-900">Dashboard</h1>
 
       {/* Runner controls */}
       <RunnerControls
@@ -473,17 +473,17 @@ export default function DashboardPage() {
         <StatCard
           label="Pending"
           value={byStatus.pending ?? 0}
-          icon={<Clock className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />}
-          color="text-zinc-600 dark:text-zinc-400"
-          bgColor="bg-zinc-100 dark:bg-zinc-700"
+          icon={<Clock className="h-5 w-5 text-zinc-500" />}
+          color="text-zinc-600"
+          bgColor="bg-zinc-100"
           link="/tasks?status=pending"
         />
         <StatCard
           label="Total Tasks"
           value={stats.total}
-          icon={<ListTodo className="h-5 w-5 text-zinc-600 dark:text-zinc-400" />}
-          color="text-zinc-900 dark:text-zinc-100"
-          bgColor="bg-zinc-100 dark:bg-zinc-700"
+          icon={<ListTodo className="h-5 w-5 text-zinc-600" />}
+          color="text-zinc-900"
+          bgColor="bg-zinc-100"
           link="/tasks"
         />
         <StatCard

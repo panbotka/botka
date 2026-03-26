@@ -107,7 +107,7 @@ function GeneralTab() {
     <div className="space-y-6">
       {/* Theme */}
       <div>
-        <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Theme</label>
+        <label className="text-sm font-medium text-zinc-700">Theme</label>
         <div className="mt-2 flex flex-wrap gap-2">
           {([
             { value: 'light', label: 'Light' },
@@ -122,8 +122,8 @@ function GeneralTab() {
               className={clsx(
                 'rounded-md px-4 py-2 text-sm font-medium transition-colors',
                 settings.theme === t.value
-                  ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900'
-                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600',
+                  ? 'bg-zinc-900 text-zinc-50 dark:bg-zinc-200 dark:text-zinc-800'
+                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200',
               )}
             >
               {t.label}
@@ -134,7 +134,7 @@ function GeneralTab() {
 
       {/* Font Size */}
       <div>
-        <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Font Size</label>
+        <label className="text-sm font-medium text-zinc-700">Font Size</label>
         <div className="mt-2 flex gap-2">
           {(['small', 'medium', 'large'] as FontSize[]).map((f) => (
             <button
@@ -143,8 +143,8 @@ function GeneralTab() {
               className={clsx(
                 'rounded-md px-4 py-2 text-sm font-medium capitalize transition-colors',
                 settings.fontSize === f
-                  ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900'
-                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600',
+                  ? 'bg-zinc-900 text-zinc-50 dark:bg-zinc-200 dark:text-zinc-800'
+                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200',
               )}
             >
               {f}
@@ -156,11 +156,11 @@ function GeneralTab() {
       {/* Default Model */}
       {models.length > 0 && (
         <div>
-          <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Default AI Model</label>
+          <label className="text-sm font-medium text-zinc-700">Default AI Model</label>
           <select
             value={defaultModel}
             onChange={(e) => handleModelChange(e.target.value)}
-            className="mt-2 w-full max-w-xs rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+            className="mt-2 w-full max-w-xs rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
           >
             <option value="">Auto</option>
             {models.map((m) => (
@@ -174,12 +174,12 @@ function GeneralTab() {
 
       {/* Notification Sound */}
       <div className="flex items-center justify-between max-w-xs">
-        <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Notification Sound</label>
+        <label className="text-sm font-medium text-zinc-700">Notification Sound</label>
         <button
           onClick={() => updateSettings({ notificationSound: !settings.notificationSound })}
           className={clsx(
             'relative h-6 w-11 rounded-full transition-colors',
-            settings.notificationSound ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600',
+            settings.notificationSound ? 'bg-emerald-500' : 'bg-zinc-300',
           )}
         >
           <span
@@ -193,12 +193,12 @@ function GeneralTab() {
 
       {/* Send on Enter */}
       <div className="flex items-center justify-between max-w-xs">
-        <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Send on Enter</label>
+        <label className="text-sm font-medium text-zinc-700">Send on Enter</label>
         <button
           onClick={() => updateSettings({ sendOnEnter: !settings.sendOnEnter })}
           className={clsx(
             'relative h-6 w-11 rounded-full transition-colors',
-            settings.sendOnEnter ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600',
+            settings.sendOnEnter ? 'bg-emerald-500' : 'bg-zinc-300',
           )}
         >
           <span
@@ -363,7 +363,7 @@ function PersonasTab() {
       {!isEditing && (
         <button
           onClick={startAdd}
-          className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+          className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-50 hover:bg-zinc-800 dark:bg-zinc-200 dark:text-zinc-800 dark:hover:bg-zinc-300"
         >
           <Plus className="h-4 w-4" />
           Add Persona
@@ -371,14 +371,14 @@ function PersonasTab() {
       )}
 
       {isEditing && (
-        <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 space-y-4 dark:border-zinc-700 dark:bg-zinc-800">
-          <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+        <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 space-y-4">
+          <h3 className="text-sm font-medium text-zinc-900">
             {adding ? 'New Persona' : 'Edit Persona'}
           </h3>
 
           {/* Icon picker */}
           <div>
-            <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Icon</label>
+            <label className="text-xs font-medium text-zinc-500">Icon</label>
             <div className="mt-1 flex flex-wrap gap-1">
               {PERSONA_ICONS.map((icon) => (
                 <button
@@ -387,8 +387,8 @@ function PersonasTab() {
                   className={clsx(
                     'h-8 w-8 rounded-md text-base transition-all',
                     form.icon === icon
-                      ? 'bg-zinc-200 ring-2 ring-zinc-400 dark:bg-zinc-600 dark:ring-zinc-500'
-                      : 'hover:bg-zinc-100 dark:hover:bg-zinc-700',
+                      ? 'bg-zinc-200 ring-2 ring-zinc-400'
+                      : 'hover:bg-zinc-100',
                   )}
                 >
                   {icon}
@@ -399,35 +399,35 @@ function PersonasTab() {
 
           {/* Name */}
           <div>
-            <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Name</label>
+            <label className="text-xs font-medium text-zinc-500">Name</label>
             <input
               type="text"
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
               placeholder="Persona name"
             />
           </div>
 
           {/* System Prompt */}
           <div>
-            <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">System Prompt</label>
+            <label className="text-xs font-medium text-zinc-500">System Prompt</label>
             <textarea
               value={form.system_prompt}
               onChange={(e) => setForm((f) => ({ ...f, system_prompt: e.target.value }))}
               rows={4}
-              className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
               placeholder="You are a helpful assistant that..."
             />
           </div>
 
           {/* Default Model */}
           <div>
-            <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Default Model</label>
+            <label className="text-xs font-medium text-zinc-500">Default Model</label>
             <select
               value={form.default_model}
               onChange={(e) => setForm((f) => ({ ...f, default_model: e.target.value }))}
-              className="mt-1 w-full max-w-xs rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+              className="mt-1 w-full max-w-xs rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
             >
               <option value="">Default</option>
               {models.map((m) => (
@@ -440,12 +440,12 @@ function PersonasTab() {
 
           {/* Starter Message */}
           <div>
-            <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Starter Message</label>
+            <label className="text-xs font-medium text-zinc-500">Starter Message</label>
             <textarea
               value={form.starter_message}
               onChange={(e) => setForm((f) => ({ ...f, starter_message: e.target.value }))}
               rows={2}
-              className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
               placeholder="Optional message to start conversation"
             />
           </div>
@@ -456,14 +456,14 @@ function PersonasTab() {
             <button
               onClick={save}
               disabled={saving}
-              className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+              className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-50 hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-200 dark:text-zinc-800 dark:hover:bg-zinc-300"
             >
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
               Save
             </button>
             <button
               onClick={cancel}
-              className="rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-700"
+              className="rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100"
             >
               Cancel
             </button>
@@ -488,14 +488,14 @@ function PersonasTab() {
               onDrop={() => handleDrop(idx)}
               onDragEnd={() => { setDragIndex(null); setDragOverIndex(null) }}
               className={clsx(
-                'flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 transition-colors dark:border-zinc-700 dark:bg-zinc-800',
+                'flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 transition-colors',
                 dragOverIndex === idx && 'border-zinc-400 bg-zinc-50',
               )}
             >
               <GripVertical className="h-4 w-4 shrink-0 cursor-grab text-zinc-300" />
               <span className="text-xl shrink-0">{p.icon || '🤖'}</span>
               <div className="flex-1 min-w-0">
-                <div className="font-medium text-zinc-900 dark:text-zinc-100">{p.name}</div>
+                <div className="font-medium text-zinc-900">{p.name}</div>
                 {p.default_model && (
                   <p className="text-xs text-zinc-400 truncate">{p.default_model}</p>
                 )}
@@ -509,7 +509,7 @@ function PersonasTab() {
               <div className="flex items-center gap-1 shrink-0">
                 <button
                   onClick={() => startEdit(p)}
-                  className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
+                  className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
                   title="Edit"
                 >
                   <Pencil className="h-3.5 w-3.5" />
@@ -525,7 +525,7 @@ function PersonasTab() {
                     </button>
                     <button
                       onClick={() => setDeleteConfirm(null)}
-                      className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+                      className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100"
                       title="Cancel"
                     >
                       <X className="h-3.5 w-3.5" />
@@ -534,7 +534,7 @@ function PersonasTab() {
                 ) : (
                   <button
                     onClick={() => setDeleteConfirm(p.id)}
-                    className="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950"
+                    className="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
                     title="Delete"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -656,18 +656,18 @@ function TagsTab() {
       {/* Create form */}
       <div className="flex items-end gap-3">
         <div className="flex-1 max-w-xs">
-          <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Name</label>
+          <label className="text-xs font-medium text-zinc-500">Name</label>
           <input
             type="text"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-            className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+            className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
             placeholder="Tag name"
           />
         </div>
         <div>
-          <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Color</label>
+          <label className="text-xs font-medium text-zinc-500">Color</label>
           <div className="mt-1 flex gap-1">
             {TAG_COLORS.map((c) => (
               <button
@@ -676,7 +676,7 @@ function TagsTab() {
                 title={c.name}
                 className={clsx(
                   'h-7 w-7 rounded-full transition-transform',
-                  newColor === c.hex && 'ring-2 ring-zinc-400 ring-offset-2 scale-110 dark:ring-offset-zinc-900',
+                  newColor === c.hex && 'ring-2 ring-zinc-400 ring-offset-2 ring-offset-zinc-50 scale-110',
                 )}
                 style={{ backgroundColor: c.hex }}
               />
@@ -686,7 +686,7 @@ function TagsTab() {
         <button
           onClick={handleCreate}
           disabled={!newName.trim()}
-          className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+          className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-50 hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-200 dark:text-zinc-800 dark:hover:bg-zinc-300"
         >
           <Plus className="h-4 w-4" />
           Add
@@ -706,7 +706,7 @@ function TagsTab() {
           {tags.map((t) => (
             <div
               key={t.id}
-              className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800"
+              className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3"
             >
               {editingId === t.id ? (
                 <>
@@ -718,7 +718,7 @@ function TagsTab() {
                         title={c.name}
                         className={clsx(
                           'h-5 w-5 rounded-full transition-transform',
-                          editColor === c.hex && 'ring-2 ring-zinc-400 ring-offset-1 scale-110 dark:ring-offset-zinc-800',
+                          editColor === c.hex && 'ring-2 ring-zinc-400 ring-offset-1 ring-offset-zinc-50 scale-110',
                         )}
                         style={{ backgroundColor: c.hex }}
                       />
@@ -732,7 +732,7 @@ function TagsTab() {
                       if (e.key === 'Enter') saveEdit()
                       if (e.key === 'Escape') setEditingId(null)
                     }}
-                    className="flex-1 rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+                    className="flex-1 rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
                     autoFocus
                   />
                   <button
@@ -743,7 +743,7 @@ function TagsTab() {
                   </button>
                   <button
                     onClick={() => setEditingId(null)}
-                    className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+                    className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100"
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -754,13 +754,13 @@ function TagsTab() {
                     className="h-4 w-4 rounded-full shrink-0"
                     style={{ backgroundColor: t.color }}
                   />
-                  <span className="flex-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">{t.name}</span>
+                  <span className="flex-1 text-sm font-medium text-zinc-900">{t.name}</span>
                   <span className="text-xs text-zinc-400 tabular-nums">
                     {threadCounts[t.id] ?? 0} threads
                   </span>
                   <button
                     onClick={() => startEdit(t)}
-                    className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
+                    className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
                     title="Edit"
                   >
                     <Pencil className="h-3.5 w-3.5" />
@@ -779,7 +779,7 @@ function TagsTab() {
                       </button>
                       <button
                         onClick={() => { setDeleteConfirm(null); setDeleteCount(null) }}
-                        className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+                        className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100"
                         title="Cancel"
                       >
                         <X className="h-3.5 w-3.5" />
@@ -788,7 +788,7 @@ function TagsTab() {
                   ) : (
                     <button
                       onClick={() => handleDeleteClick(t.id)}
-                      className="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950"
+                      className="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
                       title="Delete"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -889,13 +889,13 @@ function MemoriesTab() {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleCreate()
           }}
           rows={2}
-          className="flex-1 rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+          className="flex-1 rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
           placeholder="Add a memory..."
         />
         <button
           onClick={handleCreate}
           disabled={!newContent.trim()}
-          className="self-end inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+          className="self-end inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-50 hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-200 dark:text-zinc-800 dark:hover:bg-zinc-300"
         >
           <Plus className="h-4 w-4" />
           Add
@@ -915,7 +915,7 @@ function MemoriesTab() {
           {memories.map((m) => (
             <div
               key={m.id}
-              className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800"
+              className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3"
             >
               {editingId === m.id ? (
                 <div className="space-y-2">
@@ -927,20 +927,20 @@ function MemoriesTab() {
                       if (e.key === 'Escape') setEditingId(null)
                     }}
                     rows={3}
-                    className="w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+                    className="w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
                     autoFocus
                   />
                   <div className="flex items-center gap-2">
                     <button
                       onClick={saveEdit}
-                      className="inline-flex items-center gap-1 rounded-md bg-zinc-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+                      className="inline-flex items-center gap-1 rounded-md bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-50 hover:bg-zinc-800 dark:bg-zinc-200 dark:text-zinc-800 dark:hover:bg-zinc-300"
                     >
                       <Check className="h-3 w-3" />
                       Save
                     </button>
                     <button
                       onClick={() => setEditingId(null)}
-                      className="rounded-md px-2.5 py-1 text-xs font-medium text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-700"
+                      className="rounded-md px-2.5 py-1 text-xs font-medium text-zinc-500 hover:bg-zinc-100"
                     >
                       Cancel
                     </button>
@@ -948,13 +948,13 @@ function MemoriesTab() {
                 </div>
               ) : (
                 <div className="flex items-start gap-3">
-                  <p className="flex-1 text-sm text-zinc-700 whitespace-pre-wrap dark:text-zinc-300">
+                  <p className="flex-1 text-sm text-zinc-700 whitespace-pre-wrap">
                     {m.content.length > 200 ? m.content.slice(0, 200) + '...' : m.content}
                   </p>
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       onClick={() => startEdit(m)}
-                      className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
+                      className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
                       title="Edit"
                     >
                       <Pencil className="h-3.5 w-3.5" />
@@ -970,7 +970,7 @@ function MemoriesTab() {
                         </button>
                         <button
                           onClick={() => setDeleteConfirm(null)}
-                          className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+                          className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100"
                           title="Cancel"
                         >
                           <X className="h-3.5 w-3.5" />
@@ -979,7 +979,7 @@ function MemoriesTab() {
                     ) : (
                       <button
                         onClick={() => setDeleteConfirm(m.id)}
-                        className="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950"
+                        className="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
                         title="Delete"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -1127,40 +1127,40 @@ function SecurityTab() {
     <div className="space-y-8">
       {/* Change Password */}
       <div>
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Change Password</h3>
+        <h3 className="text-sm font-semibold text-zinc-900">Change Password</h3>
         <form onSubmit={handleChangePassword} className="mt-3 max-w-sm space-y-3">
           {pwError && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{pwError}</div>}
           {pwSuccess && <div className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{pwSuccess}</div>}
           <div>
-            <label className="block text-sm text-zinc-600 dark:text-zinc-400">Current password</label>
+            <label className="block text-sm text-zinc-600">Current password</label>
             <input
               type="password"
               autoComplete="current-password"
               value={currentPw}
               onChange={(e) => setCurrentPw(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
               required
             />
           </div>
           <div>
-            <label className="block text-sm text-zinc-600 dark:text-zinc-400">New password</label>
+            <label className="block text-sm text-zinc-600">New password</label>
             <input
               type="password"
               autoComplete="new-password"
               value={newPw}
               onChange={(e) => setNewPw(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
               required
             />
           </div>
           <div>
-            <label className="block text-sm text-zinc-600 dark:text-zinc-400">Confirm new password</label>
+            <label className="block text-sm text-zinc-600">Confirm new password</label>
             <input
               type="password"
               autoComplete="new-password"
               value={confirmPw}
               onChange={(e) => setConfirmPw(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
               required
             />
           </div>
@@ -1168,8 +1168,8 @@ function SecurityTab() {
             type="submit"
             disabled={pwLoading}
             className={clsx(
-              'rounded-md px-4 py-2 text-sm font-medium text-white transition-colors',
-              pwLoading ? 'cursor-not-allowed bg-zinc-400' : 'bg-zinc-900 hover:bg-zinc-800',
+              'rounded-md px-4 py-2 text-sm font-medium text-zinc-50 transition-colors',
+              pwLoading ? 'cursor-not-allowed bg-zinc-400' : 'bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-200 dark:text-zinc-800 dark:hover:bg-zinc-300',
             )}
           >
             {pwLoading ? 'Updating...' : 'Update password'}
@@ -1179,7 +1179,7 @@ function SecurityTab() {
 
       {/* Passkeys */}
       <div>
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Passkeys</h3>
+        <h3 className="text-sm font-semibold text-zinc-900">Passkeys</h3>
         <p className="mt-1 text-sm text-zinc-500">
           Use biometric authentication (fingerprint, face ID) or a security key to sign in.
         </p>
@@ -1202,7 +1202,7 @@ function SecurityTab() {
               >
                 <div className="flex items-center gap-2">
                   <KeyRound className="h-4 w-4 text-zinc-400" />
-                  <span className="text-sm text-zinc-700 dark:text-zinc-300">{pk.name}</span>
+                  <span className="text-sm text-zinc-700">{pk.name}</span>
                   <span className="text-xs text-zinc-400">
                     {new Date(pk.created_at).toLocaleDateString()}
                   </span>
@@ -1222,7 +1222,7 @@ function SecurityTab() {
         {supportsPasskey && !showRegister && (
           <button
             onClick={() => setShowRegister(true)}
-            className="mt-3 flex items-center gap-1.5 rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+            className="mt-3 flex items-center gap-1.5 rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
           >
             <Plus className="h-4 w-4" />
             Add passkey
@@ -1236,14 +1236,14 @@ function SecurityTab() {
               placeholder="Passkey name (e.g. iPhone)"
               value={registerName}
               onChange={(e) => setRegisterName(e.target.value)}
-              className="flex-1 rounded-md border border-zinc-300 px-3 py-1.5 text-sm shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              className="flex-1 rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
             />
             <button
               onClick={handleRegisterPasskey}
               disabled={registering}
               className={clsx(
-                'rounded-md px-3 py-1.5 text-sm font-medium text-white transition-colors',
-                registering ? 'cursor-not-allowed bg-zinc-400' : 'bg-zinc-900 hover:bg-zinc-800',
+                'rounded-md px-3 py-1.5 text-sm font-medium text-zinc-50 transition-colors',
+                registering ? 'cursor-not-allowed bg-zinc-400' : 'bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-200 dark:text-zinc-800 dark:hover:bg-zinc-300',
               )}
             >
               {registering ? 'Registering...' : 'Register'}
@@ -1260,7 +1260,7 @@ function SecurityTab() {
 
       {/* Sign Out */}
       <div>
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Session</h3>
+        <h3 className="text-sm font-semibold text-zinc-900">Session</h3>
         <button
           onClick={() => logout()}
           className="mt-2 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
@@ -1299,10 +1299,10 @@ function VoiceTab() {
         <div
           className={clsx(
             'h-3 w-3 rounded-full',
-            enabled ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600',
+            enabled ? 'bg-emerald-500' : 'bg-zinc-300',
           )}
         />
-        <span className="text-sm text-zinc-700 dark:text-zinc-300">
+        <span className="text-sm text-zinc-700">
           Transcription is {enabled ? 'enabled' : 'disabled'}
         </span>
       </div>
@@ -1362,10 +1362,10 @@ function RunnerTab() {
   return (
     <div className="space-y-6">
       <div>
-        <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <label className="text-sm font-medium text-zinc-700">
           Max Workers
         </label>
-        <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+        <p className="mt-0.5 text-xs text-zinc-500">
           Maximum concurrent task execution slots (1–10)
         </p>
         <div className="mt-2 flex items-center gap-3">
@@ -1378,7 +1378,7 @@ function RunnerTab() {
               const n = parseInt(e.target.value, 10)
               if (!isNaN(n)) handleChange(n)
             }}
-            className="w-20 rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm tabular-nums text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+            className="w-20 rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm tabular-nums text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
           />
           {saving && <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />}
         </div>
@@ -1396,10 +1396,10 @@ export default function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Settings</h1>
+      <h1 className="text-2xl font-bold text-zinc-900">Settings</h1>
 
       {/* Tab navigation */}
-      <div className="border-b border-zinc-200 dark:border-zinc-700">
+      <div className="border-b border-zinc-200">
         <nav className="flex gap-6">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
@@ -1408,8 +1408,8 @@ export default function SettingsPage() {
               className={clsx(
                 'flex items-center gap-1.5 border-b-2 pb-2.5 pt-1 text-sm font-medium transition-colors',
                 activeTab === id
-                  ? 'border-zinc-900 text-zinc-900 dark:border-white dark:text-white'
-                  : 'border-transparent text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300',
+                  ? 'border-zinc-900 text-zinc-900'
+                  : 'border-transparent text-zinc-400 hover:text-zinc-600',
               )}
             >
               <Icon className="h-4 w-4" />

@@ -34,7 +34,7 @@ const MODEL_COLORS: Record<string, { bg: string; bar: string; text: string }> = 
   unknown: {
     bg: 'bg-zinc-400 dark:bg-zinc-500',
     bar: 'bg-zinc-400/20 dark:bg-zinc-500/30',
-    text: 'text-zinc-500 dark:text-zinc-400',
+    text: 'text-zinc-500',
   },
 }
 
@@ -69,16 +69,16 @@ function TokenChart({ data, models }: { data: CostByDate[]; models: string[] }) 
   )
 
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-800">
+    <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:bg-zinc-100">
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
           Daily Token Usage
         </h2>
         <div className="flex items-center gap-3">
           {models.map((m) => (
             <div key={m} className="flex items-center gap-1.5">
               <div className={clsx('h-2.5 w-2.5 rounded-sm', getModelColor(m).bg)} />
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">{m}</span>
+              <span className="text-xs text-zinc-500">{m}</span>
             </div>
           ))}
         </div>
@@ -153,10 +153,10 @@ function ModelBreakdown({ models }: { models: CostByModel[] }) {
   const totalTokens = models.reduce((s, m) => s + m.input_tokens + m.output_tokens, 0)
 
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-800">
+    <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:bg-zinc-100">
       <div className="mb-4 flex items-center gap-2">
         <Cpu className="h-4 w-4 text-zinc-400" />
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
           By Model
         </h2>
       </div>
@@ -173,24 +173,24 @@ function ModelBreakdown({ models }: { models: CostByModel[] }) {
                 <div className="mb-1.5 flex items-baseline justify-between">
                   <div className="flex items-center gap-2">
                     <div className={clsx('h-2.5 w-2.5 rounded-sm', color.bg)} />
-                    <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+                    <span className="text-sm font-semibold text-zinc-700">
                       {m.model}
                     </span>
                     <span className="text-xs text-zinc-400 dark:text-zinc-500">
                       {m.message_count} msg{m.message_count !== 1 ? 's' : ''}
                     </span>
                   </div>
-                  <span className="text-sm font-medium tabular-nums text-zinc-600 dark:text-zinc-400">
+                  <span className="text-sm font-medium tabular-nums text-zinc-600">
                     {pct.toFixed(1)}%
                   </span>
                 </div>
-                <div className="mb-1.5 h-2 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-700">
+                <div className="mb-1.5 h-2 w-full overflow-hidden rounded-full bg-zinc-100">
                   <div
                     className={clsx('h-full rounded-full', color.bg)}
                     style={{ width: `${pct}%` }}
                   />
                 </div>
-                <div className="flex items-center gap-3 text-xs text-zinc-500 dark:text-zinc-400">
+                <div className="flex items-center gap-3 text-xs text-zinc-500">
                   <span title={`${m.input_tokens.toLocaleString()} input tokens`}>
                     {formatTokens(m.input_tokens)} in
                   </span>
@@ -222,10 +222,10 @@ function TopList({
   const maxTokens = Math.max(...items.map((i) => i.tokens), 1)
 
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-800">
+    <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:bg-zinc-100">
       <div className="mb-4 flex items-center gap-2">
         {icon}
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
           {title}
         </h2>
       </div>
@@ -238,17 +238,17 @@ function TopList({
             const content = (
               <div key={i}>
                 <div className="mb-1 flex items-baseline justify-between">
-                  <span className="truncate text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                  <span className="truncate text-sm font-medium text-zinc-700">
                     {item.label}
                   </span>
-                  <span className="ml-2 shrink-0 text-sm tabular-nums text-zinc-900 dark:text-zinc-100">
+                  <span className="ml-2 shrink-0 text-sm tabular-nums text-zinc-900">
                     {formatTokens(item.tokens)}
                     <span className="ml-1.5 text-xs text-zinc-400 dark:text-zinc-500">
                       {formatCost(item.cost)}
                     </span>
                   </span>
                 </div>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-700">
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-100">
                   <div
                     className="h-full rounded-full bg-blue-500 dark:bg-blue-600"
                     style={{ width: `${pct}%` }}
@@ -259,7 +259,7 @@ function TopList({
 
             if (item.link) {
               return (
-                <Link key={i} to={item.link} className="block rounded-md px-1 -mx-1 hover:bg-zinc-50 dark:hover:bg-zinc-700/50">
+                <Link key={i} to={item.link} className="block rounded-md px-1 -mx-1 hover:bg-zinc-50/50">
                   {content}
                 </Link>
               )
@@ -320,7 +320,7 @@ export default function CostDashboardPage() {
     return (
       <div className="flex h-64 items-center justify-center text-center">
         <div>
-          <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+          <p className="text-sm font-medium text-zinc-500">
             {error || 'Failed to load'}
           </p>
         </div>
@@ -337,12 +337,12 @@ export default function CostDashboardPage() {
     <div className="mx-auto max-w-5xl space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Usage</h1>
+          <h1 className="text-2xl font-bold text-zinc-900">Usage</h1>
           <div className="flex items-center gap-1.5">
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              className="rounded-md p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 disabled:opacity-50 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
+              className="rounded-md p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 disabled:opacity-50"
               title="Refresh"
             >
               <RefreshCw className={clsx('h-3.5 w-3.5', refreshing && 'animate-spin')} />
@@ -354,7 +354,7 @@ export default function CostDashboardPage() {
             )}
           </div>
         </div>
-        <div className="flex rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800">
+        <div className="flex rounded-lg border border-zinc-200 bg-white dark:bg-zinc-100">
           {PERIOD_OPTIONS.map((opt) => (
             <button
               key={opt.days}
@@ -363,7 +363,7 @@ export default function CostDashboardPage() {
                 'px-3 py-1.5 text-sm font-medium transition-colors',
                 days === opt.days
                   ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
-                  : 'text-zinc-600 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-700',
+                  : 'text-zinc-600 hover:bg-zinc-50',
                 opt.days === 7 && 'rounded-l-lg',
                 opt.days === 90 && 'rounded-r-lg',
               )}
@@ -377,10 +377,10 @@ export default function CostDashboardPage() {
       {/* Summary cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {/* Total Tokens card */}
-        <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-800">
+        <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:bg-zinc-100">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Total Tokens</p>
+              <p className="text-sm font-medium text-zinc-500">Total Tokens</p>
               <p
                 className="mt-1 text-3xl font-bold tabular-nums text-blue-600 dark:text-blue-400"
                 title={totalTokens.toLocaleString()}
@@ -398,10 +398,10 @@ export default function CostDashboardPage() {
         </div>
 
         {/* By Model summary card */}
-        <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-800">
+        <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:bg-zinc-100">
           <div className="flex items-start justify-between">
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">By Model</p>
+              <p className="text-sm font-medium text-zinc-500">By Model</p>
               <div className="mt-2 space-y-1.5">
                 {data.by_model.length === 0 && (
                   <p className="text-sm text-zinc-400">No data</p>
@@ -409,36 +409,36 @@ export default function CostDashboardPage() {
                 {data.by_model.map((m) => (
                   <div key={m.model} className="flex items-center gap-2">
                     <div className={clsx('h-2 w-2 rounded-sm', getModelColor(m.model).bg)} />
-                    <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                    <span className="text-xs font-medium text-zinc-700">
                       {m.model}
                     </span>
-                    <span className="text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
+                    <span className="text-xs tabular-nums text-zinc-500">
                       {formatTokens(m.input_tokens)} in / {formatTokens(m.output_tokens)} out
                     </span>
                   </div>
                 ))}
               </div>
             </div>
-            <div className="rounded-lg bg-zinc-100 p-2.5 dark:bg-zinc-700">
-              <Cpu className="h-5 w-5 text-zinc-600 dark:text-zinc-400" />
+            <div className="rounded-lg bg-zinc-100 p-2.5">
+              <Cpu className="h-5 w-5 text-zinc-600" />
             </div>
           </div>
         </div>
 
         {/* Cost card (secondary) */}
-        <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-800">
+        <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:bg-zinc-100">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Total Cost</p>
-              <p className="mt-1 text-3xl font-bold tabular-nums text-zinc-600 dark:text-zinc-400">
+              <p className="text-sm font-medium text-zinc-500">Total Cost</p>
+              <p className="mt-1 text-3xl font-bold tabular-nums text-zinc-600">
                 {formatCost(data.total_cost_usd)}
               </p>
               <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
                 Last {days} days
               </p>
             </div>
-            <div className="rounded-lg bg-zinc-100 p-2.5 dark:bg-zinc-700">
-              <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">$</span>
+            <div className="rounded-lg bg-zinc-100 p-2.5">
+              <span className="text-sm font-medium text-zinc-500">$</span>
             </div>
           </div>
         </div>

@@ -192,7 +192,7 @@ export default function TasksPage() {
             <select
               value={activeProject ?? ''}
               onChange={(e) => handleProjectChange(e.target.value)}
-              className="ml-auto rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm text-zinc-700 focus:border-zinc-400 focus:outline-none"
+              className="ml-auto rounded-md border border-zinc-200 bg-white dark:bg-zinc-100 px-2.5 py-1.5 text-sm text-zinc-700 focus:border-zinc-400 focus:outline-none"
             >
               <option value="">All projects</option>
               {projectNames.map((name) => (

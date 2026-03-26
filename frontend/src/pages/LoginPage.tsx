@@ -98,7 +98,7 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-zinc-100 p-4">
-      <div className="w-full max-w-sm space-y-6 rounded-xl border border-zinc-200 bg-white p-8 shadow-sm">
+      <div className="w-full max-w-sm space-y-6 rounded-xl border border-zinc-200 bg-white dark:bg-zinc-100 p-8 shadow-sm">
         <div className="text-center">
           <span className="text-4xl">🤖</span>
           <h1 className="mt-2 text-xl font-semibold text-zinc-900">Botka</h1>
@@ -122,7 +122,7 @@ export default function LoginPage() {
               autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
               required
             />
           </div>
@@ -136,7 +136,7 @@ export default function LoginPage() {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              className="mt-1 block w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
               required
             />
           </div>
@@ -144,7 +144,7 @@ export default function LoginPage() {
             type="submit"
             disabled={loading}
             className={clsx(
-              'flex w-full items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white transition-colors',
+              'flex w-full items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-zinc-50 transition-colors',
               loading
                 ? 'cursor-not-allowed bg-zinc-400'
                 : 'bg-zinc-900 hover:bg-zinc-800',
@@ -162,7 +162,7 @@ export default function LoginPage() {
                 <div className="w-full border-t border-zinc-200" />
               </div>
               <div className="relative flex justify-center text-xs">
-                <span className="bg-white px-2 text-zinc-400">or</span>
+                <span className="bg-white dark:bg-zinc-100 px-2 text-zinc-400">or</span>
               </div>
             </div>
             <button
@@ -172,7 +172,7 @@ export default function LoginPage() {
                 'flex w-full items-center justify-center gap-2 rounded-md border px-4 py-2 text-sm font-medium transition-colors',
                 passkeyLoading
                   ? 'cursor-not-allowed border-zinc-200 bg-zinc-50 text-zinc-400'
-                  : 'border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50',
+                  : 'border-zinc-300 bg-white dark:bg-zinc-100 text-zinc-700 hover:bg-zinc-50',
               )}
             >
               {passkeyLoading ? (
