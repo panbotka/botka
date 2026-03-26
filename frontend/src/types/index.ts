@@ -103,9 +103,14 @@ export interface RunnerStatus {
   state: RunnerStateValue
   active_tasks: ActiveTaskInfo[]
   max_workers: number
+  draining: boolean
   usage: UsageInfo | null
   task_limit: number
   completed_count: number
+}
+
+export interface ServerSettings {
+  max_workers: number
 }
 
 export interface UsageInfo {

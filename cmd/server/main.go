@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -191,6 +192,17 @@ func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gi
 
 	statusHandler := handlers.NewStatusHandler(cfg.AIModel, cfg.AvailableModels, cfg.WhisperEnabled)
 	handlers.RegisterStatusRoutes(v1, statusHandler)
+
+	settingsHandler := handlers.NewSettingsHandler(db)
+	settingsHandler.SetOnChange(func(key, value string) {
+		if key == "max_workers" {
+			n, err := strconv.Atoi(value)
+			if err == nil {
+				taskRunner.SetMaxWorkers(n)
+			}
+		}
+	})
+	handlers.RegisterSettingsRoutes(v1, settingsHandler)
 
 	// MCP SSE transport.
 	mcpServer := mcp.NewServer(db, taskRunner)

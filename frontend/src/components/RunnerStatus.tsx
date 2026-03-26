@@ -52,6 +52,11 @@ export function RunnerStatus({ status, onStart, onPause, onStop, toggling }: Run
           <span className="text-sm text-zinc-500">
             {activeCount}/{status.max_workers} active
           </span>
+          {status.draining && (
+            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+              draining
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {status.state !== 'running' && (

@@ -13,6 +13,7 @@ import {
   Mic,
   SettingsIcon,
   GripVertical,
+  Cpu,
 } from 'lucide-react'
 
 import { useSettings, type Theme, type FontSize } from '../context/SettingsContext'
@@ -33,6 +34,8 @@ import {
   deleteMemory,
   getModels,
   getTranscribeStatus,
+  fetchServerSettings,
+  updateServerSettings,
 } from '../api/client'
 import type { Persona, Tag, Memory } from '../types'
 
@@ -51,7 +54,7 @@ const TAG_COLORS = [
   { name: 'Pink', hex: '#EC4899' },
 ]
 
-type TabId = 'general' | 'personas' | 'tags' | 'memories' | 'voice'
+type TabId = 'general' | 'runner' | 'personas' | 'tags' | 'memories' | 'voice'
 
 interface TabDef {
   id: TabId
@@ -61,6 +64,7 @@ interface TabDef {
 
 const TABS: TabDef[] = [
   { id: 'general', label: 'General', icon: SettingsIcon },
+  { id: 'runner', label: 'Task Runner', icon: Cpu },
   { id: 'personas', label: 'Personas', icon: User },
   { id: 'tags', label: 'Tags', icon: TagIcon },
   { id: 'memories', label: 'Memories', icon: Brain },
@@ -1036,6 +1040,72 @@ function VoiceTab() {
   )
 }
 
+// ── Runner Tab ──
+
+function RunnerTab() {
+  const [maxWorkers, setMaxWorkers] = useState<number | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    fetchServerSettings()
+      .then((s) => setMaxWorkers(s.max_workers))
+      .catch(() => setError('Failed to load settings'))
+  }, [])
+
+  async function handleChange(value: number) {
+    if (value < 1 || value > 10) return
+    setMaxWorkers(value)
+    setSaving(true)
+    setError('')
+    try {
+      const updated = await updateServerSettings({ max_workers: value })
+      setMaxWorkers(updated.max_workers)
+    } catch {
+      setError('Failed to save setting')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (maxWorkers === null && !error) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-zinc-500">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading...
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+          Max Workers
+        </label>
+        <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+          Maximum concurrent task execution slots (1–10)
+        </p>
+        <div className="mt-2 flex items-center gap-3">
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={maxWorkers ?? 2}
+            onChange={(e) => {
+              const n = parseInt(e.target.value, 10)
+              if (!isNaN(n)) handleChange(n)
+            }}
+            className="w-20 rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm tabular-nums text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+          />
+          {saving && <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />}
+        </div>
+        {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+      </div>
+    </div>
+  )
+}
+
 // ── Main Settings Page ──
 
 export default function SettingsPage() {
@@ -1070,6 +1140,7 @@ export default function SettingsPage() {
       {/* Tab content */}
       <div>
         {activeTab === 'general' && <GeneralTab />}
+        {activeTab === 'runner' && <RunnerTab />}
         {activeTab === 'personas' && <PersonasTab />}
         {activeTab === 'tags' && <TagsTab />}
         {activeTab === 'memories' && <MemoriesTab />}

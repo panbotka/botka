@@ -1,4 +1,4 @@
-import type { Project, Task, Thread, ThreadDetail, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, TaskStats, GlobalSearchResults, CostAnalytics } from '../types'
+import type { Project, Task, Thread, ThreadDetail, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -405,6 +405,19 @@ export function transcribe(blob: Blob, lang?: string): Promise<string> {
   })
 }
 
+// Server settings
+
+export function fetchServerSettings(): Promise<ServerSettings> {
+  return requestData<ServerSettings>('/settings')
+}
+
+export function updateServerSettings(settings: Partial<ServerSettings>): Promise<ServerSettings> {
+  return requestData<ServerSettings>('/settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  })
+}
+
 // Analytics
 
 export function fetchCostAnalytics(days?: number): Promise<CostAnalytics> {
@@ -664,6 +677,9 @@ export const api = {
   killProcess,
   // Task Stats
   fetchTaskStats,
+  // Server settings
+  fetchServerSettings,
+  updateServerSettings,
   // Analytics
   fetchCostAnalytics,
   // Status

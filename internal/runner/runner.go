@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
@@ -52,6 +53,7 @@ type Status struct {
 	State          models.RunnerStateType `json:"state"`
 	ActiveTasks    []ActiveTaskInfo       `json:"active_tasks"`
 	MaxWorkers     int                    `json:"max_workers"`
+	Draining       bool                   `json:"draining"`
 	Usage          *UsageInfo             `json:"usage,omitempty"`
 	TaskLimit      int                    `json:"task_limit"`
 	CompletedCount int                    `json:"completed_count"`
@@ -66,6 +68,7 @@ type Runner struct {
 	state          models.RunnerStateType
 	taskLimit      int // 0 = unlimited
 	completedCount int
+	maxWorkers     int
 	executors      map[uuid.UUID]*activeTask // key: project ID
 	buffers        map[uuid.UUID]*Buffer     // key: task ID
 	usageMon       *UsageMonitor
@@ -92,7 +95,35 @@ func NewRunner(db *gorm.DB, cfg *config.Config, usageMon *UsageMonitor) (*Runner
 		retryNotBefore: make(map[uuid.UUID]time.Time),
 	}
 	r.state = r.loadState()
+	r.maxWorkers = cfg.MaxWorkers // default from env
+	r.loadMaxWorkersFromDB()
 	return r, nil
+}
+
+// loadMaxWorkersFromDB reads the max_workers setting from the app_settings table.
+func (r *Runner) loadMaxWorkersFromDB() {
+	if r.db == nil {
+		return
+	}
+	var value string
+	err := r.db.Table("app_settings").Where("key = ?", "max_workers").Pluck("value", &value).Error
+	if err != nil || value == "" {
+		return
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n < 1 {
+		return
+	}
+	r.maxWorkers = n
+}
+
+// SetMaxWorkers updates the maximum number of concurrent task workers.
+// Thread-safe: acquires the mutex before updating.
+func (r *Runner) SetMaxWorkers(n int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.maxWorkers = n
+	slog.Info("max workers updated", "max_workers", n)
 }
 
 // RestoreState checks the persisted state and starts the scheduler loop
@@ -221,7 +252,8 @@ func (r *Runner) GetStatus() Status {
 	return Status{
 		State:          r.state,
 		ActiveTasks:    tasks,
-		MaxWorkers:     r.config.MaxWorkers,
+		MaxWorkers:     r.maxWorkers,
+		Draining:       len(r.executors) > r.maxWorkers,
 		Usage:          &usage,
 		TaskLimit:      r.taskLimit,
 		CompletedCount: r.completedCount,
@@ -288,7 +320,7 @@ func (r *Runner) collectTickState() (eligible bool, activeProjectIDs, blockedTas
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.state != models.StateRunning || len(r.executors) >= r.config.MaxWorkers {
+	if r.state != models.StateRunning || len(r.executors) >= r.maxWorkers {
 		return false, nil, nil
 	}
 

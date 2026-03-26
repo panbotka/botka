@@ -71,6 +71,12 @@ func setupTestDB(t *testing.T) *gorm.DB {
 					task_limit INTEGER,
 					updated_at TIMESTAMPTZ
 				)`)
+				// Create app_settings for server-side configuration.
+				sharedDB.Exec(`CREATE TABLE IF NOT EXISTS app_settings (
+					key VARCHAR(100) PRIMARY KEY,
+					value TEXT NOT NULL,
+					updated_at TIMESTAMPTZ
+				)`)
 			}
 		}
 	})
@@ -83,7 +89,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 // cleanTables truncates all tables in FK-safe order.
 func cleanTables(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	db.Exec("TRUNCATE TABLE thread_tags, branch_selections, attachments, messages, task_executions, tasks, threads, projects, personas, tags, memories, runner_state CASCADE")
+	db.Exec("TRUNCATE TABLE thread_tags, branch_selections, attachments, messages, task_executions, tasks, threads, projects, personas, tags, memories, runner_state, app_settings CASCADE")
 }
 
 // createTestProject creates and returns a test project.
