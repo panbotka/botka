@@ -30,6 +30,21 @@ function formatTokens(n: number): string {
   return n.toLocaleString();
 }
 
+function formatTimestamp(dateStr: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const hours = date.getHours().toString().padStart(2, '0');
+  const minutes = date.getMinutes().toString().padStart(2, '0');
+  const time = `${hours}:${minutes}`;
+
+  const isToday = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+
+  if (isToday) return time;
+  return `${date.getDate()}. ${date.getMonth() + 1}. ${time}`;
+}
+
 function TokenBadge({ promptTokens, completionTokens }: { promptTokens: number; completionTokens: number }) {
   const total = promptTokens + completionTokens;
   return (
@@ -369,6 +384,14 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
             )}
             {!isUser && message.prompt_tokens != null && message.completion_tokens != null && (
               <TokenBadge promptTokens={message.prompt_tokens} completionTokens={message.completion_tokens} />
+            )}
+            {message.created_at && (
+              <span
+                className="text-[11px] text-zinc-400 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-150"
+                title={new Date(message.created_at).toLocaleString()}
+              >
+                {formatTimestamp(message.created_at)}
+              </span>
             )}
           </div>
         )}
