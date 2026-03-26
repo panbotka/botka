@@ -106,6 +106,15 @@ function usageTrackColor(pct: number): string {
   return 'bg-emerald-100 dark:bg-emerald-950'
 }
 
+function formatAge(seconds: number): string {
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  const remainMinutes = minutes % 60
+  return remainMinutes > 0 ? `${hours}h ${remainMinutes}m ago` : `${hours}h ago`
+}
+
 function UsageMeters({ usage, onRefresh }: { usage: UsageInfo | null; onRefresh: () => Promise<void> }) {
   const [refreshing, setRefreshing] = useState(false)
 
@@ -134,20 +143,47 @@ function UsageMeters({ usage, onRefresh }: { usage: UsageInfo | null; onRefresh:
     )
   }
 
+  const isStale = usage.stale
+
   const meters = [
     { label: '5h Window', pct: usage.five_hour_pct, resetLabel: `Resets in ${formatTimeUntil(usage.resets_at)}` },
     { label: '7-day Window', pct: usage.seven_day_pct, resetLabel: null },
   ]
 
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-800">
+    <div className={clsx(
+      'rounded-xl border p-5',
+      isStale
+        ? 'border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30'
+        : 'border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800',
+    )}>
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-          API Usage
-        </h2>
-        <button onClick={handleRefresh} disabled={refreshing} className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 disabled:opacity-50 dark:hover:bg-zinc-700 dark:hover:text-zinc-300">
-          <RefreshCw className={clsx('h-4 w-4', refreshing && 'animate-spin')} />
-        </button>
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            API Usage
+          </h2>
+          {isStale && (
+            <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+              <AlertTriangle className="h-3 w-3" />
+              Data is {formatAge(usage.age_seconds)}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {!isStale && usage.age_seconds > 0 && (
+            <span className="text-xs text-zinc-400 dark:text-zinc-500">
+              {formatAge(usage.age_seconds)}
+            </span>
+          )}
+          <button onClick={handleRefresh} disabled={refreshing} className={clsx(
+            'rounded p-1 disabled:opacity-50',
+            isStale
+              ? 'text-amber-600 hover:bg-amber-200 hover:text-amber-800 dark:text-amber-400 dark:hover:bg-amber-900 dark:hover:text-amber-300 animate-pulse'
+              : 'text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-700 dark:hover:text-zinc-300',
+          )}>
+            <RefreshCw className={clsx('h-4 w-4', refreshing && 'animate-spin')} />
+          </button>
+        </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         {meters.map((m) => (

@@ -113,6 +113,8 @@ export interface UsageInfo {
   seven_day_pct: number
   resets_at: string
   last_checked: string
+  age_seconds: number
+  stale: boolean
 }
 
 export interface ActiveTaskInfo {

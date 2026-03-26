@@ -17,6 +17,8 @@ type UsageInfo struct {
 	SevenDayPct float64   `json:"seven_day_pct"`
 	ResetsAt    time.Time `json:"resets_at"`
 	LastChecked time.Time `json:"last_checked"`
+	AgeSeconds  int       `json:"age_seconds"`
+	Stale       bool      `json:"stale"`
 }
 
 // UsageMonitor polls the claude-usage command to track rate limits.
@@ -141,7 +143,9 @@ func (m *UsageMonitor) ResetsAt() time.Time {
 
 // claudeUsageResponse represents the JSON output of the claude-usage command.
 type claudeUsageResponse struct {
-	Data struct {
+	AgeSeconds int  `json:"age_seconds"`
+	Stale      bool `json:"stale"`
+	Data       struct {
 		FiveHour *struct {
 			Utilization float64 `json:"utilization"`
 			ResetsAt    string  `json:"resets_at"`
@@ -186,6 +190,8 @@ func parseUsageJSON(data []byte) (*UsageInfo, error) {
 
 	info := &UsageInfo{
 		LastChecked: time.Now(),
+		AgeSeconds:  resp.AgeSeconds,
+		Stale:       resp.Stale,
 	}
 
 	if resp.Data.FiveHour != nil {

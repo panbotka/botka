@@ -159,6 +159,8 @@ func TestParseUsageJSON_FullResponse(t *testing.T) {
 	input := []byte(`{
 		"fetched_at": "2026-03-25T13:00:01Z",
 		"fetched_epoch": 1774443601,
+		"age_seconds": 101,
+		"stale": false,
 		"data": {
 			"five_hour": {
 				"utilization": 35.0,
@@ -201,6 +203,42 @@ func TestParseUsageJSON_FullResponse(t *testing.T) {
 	}
 	if info.LastChecked.IsZero() {
 		t.Error("expected LastChecked to be set")
+	}
+	if info.AgeSeconds != 101 {
+		t.Errorf("expected AgeSeconds 101, got %d", info.AgeSeconds)
+	}
+	if info.Stale {
+		t.Error("expected Stale to be false")
+	}
+}
+
+func TestParseUsageJSON_StaleData(t *testing.T) {
+	input := []byte(`{
+		"fetched_at": "2026-03-25T12:00:00Z",
+		"age_seconds": 1200,
+		"stale": true,
+		"data": {
+			"five_hour": {
+				"utilization": 50.0,
+				"resets_at": "2026-03-25T17:00:00+00:00"
+			},
+			"seven_day": {
+				"utilization": 40.0,
+				"resets_at": "2026-03-27T07:00:00+00:00"
+			}
+		}
+	}`)
+
+	info, err := parseUsageJSON(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if info.AgeSeconds != 1200 {
+		t.Errorf("expected AgeSeconds 1200, got %d", info.AgeSeconds)
+	}
+	if !info.Stale {
+		t.Error("expected Stale to be true")
 	}
 }
 
