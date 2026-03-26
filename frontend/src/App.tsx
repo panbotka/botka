@@ -15,6 +15,7 @@ import { useIsMobile } from './hooks/useIsMobile'
 import { SSEProvider } from './context/SSEContext'
 import BottomNav from './components/BottomNav'
 import OfflineIndicator from './components/OfflineIndicator'
+import UpdateBanner from './components/UpdateBanner'
 import SearchOverlay from './components/SearchOverlay'
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
@@ -124,6 +125,7 @@ export default function App() {
         </main>
         {isMobile && !hideBottomNav && <BottomNav />}
         <OfflineIndicator />
+        <UpdateBanner />
         <SearchOverlay open={searchOpen} onClose={closeSearch} />
       </div>
     </SSEProvider>
