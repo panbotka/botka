@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { clsx } from 'clsx'
-import { Loader2, MessageSquare, FolderGit2, Cpu, Zap } from 'lucide-react'
+import { Loader2, MessageSquare, FolderGit2, Cpu, Zap, RefreshCw } from 'lucide-react'
 
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
+import { useElapsedTime } from '../hooks/useElapsedTime'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import { fetchCostAnalytics } from '../api/client'
 import type { CostAnalytics, CostByDate, CostByModel } from '../types'
@@ -277,18 +278,28 @@ export default function CostDashboardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [days, setDays] = useState(30)
+  const [refreshing, setRefreshing] = useState(false)
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null)
+  const elapsed = useElapsedTime(lastRefreshedAt)
 
   const load = useCallback(async () => {
     try {
       const result = await fetchCostAnalytics(days)
       setData(result)
       setError(null)
+      setLastRefreshedAt(new Date())
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load usage data')
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [days])
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true)
+    load()
+  }, [load])
 
   useEffect(() => {
     setLoading(true)
@@ -325,7 +336,24 @@ export default function CostDashboardPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Usage</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Usage</h1>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="rounded-md p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 disabled:opacity-50 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
+              title="Refresh"
+            >
+              <RefreshCw className={clsx('h-3.5 w-3.5', refreshing && 'animate-spin')} />
+            </button>
+            {elapsed && (
+              <span className="text-xs tabular-nums text-zinc-400 dark:text-zinc-500">
+                {elapsed}
+              </span>
+            )}
+          </div>
+        </div>
         <div className="flex rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800">
           {PERIOD_OPTIONS.map((opt) => (
             <button
