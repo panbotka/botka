@@ -12,6 +12,13 @@ export class ApiError extends Error {
   }
 }
 
+// Callback invoked on 401 responses to trigger auth redirect.
+let onUnauthorized: (() => void) | null = null
+
+export function setOnUnauthorized(cb: () => void) {
+  onUnauthorized = cb
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     ...init,
@@ -21,6 +28,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     },
   })
   if (!res.ok) {
+    // Auto-redirect on 401 (except for /auth/me which is used to check auth state).
+    if (res.status === 401 && !path.startsWith('/auth/me') && onUnauthorized) {
+      onUnauthorized()
+    }
     let message = res.statusText
     try {
       const body = await res.json()
@@ -621,6 +632,107 @@ export async function* streamSubscribe(
   if (!res.ok) return
 
   yield* parseSSE(res)
+}
+
+// Auth
+
+export interface AuthUser {
+  id: number
+  username: string
+  passkey_count: number
+}
+
+export function authMe(): Promise<AuthUser> {
+  return requestData<AuthUser>('/auth/me')
+}
+
+export function authLogin(username: string, password: string): Promise<AuthUser> {
+  return requestData<AuthUser>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  })
+}
+
+export function authLogout(): Promise<void> {
+  return request<void>('/auth/logout', { method: 'POST' })
+}
+
+export function authChangePassword(currentPassword: string, newPassword: string): Promise<void> {
+  return requestData<void>('/auth/password', {
+    method: 'PUT',
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  })
+}
+
+// Passkeys
+
+export interface PasskeyInfo {
+  id: number
+  name: string
+  created_at: string
+}
+
+export function fetchPasskeys(): Promise<PasskeyInfo[]> {
+  return requestData<PasskeyInfo[]>('/auth/passkeys')
+}
+
+export function deletePasskey(id: number): Promise<void> {
+  return request<void>(`/auth/passkeys/${id}`, { method: 'DELETE' })
+}
+
+export function passkeyRegisterBegin(): Promise<{ data: PublicKeyCredentialCreationOptions }> {
+  return request<{ data: PublicKeyCredentialCreationOptions }>('/auth/passkey/register/begin', {
+    method: 'POST',
+  })
+}
+
+export function passkeyRegisterFinish(credential: Credential, name: string): Promise<PasskeyInfo> {
+  const pkCred = credential as PublicKeyCredential
+  const response = pkCred.response as AuthenticatorAttestationResponse
+  return requestData<PasskeyInfo>(`/auth/passkey/register/finish?name=${encodeURIComponent(name)}`, {
+    method: 'POST',
+    body: JSON.stringify({
+      id: pkCred.id,
+      rawId: bufferToBase64url(pkCred.rawId),
+      type: pkCred.type,
+      response: {
+        attestationObject: bufferToBase64url(response.attestationObject),
+        clientDataJSON: bufferToBase64url(response.clientDataJSON),
+      },
+    }),
+  })
+}
+
+export function passkeyLoginBegin(): Promise<{ data: PublicKeyCredentialRequestOptions }> {
+  return request<{ data: PublicKeyCredentialRequestOptions }>('/auth/passkey/login/begin', {
+    method: 'POST',
+  })
+}
+
+export function passkeyLoginFinish(credential: Credential): Promise<AuthUser> {
+  const pkCred = credential as PublicKeyCredential
+  const response = pkCred.response as AuthenticatorAssertionResponse
+  return requestData<AuthUser>('/auth/passkey/login/finish', {
+    method: 'POST',
+    body: JSON.stringify({
+      id: pkCred.id,
+      rawId: bufferToBase64url(pkCred.rawId),
+      type: pkCred.type,
+      response: {
+        authenticatorData: bufferToBase64url(response.authenticatorData),
+        clientDataJSON: bufferToBase64url(response.clientDataJSON),
+        signature: bufferToBase64url(response.signature),
+        userHandle: response.userHandle ? bufferToBase64url(response.userHandle) : undefined,
+      },
+    }),
+  })
+}
+
+function bufferToBase64url(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  bytes.forEach((b) => { binary += String.fromCharCode(b) })
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
 // Convenience object for use in hooks that call api.methodName()

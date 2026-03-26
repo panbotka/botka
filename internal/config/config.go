@@ -4,6 +4,7 @@ package config
 import (
 	"bufio"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -30,6 +31,9 @@ type Config struct {
 	UploadDir            string
 	AIModel              string
 	AvailableModels      []string
+	WebAuthnOrigin       string
+	WebAuthnRPID         string
+	SessionMaxAge        time.Duration
 }
 
 // Load reads configuration from the .env file and environment variables.
@@ -65,6 +69,22 @@ func Load() (*Config, error) {
 
 	availableModels := getEnvCSV("AVAILABLE_MODELS", []string{"sonnet", "opus", "haiku"})
 
+	sessionMaxAge, err := time.ParseDuration(getEnv("SESSION_MAX_AGE", "720h"))
+	if err != nil {
+		return nil, fmt.Errorf("parsing SESSION_MAX_AGE: %w", err)
+	}
+
+	// Derive WebAuthn RPID from origin if not explicitly set.
+	webAuthnOrigin := getEnv("WEBAUTHN_ORIGIN", "http://localhost:5110")
+	webAuthnRPID := getEnv("WEBAUTHN_RPID", "")
+	if webAuthnRPID == "" {
+		if u, err := url.Parse(webAuthnOrigin); err == nil {
+			webAuthnRPID = u.Hostname()
+		} else {
+			webAuthnRPID = "localhost"
+		}
+	}
+
 	return &Config{
 		Port:                 getEnv("PORT", "5110"),
 		DatabaseURL:          getEnv("DATABASE_URL", "postgres://botka:botka@localhost:5432/botka?sslmode=disable"),
@@ -84,6 +104,9 @@ func Load() (*Config, error) {
 		UploadDir:            getEnv("UPLOAD_DIR", "./data/uploads"),
 		AIModel:              getEnv("AI_MODEL", "sonnet"),
 		AvailableModels:      availableModels,
+		WebAuthnOrigin:       webAuthnOrigin,
+		WebAuthnRPID:         webAuthnRPID,
+		SessionMaxAge:        sessionMaxAge,
 	}, nil
 }
 

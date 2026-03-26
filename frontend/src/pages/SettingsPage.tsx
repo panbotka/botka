@@ -14,9 +14,12 @@ import {
   SettingsIcon,
   GripVertical,
   Cpu,
+  Shield,
+  KeyRound,
 } from 'lucide-react'
 
 import { useSettings, type Theme, type FontSize } from '../context/SettingsContext'
+import { useAuth } from '../context/AuthContext'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import {
   fetchPersonas,
@@ -36,6 +39,12 @@ import {
   getTranscribeStatus,
   fetchServerSettings,
   updateServerSettings,
+  authChangePassword,
+  fetchPasskeys,
+  deletePasskey,
+  passkeyRegisterBegin,
+  passkeyRegisterFinish,
+  type PasskeyInfo,
 } from '../api/client'
 import type { Persona, Tag, Memory } from '../types'
 
@@ -54,7 +63,7 @@ const TAG_COLORS = [
   { name: 'Pink', hex: '#EC4899' },
 ]
 
-type TabId = 'general' | 'runner' | 'personas' | 'tags' | 'memories' | 'voice'
+type TabId = 'general' | 'security' | 'runner' | 'personas' | 'tags' | 'memories' | 'voice'
 
 interface TabDef {
   id: TabId
@@ -64,6 +73,7 @@ interface TabDef {
 
 const TABS: TabDef[] = [
   { id: 'general', label: 'General', icon: SettingsIcon },
+  { id: 'security', label: 'Security', icon: Shield },
   { id: 'runner', label: 'Task Runner', icon: Cpu },
   { id: 'personas', label: 'Personas', icon: User },
   { id: 'tags', label: 'Tags', icon: TagIcon },
@@ -990,6 +1000,278 @@ function MemoriesTab() {
   )
 }
 
+// ── Security Tab ──
+
+function base64urlToBuffer(base64url: string): ArrayBuffer {
+  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/')
+  const pad = base64.length % 4
+  const padded = pad ? base64 + '='.repeat(4 - pad) : base64
+  const binary = atob(padded)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return bytes.buffer
+}
+
+function SecurityTab() {
+  const { logout } = useAuth()
+
+  // Password change state
+  const [currentPw, setCurrentPw] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [confirmPw, setConfirmPw] = useState('')
+  const [pwLoading, setPwLoading] = useState(false)
+  const [pwError, setPwError] = useState('')
+  const [pwSuccess, setPwSuccess] = useState('')
+
+  // Passkey state
+  const [passkeys, setPasskeys] = useState<PasskeyInfo[]>([])
+  const [pkLoading, setPkLoading] = useState(true)
+  const [pkError, setPkError] = useState('')
+  const [registerName, setRegisterName] = useState('')
+  const [showRegister, setShowRegister] = useState(false)
+  const [registering, setRegistering] = useState(false)
+  const [supportsPasskey, setSupportsPasskey] = useState(false)
+
+  useEffect(() => {
+    fetchPasskeys()
+      .then(setPasskeys)
+      .catch(() => {})
+      .finally(() => setPkLoading(false))
+  }, [])
+
+  useEffect(() => {
+    if (window.PublicKeyCredential) {
+      PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable?.()
+        .then(setSupportsPasskey)
+        .catch(() => setSupportsPasskey(false))
+    }
+  }, [])
+
+  const handleChangePassword = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault()
+    setPwError('')
+    setPwSuccess('')
+    if (newPw !== confirmPw) {
+      setPwError('New passwords do not match')
+      return
+    }
+    if (newPw.length < 8) {
+      setPwError('New password must be at least 8 characters')
+      return
+    }
+    setPwLoading(true)
+    try {
+      await authChangePassword(currentPw, newPw)
+      setPwSuccess('Password updated successfully')
+      setCurrentPw('')
+      setNewPw('')
+      setConfirmPw('')
+    } catch (err) {
+      setPwError(err instanceof Error ? err.message : 'Failed to change password')
+    } finally {
+      setPwLoading(false)
+    }
+  }, [currentPw, newPw, confirmPw])
+
+  const handleRegisterPasskey = useCallback(async () => {
+    setPkError('')
+    setRegistering(true)
+    try {
+      const beginRes = await passkeyRegisterBegin()
+      const options = beginRes.data
+
+      const publicKeyOptions: PublicKeyCredentialCreationOptions = {
+        ...options,
+        challenge: base64urlToBuffer(options.challenge as unknown as string),
+        user: {
+          ...(options.user as unknown as { id: string; name: string; displayName: string }),
+          id: base64urlToBuffer((options.user as unknown as { id: string }).id),
+        },
+        excludeCredentials: (options.excludeCredentials as unknown as Array<{ id: string; type: string }>)?.map(
+          (cred) => ({
+            id: base64urlToBuffer(cred.id),
+            type: 'public-key' as const,
+          }),
+        ),
+      }
+
+      const credential = await navigator.credentials.create({ publicKey: publicKeyOptions })
+      if (!credential) {
+        setPkError('Passkey registration was cancelled')
+        return
+      }
+
+      const result = await passkeyRegisterFinish(credential, registerName || 'Passkey')
+      setPasskeys((prev) => [...prev, result])
+      setShowRegister(false)
+      setRegisterName('')
+    } catch (err) {
+      setPkError(err instanceof Error ? err.message : 'Passkey registration failed')
+    } finally {
+      setRegistering(false)
+    }
+  }, [registerName])
+
+  const handleDeletePasskey = useCallback(async (id: number) => {
+    try {
+      await deletePasskey(id)
+      setPasskeys((prev) => prev.filter((p) => p.id !== id))
+    } catch (err) {
+      setPkError(err instanceof Error ? err.message : 'Failed to delete passkey')
+    }
+  }, [])
+
+  return (
+    <div className="space-y-8">
+      {/* Change Password */}
+      <div>
+        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Change Password</h3>
+        <form onSubmit={handleChangePassword} className="mt-3 max-w-sm space-y-3">
+          {pwError && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{pwError}</div>}
+          {pwSuccess && <div className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{pwSuccess}</div>}
+          <div>
+            <label className="block text-sm text-zinc-600 dark:text-zinc-400">Current password</label>
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={currentPw}
+              onChange={(e) => setCurrentPw(e.target.value)}
+              className="mt-1 block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-zinc-600 dark:text-zinc-400">New password</label>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={newPw}
+              onChange={(e) => setNewPw(e.target.value)}
+              className="mt-1 block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-zinc-600 dark:text-zinc-400">Confirm new password</label>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={confirmPw}
+              onChange={(e) => setConfirmPw(e.target.value)}
+              className="mt-1 block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              required
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={pwLoading}
+            className={clsx(
+              'rounded-md px-4 py-2 text-sm font-medium text-white transition-colors',
+              pwLoading ? 'cursor-not-allowed bg-zinc-400' : 'bg-zinc-900 hover:bg-zinc-800',
+            )}
+          >
+            {pwLoading ? 'Updating...' : 'Update password'}
+          </button>
+        </form>
+      </div>
+
+      {/* Passkeys */}
+      <div>
+        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Passkeys</h3>
+        <p className="mt-1 text-sm text-zinc-500">
+          Use biometric authentication (fingerprint, face ID) or a security key to sign in.
+        </p>
+
+        {pkError && <div className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{pkError}</div>}
+
+        {pkLoading ? (
+          <div className="flex h-20 items-center justify-center">
+            <Loader2 className="h-5 w-5 animate-spin text-zinc-400" />
+          </div>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {passkeys.length === 0 && (
+              <p className="text-sm text-zinc-400">No passkeys registered yet.</p>
+            )}
+            {passkeys.map((pk) => (
+              <div
+                key={pk.id}
+                className="flex items-center justify-between rounded-md border border-zinc-200 px-3 py-2"
+              >
+                <div className="flex items-center gap-2">
+                  <KeyRound className="h-4 w-4 text-zinc-400" />
+                  <span className="text-sm text-zinc-700 dark:text-zinc-300">{pk.name}</span>
+                  <span className="text-xs text-zinc-400">
+                    {new Date(pk.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+                <button
+                  onClick={() => handleDeletePasskey(pk.id)}
+                  className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-red-500"
+                  title="Remove passkey"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {supportsPasskey && !showRegister && (
+          <button
+            onClick={() => setShowRegister(true)}
+            className="mt-3 flex items-center gap-1.5 rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+          >
+            <Plus className="h-4 w-4" />
+            Add passkey
+          </button>
+        )}
+
+        {showRegister && (
+          <div className="mt-3 flex max-w-sm items-center gap-2">
+            <input
+              type="text"
+              placeholder="Passkey name (e.g. iPhone)"
+              value={registerName}
+              onChange={(e) => setRegisterName(e.target.value)}
+              className="flex-1 rounded-md border border-zinc-300 px-3 py-1.5 text-sm shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+            />
+            <button
+              onClick={handleRegisterPasskey}
+              disabled={registering}
+              className={clsx(
+                'rounded-md px-3 py-1.5 text-sm font-medium text-white transition-colors',
+                registering ? 'cursor-not-allowed bg-zinc-400' : 'bg-zinc-900 hover:bg-zinc-800',
+              )}
+            >
+              {registering ? 'Registering...' : 'Register'}
+            </button>
+            <button
+              onClick={() => { setShowRegister(false); setRegisterName('') }}
+              className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Sign Out */}
+      <div>
+        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Session</h3>
+        <button
+          onClick={() => logout()}
+          className="mt-2 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
+        >
+          Sign out
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Voice Tab ──
 
 function VoiceTab() {
@@ -1140,6 +1422,7 @@ export default function SettingsPage() {
       {/* Tab content */}
       <div>
         {activeTab === 'general' && <GeneralTab />}
+        {activeTab === 'security' && <SecurityTab />}
         {activeTab === 'runner' && <RunnerTab />}
         {activeTab === 'personas' && <PersonasTab />}
         {activeTab === 'tags' && <TagsTab />}

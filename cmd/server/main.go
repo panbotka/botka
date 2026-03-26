@@ -11,10 +11,12 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-webauthn/webauthn/webauthn"
 	"gorm.io/gorm"
 
 	"botka"
@@ -74,6 +76,11 @@ func run() error {
 	}
 	defer func() { _ = sqlDB.Close() }()
 	defer claude.Sessions.Shutdown()
+
+	// Seed initial admin user if none exists.
+	if err := database.SeedInitialUser(db); err != nil {
+		return fmt.Errorf("seed initial user: %w", err)
+	}
 
 	// Project discovery: scan filesystem and sync to database.
 	discovered, err := projects.Scan(cfg.ProjectsDir)
@@ -140,7 +147,28 @@ func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gi
 	router := gin.New()
 	router.Use(gin.Recovery(), gin.Logger(), middleware.CORS())
 
+	// Auth middleware: protects all /api/v1/* except public auth endpoints.
+	router.Use(middleware.Auth(db))
+
 	v1 := router.Group("/api/v1")
+
+	// Auth routes (login, logout, me, change password).
+	isSecure := strings.HasPrefix(cfg.WebAuthnOrigin, "https://")
+	authHandler := handlers.NewAuthHandler(db, cfg.SessionMaxAge, isSecure)
+	handlers.RegisterAuthRoutes(v1, authHandler)
+
+	// WebAuthn passkey routes.
+	wan, err := webauthn.New(&webauthn.Config{
+		RPID:          cfg.WebAuthnRPID,
+		RPDisplayName: "Botka",
+		RPOrigins:     []string{cfg.WebAuthnOrigin},
+	})
+	if err != nil {
+		slog.Error("failed to create webauthn", "error", err)
+	} else {
+		passkeyHandler := handlers.NewPasskeyHandler(db, wan, authHandler)
+		handlers.RegisterPasskeyRoutes(v1, passkeyHandler)
+	}
 
 	projectHandler := handlers.NewProjectHandler(db, cfg.ProjectsDir, projects.Scan, projects.SyncToDatabase)
 	handlers.RegisterProjectRoutes(v1, projectHandler)

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useEffect, useCallback } from 'react'
-import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
+import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
   MessageSquare,
@@ -13,6 +13,7 @@ import {
 import { clsx } from 'clsx'
 import { useIsMobile } from './hooks/useIsMobile'
 import { SSEProvider } from './context/SSEContext'
+import { AuthProvider, useAuth } from './context/AuthContext'
 import BottomNav from './components/BottomNav'
 import OfflineIndicator from './components/OfflineIndicator'
 import UpdateBanner from './components/UpdateBanner'
@@ -27,6 +28,7 @@ const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage'))
 const CostDashboardPage = lazy(() => import('./pages/CostDashboardPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const HelpPage = lazy(() => import('./pages/HelpPage'))
+const LoginPage = lazy(() => import('./pages/LoginPage'))
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -42,6 +44,14 @@ function PageLoader() {
   return (
     <div className="flex h-64 items-center justify-center">
       <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+    </div>
+  )
+}
+
+function FullPageLoader() {
+  return (
+    <div className="flex h-dvh items-center justify-center bg-zinc-50">
+      <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
     </div>
   )
 }
@@ -77,7 +87,16 @@ function AppSidebar() {
   )
 }
 
-export default function App() {
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading } = useAuth()
+  const location = useLocation()
+
+  if (isLoading) return <FullPageLoader />
+  if (!isAuthenticated) return <Navigate to="/login" state={{ from: location.pathname }} replace />
+  return <>{children}</>
+}
+
+function AuthenticatedApp() {
   const location = useLocation()
   const isMobile = useIsMobile()
   const isChat = location.pathname.startsWith('/chat')
@@ -129,5 +148,25 @@ export default function App() {
         <SearchOverlay open={searchOpen} onClose={closeSearch} />
       </div>
     </SSEProvider>
+  )
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <Suspense fallback={<FullPageLoader />}>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route
+            path="/*"
+            element={
+              <ProtectedRoute>
+                <AuthenticatedApp />
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </Suspense>
+    </AuthProvider>
   )
 }
