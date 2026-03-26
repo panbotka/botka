@@ -1,26 +1,32 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { NDJSONParser, type TaskOutputEvent } from '../utils/parseNDJSON'
 
-const MAX_OUTPUT_BYTES = 100 * 1024 // 100KB
-const TRUNCATION_NOTICE = '[earlier output truncated]\n'
+const MAX_EVENTS = 5000
 const RECONNECT_DELAY = 3000
 const MAX_RECONNECT_ATTEMPTS = 10
 
 export function useSSE(taskId: string | null) {
-  const [output, setOutput] = useState('')
+  const [events, setEvents] = useState<TaskOutputEvent[]>([])
   const [connected, setConnected] = useState(false)
   const [done, setDone] = useState(false)
   const esRef = useRef<EventSource | null>(null)
-  const outputRef = useRef('')
+  const parserRef = useRef<NDJSONParser>(new NDJSONParser())
   const doneRef = useRef(false)
   const attemptsRef = useRef(0)
 
-  const appendOutput = useCallback((text: string) => {
-    outputRef.current += text
-    if (outputRef.current.length > MAX_OUTPUT_BYTES) {
-      outputRef.current =
-        TRUNCATION_NOTICE + outputRef.current.slice(outputRef.current.length - MAX_OUTPUT_BYTES)
+  const appendChunk = useCallback((chunk: string) => {
+    const parser = parserRef.current
+    const newEvents = parser.append(chunk)
+    if (newEvents.length > 0) {
+      setEvents(prev => {
+        const combined = [...prev, ...newEvents]
+        // Cap events to prevent unbounded growth
+        if (combined.length > MAX_EVENTS) {
+          return combined.slice(combined.length - MAX_EVENTS)
+        }
+        return combined
+      })
     }
-    setOutput(outputRef.current)
   }, [])
 
   useEffect(() => {
@@ -30,6 +36,7 @@ export function useSSE(taskId: string | null) {
     let stopped = false
     doneRef.current = false
     attemptsRef.current = 0
+    parserRef.current = new NDJSONParser()
 
     function connect() {
       if (stopped || doneRef.current) return
@@ -43,16 +50,22 @@ export function useSSE(taskId: string | null) {
       }
 
       es.onmessage = (event) => {
+        let text: string
         try {
-          const text = atob(event.data)
-          appendOutput(text)
+          text = atob(event.data)
         } catch {
-          // non-base64 data, append as-is
-          appendOutput(event.data)
+          text = event.data
         }
+        appendChunk(text)
       }
 
       es.addEventListener('done', () => {
+        // Flush any remaining partial line
+        const parser = parserRef.current
+        const remaining = parser.flush()
+        if (remaining.length > 0) {
+          setEvents(prev => [...prev, ...remaining])
+        }
         doneRef.current = true
         setDone(true)
         setConnected(false)
@@ -72,8 +85,7 @@ export function useSSE(taskId: string | null) {
     }
 
     // Reset state for new task
-    outputRef.current = ''
-    setOutput('')
+    setEvents([])
     setDone(false)
     setConnected(false)
 
@@ -87,7 +99,7 @@ export function useSSE(taskId: string | null) {
         esRef.current = null
       }
     }
-  }, [taskId, appendOutput])
+  }, [taskId, appendChunk])
 
-  return { output, connected, done }
+  return { events, connected, done }
 }

@@ -178,7 +178,7 @@ func (h *TaskHandler) Get(c *gin.Context) {
 	var task models.Task
 	q := h.db.Preload("Project").
 		Preload("Executions", func(db *gorm.DB) *gorm.DB {
-			return db.Order("attempt DESC")
+			return db.Select("id, task_id, attempt, started_at, finished_at, exit_code, cost_usd, duration_ms, summary, error_message, created_at").Order("attempt DESC")
 		})
 	if err := q.First(&task, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

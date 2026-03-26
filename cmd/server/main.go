@@ -179,7 +179,7 @@ func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gi
 	runnerHandler := handlers.NewRunnerHandler(taskRunner)
 	handlers.RegisterRunnerRoutes(v1, runnerHandler)
 
-	handlers.RegisterOutputRoute(v1, taskRunner)
+	handlers.RegisterOutputRoute(v1, taskRunner, db)
 
 	// Thread, chat, and file handlers.
 	threadHandler := handlers.NewThreadHandler(db, cfg.AIModel, cfg.AvailableModels)

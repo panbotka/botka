@@ -13,10 +13,14 @@ import {
   Clock,
   Loader2,
   Undo2,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react'
 import { TaskForm } from '../components/TaskForm'
 import { LiveOutputInline } from '../components/LiveOutput'
-import { fetchTask, retryTask, deleteTask, updateTask } from '../api/client'
+import TaskOutputView from '../components/TaskOutputView'
+import { fetchTask, retryTask, deleteTask, updateTask, fetchTaskRawOutput } from '../api/client'
+import { parseNDJSON, type TaskOutputEvent } from '../utils/parseNDJSON'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import type { Task, TaskStatus, TaskExecution } from '../types'
@@ -202,6 +206,7 @@ function TaskDetail({ taskId }: { taskId: string }) {
 
   const cfg = statusConfig[task.status]
   const StatusIcon = cfg.icon
+  const hasCompletedOutput = task.status === 'done' || task.status === 'failed' || task.status === 'needs_review'
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -273,6 +278,11 @@ function TaskDetail({ taskId }: { taskId: string }) {
       {/* Live Output */}
       {task.status === 'running' && (
         <LiveOutputInline taskId={taskId} taskTitle={task.title} />
+      )}
+
+      {/* Historical Output */}
+      {hasCompletedOutput && task.status !== 'running' && (
+        <HistoricalOutput taskId={taskId} />
       )}
 
       {/* Actions */}
@@ -351,6 +361,78 @@ function TaskDetail({ taskId }: { taskId: string }) {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function HistoricalOutput({ taskId }: { taskId: string }) {
+  const [events, setEvents] = useState<TaskOutputEvent[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+
+    fetchTaskRawOutput(taskId)
+      .then(data => {
+        if (cancelled) return
+        const parsed = parseNDJSON(data.raw_output)
+        setEvents(parsed)
+      })
+      .catch(err => {
+        if (cancelled) return
+        if (err instanceof Error && err.message.includes('no output available')) {
+          setEvents([])
+        } else {
+          setError(err instanceof Error ? err.message : 'Failed to load output')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => { cancelled = true }
+  }, [taskId])
+
+  if (loading) {
+    return (
+      <div className="overflow-hidden rounded-lg border border-zinc-200">
+        <div className="flex items-center gap-2 border-b border-zinc-200 bg-zinc-50 px-4 py-2">
+          <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />
+          <span className="text-sm text-zinc-500">Loading output...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
+        Failed to load output: {error}
+      </div>
+    )
+  }
+
+  if (!events || events.length === 0) return null
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-zinc-200">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center justify-between border-b border-zinc-200 bg-zinc-50 px-4 py-2 text-left hover:bg-zinc-100 cursor-pointer"
+      >
+        <span className="text-sm font-medium text-zinc-700">
+          Execution Output
+        </span>
+        <span className="flex items-center gap-2 text-xs text-zinc-500">
+          {events.filter(e => e.type === 'tool_use').length} tool calls
+          {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        </span>
+      </button>
+      {expanded && <TaskOutputView events={events} />}
     </div>
   )
 }

@@ -479,7 +479,8 @@ func (r *Runner) executeTask(
 func (r *Runner) finishTask(
 	task *models.Task, exec *models.TaskExecution, buf *Buffer, result *ExecutionResult,
 ) {
-	r.updateExecution(exec, result)
+	rawOutput := string(buf.ReadAll())
+	r.updateExecution(exec, result, rawOutput)
 	r.applyResult(task, result)
 
 	buf.Close()
@@ -489,7 +490,7 @@ func (r *Runner) finishTask(
 	r.mu.Unlock()
 }
 
-func (r *Runner) updateExecution(exec *models.TaskExecution, result *ExecutionResult) {
+func (r *Runner) updateExecution(exec *models.TaskExecution, result *ExecutionResult, rawOutput string) {
 	now := time.Now()
 	r.db.Model(exec).Updates(map[string]interface{}{
 		"finished_at":   now,
@@ -497,6 +498,7 @@ func (r *Runner) updateExecution(exec *models.TaskExecution, result *ExecutionRe
 		"duration_ms":   result.DurationMs,
 		"summary":       nilString(result.Summary),
 		"error_message": nilString(result.ErrorMessage),
+		"raw_output":    nilString(rawOutput),
 	})
 }
 

@@ -21,6 +21,7 @@ type TaskExecution struct {
 	DurationMs   *int64     `json:"duration_ms"`
 	Summary      *string    `gorm:"type:text" json:"summary"`
 	ErrorMessage *string    `gorm:"type:text" json:"error_message"`
+	RawOutput    *string    `gorm:"type:text" json:"raw_output,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 }
 

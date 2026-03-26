@@ -150,6 +150,10 @@ export function fetchTaskStats(): Promise<TaskStats> {
   return requestData<TaskStats>('/tasks/stats')
 }
 
+export function fetchTaskRawOutput(id: string): Promise<{ execution_id: string; attempt: number; raw_output: string }> {
+  return requestData<{ execution_id: string; attempt: number; raw_output: string }>(`/tasks/${id}/output/raw`)
+}
+
 // Runner
 
 export function fetchRunnerStatus(): Promise<RunnerStatus> {
