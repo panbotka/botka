@@ -4,12 +4,15 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
 	"botka/internal/runner"
 )
+
+const keepaliveInterval = 15 * time.Second
 
 // RegisterOutputRoute registers the SSE live output route on the given router group.
 func RegisterOutputRoute(rg *gin.RouterGroup, r *runner.Runner) {
@@ -35,13 +38,15 @@ func streamTaskOutput(c *gin.Context, r *runner.Runner) {
 
 	buf := r.GetBuffer(taskID)
 	if buf == nil {
-		respondError(c, http.StatusNotFound, "task is not running")
+		// Task is not currently running (already completed or not started).
+		// Send a "done" event via SSE so the frontend stops reconnecting.
+		setSSEHeaders(c)
+		_, _ = fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
+		c.Writer.Flush()
 		return
 	}
 
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
+	setSSEHeaders(c)
 
 	// Send existing buffered data as the initial event.
 	if existing := buf.ReadAll(); len(existing) > 0 {
@@ -53,11 +58,17 @@ func streamTaskOutput(c *gin.Context, r *runner.Runner) {
 	defer unsubscribe()
 
 	ctx := c.Request.Context()
+	keepalive := time.NewTicker(keepaliveInterval)
+	defer keepalive.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-keepalive.C:
+			// SSE comment keeps the connection alive through proxies.
+			_, _ = fmt.Fprintf(c.Writer, ": keepalive\n\n")
+			c.Writer.Flush()
 		case chunk, ok := <-ch:
 			if !ok {
 				// Buffer closed — task completed.
@@ -68,6 +79,14 @@ func streamTaskOutput(c *gin.Context, r *runner.Runner) {
 			writeSSEData(c, chunk)
 		}
 	}
+}
+
+// setSSEHeaders sets the standard headers for an SSE response.
+func setSSEHeaders(c *gin.Context) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
 }
 
 // writeSSEData writes a base64-encoded SSE data event and flushes.
