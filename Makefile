@@ -66,8 +66,12 @@ DATABASE_TEST_URL ?= postgres://botka:botka@localhost:5432/botka_test?sslmode=di
 test: ensure-dist
 	CGO_ENABLED=1 DATABASE_TEST_URL="$(DATABASE_TEST_URL)" go test -race -coverprofile=coverage.out ./cmd/... ./internal/...
 
-# Full CI gate: format + vet + lint + test
-check: fmt vet lint test
+# Type-check frontend (no bundle)
+frontend-check:
+	cd frontend && npx tsc -b
+
+# Full CI gate: format + vet + lint + test + frontend type-check
+check: fmt vet lint test frontend-check
 
 # Build the server binary
 build: ensure-dist

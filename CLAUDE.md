@@ -66,13 +66,13 @@ make frontend-dev   # Run Vite dev server on :5173 (proxies /api to :5110)
 make test           # Run Go tests with race detector
 make lint           # Run golangci-lint (config: .golangci.yml)
 make fmt            # Format code with goimports + gofmt
-make check          # Full CI gate: fmt + vet + lint + test
+make check          # Full CI gate: fmt + vet + lint + test + frontend type-check
 make build          # Build Go binary to build/botka
 make prod-build     # Build frontend + Go binary to bin/botka
 make clean          # Remove build artifacts
 ```
 
-**Before every commit, `make prod-build` must pass.** This builds both frontend (TypeScript + Vite) and Go binary. Do not commit code that fails this build.
+**Before every commit, `make check` must pass.** This runs Go formatting, vetting, linting, tests, and frontend TypeScript type-checking. Do not commit code that fails this gate.
 
 ## Testing
 
