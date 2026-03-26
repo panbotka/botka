@@ -9,6 +9,7 @@ import MessageBubble from './MessageBubble';
 import ChatInput, { isAllowedFile, getFileExtension, MAX_FILE_SIZE } from './ChatInput';
 import type { ChatInputHandle } from './ChatInput';
 import ToolCallPanel from './ToolCallPanel';
+import StreamErrorBlock from './StreamErrorBlock';
 import Lightbox from './Lightbox';
 import { COMMANDS } from './SlashCommandMenu';
 import { downloadExport } from '../utils/exportThread';
@@ -38,6 +39,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
   const [dragOver, setDragOver] = useState(false);
   const [queuedIds, setQueuedIds] = useState<Set<number>>(new Set());
   const [streamError, setStreamError] = useState<string | null>(null);
+  const [streamErrorRaw, setStreamErrorRaw] = useState<string | null>(null);
   const [memorySuggestions, setMemorySuggestions] = useState<string[]>([]);
   const [forkPoints, setForkPoints] = useState<Record<string, ForkPoint>>({});
   const [usageInfo, setUsageInfo] = useState<{ cost_usd?: number; input_tokens?: number; output_tokens?: number } | null>(null);
@@ -386,6 +388,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
         startHealthPolling();
       } else if (session.streamError) {
         setStreamError(session.streamError);
+        setStreamErrorRaw(session.streamErrorRaw ?? null);
       }
     }
 
@@ -864,6 +867,15 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
               ))}
             </div>
           )}
+          {streamError && streamError !== 'Server unavailable' && !isStreamingThisThread && (
+            <div className="max-w-3xl animate-message-in">
+              <StreamErrorBlock
+                message={streamError}
+                raw={streamErrorRaw}
+                onRetry={() => { setStreamError(null); setStreamErrorRaw(null); handleRegenerate(); }}
+              />
+            </div>
+          )}
           <div ref={bottomRef} />
         </div>
       </div>
@@ -887,7 +899,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
           </div>
         </div>
       )}
-      {streamError && !isStreamingThisThread && (
+      {streamError === 'Server unavailable' && !isStreamingThisThread && (
         <div className="max-w-3xl mx-auto w-full px-4">
           <div className="flex items-center gap-3 text-sm px-4 py-2.5 rounded-xl mb-1 bg-red-50 text-red-700 border border-red-200">
             <span className="flex-1 truncate">{streamError}</span>

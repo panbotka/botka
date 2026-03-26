@@ -22,6 +22,7 @@ export interface SSESessionState {
   retryInfo: { attempt: number; max_attempts: number } | null;
   reconnecting: { attempt: number; maxAttempts: number } | null;
   streamError: string | null;
+  streamErrorRaw: string | null;
   isStreaming: boolean;
   isComplete: boolean;
   completedMessage: Message | null;
@@ -33,9 +34,11 @@ export interface SSESessionState {
 
 class StreamError extends Error {
   connectionLost: boolean;
-  constructor(message: string, connectionLost: boolean) {
+  raw: string | undefined;
+  constructor(message: string, connectionLost: boolean, raw?: string) {
     super(message);
     this.connectionLost = connectionLost;
+    this.raw = raw;
   }
 }
 
@@ -65,6 +68,7 @@ function createSessionState(): SSESessionState {
     retryInfo: null,
     reconnecting: null,
     streamError: null,
+    streamErrorRaw: null,
     isStreaming: true,
     isComplete: false,
     completedMessage: null,
@@ -208,6 +212,7 @@ export class SSESessionManager {
             if (retryErr instanceof Error && retryErr.name === 'AbortError') return;
             if (!(retryErr instanceof StreamError && retryErr.connectionLost)) {
               session.state.streamError = retryErr instanceof Error ? retryErr.message : 'Unknown error';
+              session.state.streamErrorRaw = retryErr instanceof StreamError ? retryErr.raw ?? null : null;
               this.notify(session);
               succeeded = true;
               break;
@@ -217,11 +222,13 @@ export class SSESessionManager {
 
         if (!succeeded) {
           session.state.streamError = 'Server unavailable';
+          session.state.streamErrorRaw = null;
           session.state.reconnecting = null;
           this.notify(session);
         }
       } else {
         session.state.streamError = err instanceof Error ? err.message : 'Unknown error';
+        session.state.streamErrorRaw = err instanceof StreamError ? err.raw ?? null : null;
         this.notify(session);
       }
     } finally {
@@ -264,7 +271,7 @@ export class SSESessionManager {
       if (chunk.error) {
         session.state.retryInfo = null;
         this.notify(session);
-        throw new StreamError(chunk.error, chunk.connectionLost ?? false);
+        throw new StreamError(chunk.error, chunk.connectionLost ?? false, chunk.error_raw);
       }
 
       if (chunk.title) {

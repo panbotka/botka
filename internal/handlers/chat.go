@@ -551,7 +551,11 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 		case claude.KindResult:
 			if event.IsError {
 				log.Printf("[chat] thread %d result error: %s", threadID, event.ErrorMsg)
-				errJSON, _ := json.Marshal(map[string]string{"error": event.ErrorMsg})
+				errPayload := map[string]interface{}{"error": event.ErrorMsg}
+				if len(event.Raw) > 0 {
+					errPayload["raw"] = string(event.Raw)
+				}
+				errJSON, _ := json.Marshal(errPayload)
 				sseData := fmt.Sprintf("event: error\ndata: %s\n\n", errJSON)
 				claude.Streams.Publish(threadID, sseData)
 				if !clientDisconnected {

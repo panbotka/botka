@@ -419,6 +419,7 @@ export function fetchCostAnalytics(days?: number): Promise<CostAnalytics> {
 export interface StreamChunk {
   done?: boolean
   error?: string
+  error_raw?: string
   connectionLost?: boolean
   content?: string
   thinking?: string
@@ -473,7 +474,7 @@ async function* parseSSE(response: Response): AsyncGenerator<StreamChunk> {
                 yield { usage: parsed } as StreamChunk
                 break
               case 'error':
-                yield { error: parsed.error } as StreamChunk
+                yield { error: parsed.error, error_raw: parsed.raw } as StreamChunk
                 break
               case 'title':
                 yield { title: parsed.title } as StreamChunk
