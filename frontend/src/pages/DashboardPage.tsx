@@ -69,7 +69,7 @@ interface StatCardProps {
 function StatCard({ label, value, icon, color, bgColor, subtitle, link }: StatCardProps) {
   const content = (
     <div className={clsx(
-      'rounded-xl border p-5 transition-shadow',
+      'h-full rounded-xl border p-5 transition-shadow',
       'border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800',
       link && 'hover:shadow-md cursor-pointer',
     )}>
@@ -89,7 +89,7 @@ function StatCard({ label, value, icon, color, bgColor, subtitle, link }: StatCa
   )
 
   if (link) {
-    return <Link to={link}>{content}</Link>
+    return <Link to={link} className="h-full">{content}</Link>
   }
   return content
 }
