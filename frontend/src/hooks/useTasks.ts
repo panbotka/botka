@@ -25,7 +25,7 @@ export function useTasks(filters: UseTasksFilters = {}): UseTasksResult {
     try {
       setError(null)
       const params: { status?: string; project_id?: string; limit: number } = {
-        limit: 200,
+        limit: 500,
       }
       if (filters.status) params.status = filters.status
       if (filters.project_id) params.project_id = filters.project_id
