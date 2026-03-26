@@ -198,9 +198,9 @@ export default function ChatPage() {
     return (
       <div className="h-full flex flex-col">
         {showMobileChat ? (
-          <div className="flex-1 flex flex-col min-w-0">
+          <div className="flex-1 flex flex-col min-w-0 min-h-0">
             {/* Mobile chat header */}
-            <header className="flex items-center gap-3 px-4 h-12 bg-zinc-50 border-b border-zinc-200 sticky top-0 z-10 flex-shrink-0">
+            <header className="flex items-center gap-3 px-4 h-12 bg-zinc-50 border-b border-zinc-200 flex-shrink-0 z-10">
               <button
                 onClick={handleMobileBack}
                 className="text-zinc-500 hover:text-zinc-800 cursor-pointer transition-colors -ml-1 min-w-[44px] min-h-[44px] flex items-center justify-center"

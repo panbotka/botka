@@ -737,7 +737,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-6">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overscroll-contain px-4 py-6">
         <div className="max-w-3xl mx-auto">
           {loading && (
             <div className="flex justify-center py-12">
