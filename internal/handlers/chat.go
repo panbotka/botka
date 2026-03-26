@@ -524,6 +524,7 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 	var lastCostUSD float64
 	var lastInputTokens, lastOutputTokens int
 	var writtenFiles []writeToolCall
+	var collectedToolCalls []models.ToolCall
 
 	for event := range stream {
 		// Check if client disconnected — stop writing but keep reading
@@ -572,6 +573,12 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 				fmt.Fprint(c.Writer, sseData)
 				flusher.Flush()
 			}
+
+			// Collect tool call for persistence
+			collectedToolCalls = append(collectedToolCalls, models.ToolCall{
+				Name:  event.ToolName,
+				Input: event.ToolInput,
+			})
 
 			// Collect Write/Edit tool calls for AI-generated file attachment
 			if event.ToolName == "Write" || event.ToolName == "Edit" {
@@ -669,6 +676,10 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 	if !errored {
 		assistantContent := fullResponse.String()
 		if assistantContent != "" {
+			var toolCallsJSON json.RawMessage
+			if len(collectedToolCalls) > 0 {
+				toolCallsJSON, _ = json.Marshal(collectedToolCalls)
+			}
 			assistantMsg := models.Message{
 				ThreadID:         threadID,
 				Role:             "assistant",
@@ -677,6 +688,7 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 				PromptTokens:     &lastInputTokens,
 				CompletionTokens: &lastOutputTokens,
 				CostUSD:          &lastCostUSD,
+				ToolCalls:        toolCallsJSON,
 			}
 			if err := h.db.Create(&assistantMsg).Error; err != nil {
 				log.Printf("failed to save assistant message: %v", err)

@@ -355,6 +355,9 @@ export class SSESessionManager {
     session.state.retryInfo = null;
     const cleanContent = fullContent.replace(/<memory>.*?<\/memory>/gs, '').trim();
     if (cleanContent) {
+      const persistedToolCalls = session.state.toolCalls.length > 0
+        ? session.state.toolCalls.map(tc => ({ name: tc.name, input: tc.input }))
+        : undefined;
       session.state.completedMessage = {
         id: Date.now() + 1,
         thread_id: session.threadId,
@@ -364,6 +367,7 @@ export class SSESessionManager {
         thinking_duration_ms: session.state.thinkingDurationMs ?? undefined,
         prompt_tokens: promptTokens,
         completion_tokens: completionTokens,
+        tool_calls: persistedToolCalls,
         attachments: session.state.attachments.length > 0 ? session.state.attachments : undefined,
         created_at: new Date().toISOString(),
       };

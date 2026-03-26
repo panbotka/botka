@@ -151,6 +151,11 @@ export interface Thread {
   last_message_at?: string
 }
 
+export interface PersistedToolCall {
+  name: string
+  input: Record<string, unknown>
+}
+
 export interface Message {
   id: number
   thread_id: number
@@ -162,6 +167,7 @@ export interface Message {
   prompt_tokens?: number
   completion_tokens?: number
   cost_usd?: number | null
+  tool_calls?: PersistedToolCall[]
   attachments?: Attachment[]
   created_at: string
 }
