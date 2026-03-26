@@ -101,7 +101,7 @@ export default function App() {
 
   return (
     <SSEProvider>
-      <div className="flex h-screen bg-zinc-50">
+      <div className="flex h-screen bg-zinc-50" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
         {!isMobile && <AppSidebar />}
         <main className={clsx(
           'flex-1',
