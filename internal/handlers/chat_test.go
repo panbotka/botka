@@ -131,3 +131,24 @@ func createMessage(t *testing.T, db *gorm.DB, threadID int64, parentID *int64, r
 	}
 	return msg
 }
+
+func TestIsTransientError(t *testing.T) {
+	tests := []struct {
+		msg  string
+		want bool
+	}{
+		{"", true},
+		{"Error in input stream", true},
+		{"error in input stream", true},
+		{"ERROR IN INPUT STREAM", true},
+		{"something: Error in input stream", true},
+		{"No conversation found", false},
+		{"rate limit exceeded", false},
+		{"some other error", false},
+	}
+	for _, tc := range tests {
+		if got := isTransientError(tc.msg); got != tc.want {
+			t.Errorf("isTransientError(%q) = %v, want %v", tc.msg, got, tc.want)
+		}
+	}
+}

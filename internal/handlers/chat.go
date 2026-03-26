@@ -32,6 +32,15 @@ var allowedMimeTypes = map[string]bool{
 
 const maxUploadSize = 10 << 20 // 10 MB
 
+// isTransientError reports whether the given error message is a known transient
+// Claude Code error that can be resolved by retrying with a fresh session.
+func isTransientError(msg string) bool {
+	if msg == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(msg), "error in input stream")
+}
+
 // ChatHandler handles chat message sending and streaming.
 type ChatHandler struct {
 	db         *gorm.DB
@@ -157,7 +166,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		prompt = "[PLAN MODE] You are in PLAN mode. Only analyze, read, search, and discuss. Do NOT edit, write, or create files. Do NOT run destructive commands. Plan your approach and explain what you would do.\n\n" + prompt
 	}
 
-	h.streamResponse(c, &thread, prompt, &msg.ID)
+	h.streamResponse(c, &thread, prompt, &msg.ID, 0)
 }
 
 // Regenerate deletes the last assistant message and re-streams a response.
@@ -203,7 +212,7 @@ func (h *ChatHandler) Regenerate(c *gin.Context) {
 		}
 	}
 
-	h.streamResponse(c, &thread, lastUserContent, parentID)
+	h.streamResponse(c, &thread, lastUserContent, parentID, 0)
 }
 
 // EditMessage creates a branch at an edited message and streams a new response.
@@ -260,7 +269,7 @@ func (h *ChatHandler) EditMessage(c *gin.Context) {
 		FirstOrCreate(&models.BranchSelection{})
 	h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("updated_at", time.Now())
 
-	h.streamResponse(c, &thread, strings.TrimSpace(req.Content), &newMsg.ID)
+	h.streamResponse(c, &thread, strings.TrimSpace(req.Content), &newMsg.ID, 0)
 }
 
 type branchRequest struct {
@@ -318,7 +327,7 @@ func (h *ChatHandler) Branch(c *gin.Context) {
 		FirstOrCreate(&models.BranchSelection{})
 	h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("updated_at", time.Now())
 
-	h.streamResponse(c, &thread, content, &msg.ID)
+	h.streamResponse(c, &thread, content, &msg.ID, 0)
 }
 
 type switchBranchRequest struct {
@@ -350,7 +359,7 @@ func (h *ChatHandler) SwitchBranch(c *gin.Context) {
 // streamResponse is the core function that sends a message to Claude and streams SSE events.
 // It uses persistent sessions via SessionManager: a single Claude Code process stays alive
 // across all messages in a thread using the --input-format stream-json protocol.
-func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, lastUserContent string, lastUserMsgID *int64) {
+func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, lastUserContent string, lastUserMsgID *int64, retryCount int) {
 	threadID := thread.ID
 
 	// Determine working directory from project
@@ -445,7 +454,11 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 		defer streamCancel()
 		claude.Registry.Register(threadID, thread.Title, streamCancel)
 		stream := claude.Run(streamCtx, cfg, lastUserContent)
-		h.streamEventsToClient(c, thread, stream, lastUserContent, lastUserMsgID, cfg, true)
+		if shouldRetry, retryErrMsg := h.streamEventsToClient(c, thread, stream, lastUserContent, lastUserMsgID, cfg, true); shouldRetry && retryCount < 1 {
+			log.Printf("[chat] thread %d: transient error %q, retrying with fresh session", threadID, retryErrMsg)
+			claude.Registry.Unregister(threadID)
+			h.streamResponse(c, thread, lastUserContent, lastUserMsgID, retryCount+1)
+		}
 		return
 	}
 
@@ -457,14 +470,19 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 	// Start a stream buffer so late-joining clients can reconnect.
 	claude.Streams.Start(threadID)
 
-	h.streamEventsToClient(c, thread, stream, lastUserContent, lastUserMsgID, cfg, false)
+	if shouldRetry, retryErrMsg := h.streamEventsToClient(c, thread, stream, lastUserContent, lastUserMsgID, cfg, false); shouldRetry && retryCount < 1 {
+		log.Printf("[chat] thread %d: transient error %q, retrying with fresh session", threadID, retryErrMsg)
+		claude.Sessions.Evict(threadID)
+		h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("claude_session_id", nil)
+		h.streamResponse(c, thread, lastUserContent, lastUserMsgID, retryCount+1)
+	}
 }
 
 // streamEventsToClient reads events from a stream channel and sends them to the
 // HTTP client as SSE. It also saves the response to the database and handles
 // stale session cleanup. If isFallback is true, the registry entry is cleaned up
 // on completion (one-shot Run mode); otherwise the persistent session stays registered.
-func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread, stream <-chan claude.StreamEvent, lastUserContent string, lastUserMsgID *int64, cfg claude.RunConfig, isFallback bool) {
+func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread, stream <-chan claude.StreamEvent, lastUserContent string, lastUserMsgID *int64, cfg claude.RunConfig, isFallback bool) (shouldRetry bool, retryErrMsg string) {
 	threadID := thread.ID
 
 	// Start a stream buffer so late-joining clients can reconnect.
@@ -485,6 +503,7 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 	clientDisconnected := false
 
 	var fullResponse strings.Builder
+	var hasContent bool
 	var errored bool
 	var lastErrorMsg string
 	var lastCostUSD float64
@@ -504,6 +523,7 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 
 		switch event.Kind {
 		case claude.KindContentDelta:
+			hasContent = true
 			fullResponse.WriteString(event.Text)
 			chunk, _ := json.Marshal(map[string]string{"content": event.Text})
 			sseData := fmt.Sprintf("data: %s\n\n", chunk)
@@ -514,6 +534,7 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 			}
 
 		case claude.KindThinkingDelta:
+			hasContent = true
 			chunk, _ := json.Marshal(map[string]string{"content": event.Thinking})
 			sseData := fmt.Sprintf("event: thinking\ndata: %s\n\n", chunk)
 			claude.Streams.Publish(threadID, sseData)
@@ -523,6 +544,7 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 			}
 
 		case claude.KindToolUse:
+			hasContent = true
 			toolJSON, _ := json.Marshal(map[string]interface{}{
 				"id":    event.ToolID,
 				"name":  event.ToolName,
@@ -536,6 +558,7 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 			}
 
 		case claude.KindToolResult:
+			hasContent = true
 			resultJSON, _ := json.Marshal(map[string]interface{}{
 				"tool_use_id": event.ToolUseID,
 				"content":     event.ToolContent,
@@ -550,20 +573,25 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 
 		case claude.KindResult:
 			if event.IsError {
-				log.Printf("[chat] thread %d result error: %s", threadID, event.ErrorMsg)
-				errPayload := map[string]interface{}{"error": event.ErrorMsg}
-				if len(event.Raw) > 0 {
-					errPayload["raw"] = string(event.Raw)
+				if !hasContent && isTransientError(event.ErrorMsg) {
+					shouldRetry = true
+					retryErrMsg = event.ErrorMsg
+				} else {
+					log.Printf("[chat] thread %d result error: %s", threadID, event.ErrorMsg)
+					errPayload := map[string]interface{}{"error": event.ErrorMsg}
+					if len(event.Raw) > 0 {
+						errPayload["raw"] = string(event.Raw)
+					}
+					errJSON, _ := json.Marshal(errPayload)
+					sseData := fmt.Sprintf("event: error\ndata: %s\n\n", errJSON)
+					claude.Streams.Publish(threadID, sseData)
+					if !clientDisconnected {
+						fmt.Fprint(c.Writer, sseData)
+						flusher.Flush()
+					}
+					errored = true
+					lastErrorMsg = event.ErrorMsg
 				}
-				errJSON, _ := json.Marshal(errPayload)
-				sseData := fmt.Sprintf("event: error\ndata: %s\n\n", errJSON)
-				claude.Streams.Publish(threadID, sseData)
-				if !clientDisconnected {
-					fmt.Fprint(c.Writer, sseData)
-					flusher.Flush()
-				}
-				errored = true
-				lastErrorMsg = event.ErrorMsg
 			} else {
 				if fullResponse.Len() == 0 && event.ResultText != "" {
 					fullResponse.WriteString(event.ResultText)
@@ -587,17 +615,28 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 			}
 
 		case claude.KindError:
-			log.Printf("[chat] thread %d process error: %s", threadID, event.ErrorMsg)
-			errJSON, _ := json.Marshal(map[string]string{"error": event.ErrorMsg})
-			sseData := fmt.Sprintf("event: error\ndata: %s\n\n", errJSON)
-			claude.Streams.Publish(threadID, sseData)
-			if !clientDisconnected {
-				fmt.Fprint(c.Writer, sseData)
-				flusher.Flush()
+			if !hasContent && isTransientError(event.ErrorMsg) {
+				shouldRetry = true
+				retryErrMsg = event.ErrorMsg
+			} else {
+				log.Printf("[chat] thread %d process error: %s", threadID, event.ErrorMsg)
+				errJSON, _ := json.Marshal(map[string]string{"error": event.ErrorMsg})
+				sseData := fmt.Sprintf("event: error\ndata: %s\n\n", errJSON)
+				claude.Streams.Publish(threadID, sseData)
+				if !clientDisconnected {
+					fmt.Fprint(c.Writer, sseData)
+					flusher.Flush()
+				}
+				errored = true
+				lastErrorMsg = event.ErrorMsg
 			}
-			errored = true
-			lastErrorMsg = event.ErrorMsg
 		}
+	}
+
+	// If a transient error was detected before any content was streamed,
+	// signal the caller to retry with a fresh session.
+	if shouldRetry {
+		return shouldRetry, retryErrMsg
 	}
 
 	// Always save the response to the database, even if client disconnected
@@ -658,6 +697,8 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 	if isFallback && errored {
 		claude.Registry.Unregister(threadID)
 	}
+
+	return false, ""
 }
 
 // ClearSession clears the Claude Code session ID for a thread.
