@@ -31,12 +31,12 @@ export function useInputHistory() {
       // Starting navigation — save draft
       draftRef.current = currentValue;
       indexRef.current = history.length - 1;
-      return history[indexRef.current];
+      return history[indexRef.current] ?? null;
     }
 
     if (indexRef.current > 0) {
       indexRef.current--;
-      return history[indexRef.current];
+      return history[indexRef.current] ?? null;
     }
 
     // Already at oldest — do nothing
@@ -50,7 +50,7 @@ export function useInputHistory() {
 
     if (indexRef.current < history.length - 1) {
       indexRef.current++;
-      return history[indexRef.current];
+      return history[indexRef.current] ?? null;
     }
 
     // Past the end — restore draft

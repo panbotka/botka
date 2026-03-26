@@ -3,13 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Search, ListTodo, FolderGit2, MessageSquare, FileText, Loader2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { globalSearch } from '../api/client'
-import type {
-  GlobalSearchResults,
-  GlobalSearchTaskResult,
-  GlobalSearchProjectResult,
-  GlobalSearchThreadResult,
-  GlobalSearchMessageResult,
-} from '../types'
+import type { GlobalSearchResults } from '../types'
 
 interface Props {
   open: boolean
@@ -95,7 +89,7 @@ export default function SearchOverlay({ open, onClose }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   // Focus input on open
   useEffect(() => {

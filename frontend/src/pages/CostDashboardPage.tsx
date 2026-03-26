@@ -37,8 +37,10 @@ const MODEL_COLORS: Record<string, { bg: string; bar: string; text: string }> = 
   },
 }
 
+const DEFAULT_MODEL_COLOR = MODEL_COLORS['unknown']!
+
 function getModelColor(model: string) {
-  return MODEL_COLORS[model] || MODEL_COLORS.unknown
+  return MODEL_COLORS[model] ?? DEFAULT_MODEL_COLOR
 }
 
 function formatTokens(n: number): string {

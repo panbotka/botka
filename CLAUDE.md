@@ -72,6 +72,8 @@ make prod-build     # Build frontend + Go binary to bin/botka
 make clean          # Remove build artifacts
 ```
 
+**Before every commit, `make prod-build` must pass.** This builds both frontend (TypeScript + Vite) and Go binary. Do not commit code that fails this build.
+
 ## Testing
 
 **~312 tests** across 29 test files covering all packages. Tests use stdlib `testing` only (no external test frameworks).
