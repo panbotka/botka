@@ -680,13 +680,26 @@ func (h *TaskHandler) Stats(c *gin.Context) {
 		Scan(&avgDuration)
 	stats.AvgDurationMs = avgDuration.Avg
 
-	// Total cost
-	var totalCost struct{ Sum *float64 }
+	// Total cost: task executions + chat messages (must match analytics endpoint)
+	var execCost struct{ Sum *float64 }
 	h.db.Model(&models.TaskExecution{}).
 		Select("SUM(cost_usd) as sum").
 		Where("cost_usd IS NOT NULL").
-		Scan(&totalCost)
-	stats.TotalCostUSD = totalCost.Sum
+		Scan(&execCost)
+
+	var msgCost struct{ Sum *float64 }
+	h.db.Raw(`SELECT SUM(cost_usd) as sum FROM messages WHERE cost_usd IS NOT NULL`).Scan(&msgCost)
+
+	totalCost := 0.0
+	if execCost.Sum != nil {
+		totalCost += *execCost.Sum
+	}
+	if msgCost.Sum != nil {
+		totalCost += *msgCost.Sum
+	}
+	if totalCost > 0 {
+		stats.TotalCostUSD = &totalCost
+	}
 
 	// Most active project (by non-deleted task count)
 	var topProj struct {
