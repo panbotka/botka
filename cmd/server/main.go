@@ -185,6 +185,9 @@ func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gi
 	threadHandler := handlers.NewThreadHandler(db, cfg.AIModel, cfg.AvailableModels)
 	handlers.RegisterThreadRoutes(v1, threadHandler)
 
+	threadSourceHandler := handlers.NewThreadSourceHandler(db)
+	handlers.RegisterThreadSourceRoutes(v1, threadSourceHandler)
+
 	claudeCfg := claude.RunConfig{ClaudePath: cfg.ClaudePath}
 	contextCfg := claude.ContextConfig{
 		OpenClawWorkspace: cfg.OpenClawWorkspace,

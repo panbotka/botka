@@ -435,8 +435,16 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 			return strings.Join(parts, "\n\n"), nil
 		}
 
+		// Load thread sources
+		var dbSources []models.ThreadSource
+		h.db.Where("thread_id = ?", threadID).Order("position ASC").Find(&dbSources)
+		var sourceInputs []claude.SourceInput
+		for _, s := range dbSources {
+			sourceInputs = append(sourceInputs, claude.SourceInput{URL: s.URL, Label: s.Label})
+		}
+
 		var err error
-		contextFile, err = claude.AssembleContext(c.Request.Context(), h.contextCfg, threadID, getMemories, thread.SystemPrompt, projectClaudeMD, projectName, projectPath, existingMessages)
+		contextFile, err = claude.AssembleContext(c.Request.Context(), h.contextCfg, threadID, getMemories, thread.SystemPrompt, projectClaudeMD, projectName, projectPath, sourceInputs, existingMessages)
 		if err != nil {
 			log.Printf("failed to assemble context: %v", err)
 		}

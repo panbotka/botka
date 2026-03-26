@@ -151,6 +151,16 @@ export interface Thread {
   last_message_at?: string
 }
 
+export interface ThreadSource {
+  id: number
+  thread_id: number
+  url: string
+  label: string
+  position: number
+  created_at: string
+  updated_at: string
+}
+
 export interface PersistedToolCall {
   name: string
   input: Record<string, unknown>

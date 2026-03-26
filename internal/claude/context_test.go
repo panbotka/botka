@@ -2,6 +2,9 @@ package claude
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,7 +54,7 @@ func TestAssembleContext_AllLayers(t *testing.T) {
 		ContextDir:        contextDir,
 	}
 
-	path, err := AssembleContext(context.Background(), cfg, 42, memFn, systemPrompt, folderMD, "myproject", "/home/pi/projects/myproject", messages)
+	path, err := AssembleContext(context.Background(), cfg, 42, memFn, systemPrompt, folderMD, "myproject", "/home/pi/projects/myproject", nil, messages)
 	if err != nil {
 		t.Fatalf("AssembleContext error: %v", err)
 	}
@@ -105,7 +108,7 @@ func TestAssembleContext_EmptyWorkspace(t *testing.T) {
 		ContextDir:        contextDir,
 	}
 
-	path, err := AssembleContext(context.Background(), cfg, 1, nil, "", "", "", "", nil)
+	path, err := AssembleContext(context.Background(), cfg, 1, nil, "", "", "", "", nil, nil)
 	if err != nil {
 		t.Fatalf("AssembleContext error: %v", err)
 	}
@@ -135,7 +138,7 @@ func TestAssembleContext_MessageTruncation(t *testing.T) {
 		ContextDir:        contextDir,
 	}
 
-	path, err := AssembleContext(context.Background(), cfg, 1, nil, "", "", "", "", messages)
+	path, err := AssembleContext(context.Background(), cfg, 1, nil, "", "", "", "", nil, messages)
 	if err != nil {
 		t.Fatalf("AssembleContext error: %v", err)
 	}
@@ -172,7 +175,7 @@ func TestAssembleContext_MessageLimit(t *testing.T) {
 		ContextDir:        contextDir,
 	}
 
-	path, err := AssembleContext(context.Background(), cfg, 1, nil, "", "", "", "", messages)
+	path, err := AssembleContext(context.Background(), cfg, 1, nil, "", "", "", "", nil, messages)
 	if err != nil {
 		t.Fatalf("AssembleContext error: %v", err)
 	}
@@ -202,9 +205,49 @@ func TestAssembleContext_MemoryFuncError(t *testing.T) {
 		ContextDir:        contextDir,
 	}
 
-	_, err := AssembleContext(context.Background(), cfg, 1, memFn, "", "", "", "", nil)
+	_, err := AssembleContext(context.Background(), cfg, 1, memFn, "", "", "", "", nil, nil)
 	if err != nil {
 		t.Fatalf("AssembleContext should not fail on memory error: %v", err)
+	}
+}
+
+func TestAssembleContext_WithSources(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprint(w, "Reference documentation content")
+	}))
+	defer srv.Close()
+
+	// Clear cache
+	fetchCacheMu.Lock()
+	delete(fetchCache, srv.URL)
+	fetchCacheMu.Unlock()
+
+	workspace := t.TempDir()
+	contextDir := t.TempDir()
+	cfg := ContextConfig{OpenClawWorkspace: workspace, ContextDir: contextDir}
+
+	sources := []SourceInput{{URL: srv.URL, Label: "Test Docs"}}
+
+	path, err := AssembleContext(context.Background(), cfg, 99, nil, "Be helpful", "", "", "", sources, nil)
+	if err != nil {
+		t.Fatalf("AssembleContext error: %v", err)
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+
+	assembled := string(content)
+	if !strings.Contains(assembled, "# Reference Sources") {
+		t.Error("expected Reference Sources section")
+	}
+	if !strings.Contains(assembled, "Reference documentation content") {
+		t.Error("expected fetched source content")
+	}
+	if !strings.Contains(assembled, "Test Docs") {
+		t.Error("expected source label")
 	}
 }
 

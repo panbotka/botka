@@ -3,10 +3,11 @@ import type { Persona, Tag, Thread, Project, SearchResult } from '../types'
 import { api, searchMessages } from '../api/client'
 import { downloadExport } from '../utils/exportThread'
 import ModelPicker from './ModelPicker'
+import ThreadSourcesEditor from './ThreadSourcesEditor'
 import {
   Plus, Search, Pin, Archive, MoreVertical, Pencil,
   Trash2, Download, Cpu, Tag as TagIcon, ChevronRight,
-  X, ChevronDown, FolderGit2,
+  X, ChevronDown, FolderGit2, Globe,
 } from 'lucide-react'
 
 interface Props {
@@ -55,6 +56,7 @@ export default function ThreadSidebar({
   const [menuOpenId, setMenuOpenId] = useState<number | null>(null)
   const [modelPickerThread, setModelPickerThread] = useState<Thread | null>(null)
   const [tagMenuThreadId, setTagMenuThreadId] = useState<number | null>(null)
+  const [sourcesThreadId, setSourcesThreadId] = useState<number | null>(null)
   const [personaDropdownOpen, setPersonaDropdownOpen] = useState(false)
   const personaDropdownRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -387,6 +389,14 @@ export default function ThreadSidebar({
                       <div>Change model</div>
                       <div className="text-[11px] text-zinc-400 truncate">{thread.model || 'Default'}</div>
                     </div>
+                  </button>
+                  <button
+                    onClick={() => { setSourcesThreadId(thread.id); setMenuOpenId(null) }}
+                    className="w-full flex items-center gap-3 px-3 py-2
+                               text-sm text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                  >
+                    <Globe className="w-4 h-4 flex-shrink-0 text-zinc-400" />
+                    Sources
                   </button>
                   {tags.length > 0 && (
                     <div>
@@ -728,6 +738,12 @@ export default function ThreadSidebar({
         </div>
       </aside>
       {modelPickerModal}
+      {sourcesThreadId && (
+        <ThreadSourcesEditor
+          threadId={sourcesThreadId}
+          onClose={() => setSourcesThreadId(null)}
+        />
+      )}
     </>
   )
 }

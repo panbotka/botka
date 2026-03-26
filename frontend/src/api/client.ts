@@ -1,4 +1,4 @@
-import type { Project, Task, Thread, ThreadDetail, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings } from '../types'
+import type { Project, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -287,6 +287,37 @@ export function updateThreadProject(id: number, projectId: string | null): Promi
   return requestData<void>(`/threads/${id}/project`, {
     method: 'PUT',
     body: JSON.stringify({ project_id: projectId }),
+  })
+}
+
+// Thread Sources
+
+export function fetchThreadSources(threadId: number): Promise<ThreadSource[]> {
+  return requestData<ThreadSource[]>(`/threads/${threadId}/sources`)
+}
+
+export function createThreadSource(threadId: number, data: { url: string; label?: string }): Promise<ThreadSource> {
+  return requestData<ThreadSource>(`/threads/${threadId}/sources`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export function updateThreadSource(threadId: number, sourceId: number, data: { url: string; label?: string }): Promise<ThreadSource> {
+  return requestData<ThreadSource>(`/threads/${threadId}/sources/${sourceId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export function deleteThreadSource(threadId: number, sourceId: number): Promise<void> {
+  return request<void>(`/threads/${threadId}/sources/${sourceId}`, { method: 'DELETE' })
+}
+
+export function reorderThreadSources(threadId: number, ids: number[]): Promise<void> {
+  return requestData<void>(`/threads/${threadId}/sources/reorder`, {
+    method: 'PUT',
+    body: JSON.stringify({ ids }),
   })
 }
 
@@ -765,6 +796,12 @@ export const api = {
   switchBranch,
   updateThreadTags,
   updateThreadProject,
+  // Thread Sources
+  fetchThreadSources,
+  createThreadSource,
+  updateThreadSource,
+  deleteThreadSource,
+  reorderThreadSources,
   // Search
   searchMessages,
   globalSearch,

@@ -43,7 +43,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		})
 		if dbErr == nil {
 			// Drop all tables and recreate to avoid migration conflicts
-			sharedDB.Exec("DROP TABLE IF EXISTS webauthn_credentials, sessions, users, thread_tags, branch_selections, attachments, messages, task_executions, tasks, threads, projects, personas, tags, memories, runner_state, fork_points CASCADE")
+			sharedDB.Exec("DROP TABLE IF EXISTS webauthn_credentials, sessions, users, thread_sources, thread_tags, branch_selections, attachments, messages, task_executions, tasks, threads, projects, personas, tags, memories, runner_state, fork_points CASCADE")
 			dbErr = sharedDB.AutoMigrate(
 				&models.Project{},
 				&models.Task{},
@@ -58,6 +58,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 				&models.User{},
 				&models.Session{},
 				&models.WebAuthnCredential{},
+				&models.ThreadSource{},
 			)
 			if dbErr == nil {
 				// Create thread_tags join table
@@ -92,7 +93,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 // cleanTables truncates all tables in FK-safe order.
 func cleanTables(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	db.Exec("TRUNCATE TABLE webauthn_credentials, sessions, users, thread_tags, branch_selections, attachments, messages, task_executions, tasks, threads, projects, personas, tags, memories, runner_state, app_settings CASCADE")
+	db.Exec("TRUNCATE TABLE webauthn_credentials, sessions, users, thread_sources, thread_tags, branch_selections, attachments, messages, task_executions, tasks, threads, projects, personas, tags, memories, runner_state, app_settings CASCADE")
 }
 
 // createTestProject creates and returns a test project.
