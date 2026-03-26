@@ -131,15 +131,25 @@ function AttachmentPreviews({ imageAttachments, pdfAttachments, textAttachments,
           variant={variant}
           icon={<PdfIcon className="w-5 h-5" />}
           action={
-            <a
-              href={att.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`text-xs font-medium transition-colors flex-shrink-0 ${linkClass}`}
-              onClick={(e) => e.stopPropagation()}
-            >
-              Open
-            </a>
+            <div className="flex gap-2 flex-shrink-0">
+              <a
+                href={att.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`text-xs font-medium transition-colors ${linkClass}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                Open
+              </a>
+              <a
+                href={att.url}
+                download={att.original_name}
+                className={`text-xs font-medium transition-colors ${linkClass}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                Download
+              </a>
+            </div>
           }
         />
       ))}
@@ -149,6 +159,27 @@ function AttachmentPreviews({ imageAttachments, pdfAttachments, textAttachments,
           attachment={att}
           variant={variant}
           icon={<TextIcon className="w-5 h-5" />}
+          action={
+            <div className="flex gap-2 flex-shrink-0">
+              <a
+                href={att.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`text-xs font-medium transition-colors ${linkClass}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                Open
+              </a>
+              <a
+                href={att.url}
+                download={att.original_name}
+                className={`text-xs font-medium transition-colors ${linkClass}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                Download
+              </a>
+            </div>
+          }
         />
       ))}
       {otherAttachments.map((att) => (
@@ -157,6 +188,16 @@ function AttachmentPreviews({ imageAttachments, pdfAttachments, textAttachments,
           attachment={att}
           variant={variant}
           icon={<PdfIcon className="w-5 h-5" />}
+          action={
+            <a
+              href={att.url}
+              download={att.original_name}
+              className={`text-xs font-medium transition-colors flex-shrink-0 ${linkClass}`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              Download
+            </a>
+          }
         />
       ))}
     </div>
