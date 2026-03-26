@@ -24,7 +24,7 @@ internal/
   runner/            Task scheduler loop + batch executor
   projects/          Git repo discovery and DB sync
   mcp/               MCP server (stdio + SSE transport)
-  middleware/        HTTP middleware (CORS)
+  middleware/        HTTP middleware (auth, CORS, role-based access)
   static/            Frontend static file serving (go:embed)
 frontend/src/
   api/               API client methods
@@ -155,7 +155,7 @@ SSE streaming for chat messages and live task output.
 
 Two transports:
 - **Stdio:** `botka mcp` — JSON-RPC 2.0 on stdin/stdout, for use as Claude Code MCP server
-- **SSE:** `/mcp/sse` — HTTP SSE transport for browser/remote clients
+- **SSE:** `/mcp/sse` — HTTP SSE transport, requires `Authorization: Bearer <MCP_TOKEN>` header
 
 Exposes task management tools: create_task, list_tasks, get_task, update_task, list_projects.
 
@@ -171,7 +171,7 @@ Exposes task management tools: create_task, list_tasks, get_task, update_task, l
 | `internal/runner` | Task scheduler loop + batch executor + usage monitor |
 | `internal/projects` | Git repo filesystem discovery and DB sync |
 | `internal/mcp` | MCP server (stdio + SSE transport) |
-| `internal/middleware` | CORS middleware |
+| `internal/middleware` | Auth, CORS, and role-based access middleware |
 | `internal/static` | Embedded frontend file serving |
 
 ## Environment Variables
@@ -196,6 +196,7 @@ Exposes task management tools: create_task, list_tasks, get_task, update_task, l
 | `UPLOAD_DIR` | `./data/uploads` | Directory for uploaded files |
 | `AI_MODEL` | `sonnet` | Default Claude model for new chats |
 | `AVAILABLE_MODELS` | `sonnet,opus,haiku` | CSV list of available models |
+| `MCP_TOKEN` | *(empty)* | Bearer token for MCP SSE transport (empty = SSE disabled) |
 
 ## Task Agent Safety
 

@@ -18,7 +18,7 @@ func TestHandleMessage_sessionNotFound(t *testing.T) {
 	t.Parallel()
 
 	srv := NewServer(nil, nil)
-	handler := NewSSEHandler(srv)
+	handler := NewSSEHandler(srv, "test-token")
 
 	router := gin.New()
 	group := router.Group("/mcp")
@@ -27,6 +27,7 @@ func TestHandleMessage_sessionNotFound(t *testing.T) {
 	body := `{"jsonrpc":"2.0","id":1,"method":"initialize"}`
 	req := httptest.NewRequest(http.MethodPost, "/mcp/message?sessionId=invalid", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-token")
 
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -41,7 +42,7 @@ func TestNewSSEHandler_notNil(t *testing.T) {
 	t.Parallel()
 
 	srv := NewServer(nil, nil)
-	handler := NewSSEHandler(srv)
+	handler := NewSSEHandler(srv, "test-token")
 	if handler == nil {
 		t.Fatal("expected non-nil SSEHandler")
 	}
@@ -52,7 +53,7 @@ func TestRegisterRoutes_endpoints(t *testing.T) {
 	t.Parallel()
 
 	srv := NewServer(nil, nil)
-	handler := NewSSEHandler(srv)
+	handler := NewSSEHandler(srv, "test-token")
 
 	router := gin.New()
 	group := router.Group("/mcp")

@@ -63,7 +63,7 @@ func isPublicPath(path string) bool {
 		return true
 	}
 
-	// MCP uses its own auth.
+	// MCP has its own token auth — skip session check.
 	if strings.HasPrefix(path, "/mcp/") || strings.HasPrefix(path, "/mcp") {
 		return true
 	}

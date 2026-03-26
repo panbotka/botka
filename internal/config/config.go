@@ -34,6 +34,7 @@ type Config struct {
 	WebAuthnOrigin       string
 	WebAuthnRPID         string
 	SessionMaxAge        time.Duration
+	MCPToken             string
 }
 
 // Load reads configuration from the .env file and environment variables.
@@ -107,6 +108,7 @@ func Load() (*Config, error) {
 		WebAuthnOrigin:       webAuthnOrigin,
 		WebAuthnRPID:         webAuthnRPID,
 		SessionMaxAge:        sessionMaxAge,
+		MCPToken:             getEnv("MCP_TOKEN", ""),
 	}, nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -14,6 +15,7 @@ import (
 // SSEHandler manages SSE-based MCP sessions over Gin.
 type SSEHandler struct {
 	server   *Server
+	token    string   // required bearer token; empty disables SSE
 	sessions sync.Map // sessionID (string) → *sseSession
 }
 
@@ -23,14 +25,36 @@ type sseSession struct {
 }
 
 // NewSSEHandler creates an SSE handler backed by the given MCP server.
-func NewSSEHandler(server *Server) *SSEHandler {
-	return &SSEHandler{server: server}
+// If token is non-empty, all SSE requests must include a matching
+// Authorization: Bearer <token> header.
+func NewSSEHandler(server *Server, token string) *SSEHandler {
+	return &SSEHandler{server: server, token: token}
 }
 
 // RegisterRoutes registers the SSE and message endpoints on a Gin router group.
 func RegisterRoutes(rg *gin.RouterGroup, handler *SSEHandler) {
+	rg.Use(handler.tokenAuth())
 	rg.GET("/sse", handler.HandleSSE)
 	rg.POST("/message", handler.HandleMessage)
+}
+
+// tokenAuth returns middleware that checks the bearer token when configured.
+// If no token is configured, all SSE requests are rejected.
+func (h *SSEHandler) tokenAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if h.token == "" {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "MCP SSE disabled (no MCP_TOKEN configured)"})
+			return
+		}
+
+		auth := c.GetHeader("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") || strings.TrimPrefix(auth, "Bearer ") != h.token {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or missing MCP token"})
+			return
+		}
+
+		c.Next()
+	}
 }
 
 // HandleSSE opens an SSE connection, sends an endpoint event with the

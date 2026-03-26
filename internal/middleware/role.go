@@ -28,6 +28,12 @@ func AdminOnly() gin.HandlerFunc {
 // only access thread endpoints for threads they have been granted access to.
 func ExternalAccess(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Skip paths that don't require authentication.
+		if isPublicPath(c.Request.URL.Path) {
+			c.Next()
+			return
+		}
+
 		user := GetUser(c)
 		if user == nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})

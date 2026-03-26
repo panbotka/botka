@@ -244,7 +244,7 @@ func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gi
 
 	// MCP SSE transport.
 	mcpServer := mcp.NewServer(db, taskRunner)
-	mcpSSE := mcp.NewSSEHandler(mcpServer)
+	mcpSSE := mcp.NewSSEHandler(mcpServer, cfg.MCPToken)
 	mcp.RegisterRoutes(router.Group("/mcp"), mcpSSE)
 
 	frontendFS := initFrontendFS()
