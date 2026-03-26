@@ -277,27 +277,48 @@ export interface GlobalSearchResults {
 
 // Cost analytics types
 
+export interface ModelTokens {
+  input: number
+  output: number
+}
+
 export interface CostByDate {
   date: string
   cost_usd: number
   input_tokens: number
   output_tokens: number
+  by_model: Record<string, ModelTokens>
+}
+
+export interface CostByModel {
+  model: string
+  input_tokens: number
+  output_tokens: number
+  cost_usd: number
+  message_count: number
 }
 
 export interface CostByThread {
   thread_id: number
   title: string
   cost_usd: number
+  input_tokens: number
+  output_tokens: number
 }
 
 export interface CostByProject {
   project_name: string
   cost_usd: number
+  input_tokens: number
+  output_tokens: number
 }
 
 export interface CostAnalytics {
   total_cost_usd: number
+  total_input_tokens: number
+  total_output_tokens: number
   by_date: CostByDate[]
+  by_model: CostByModel[]
   by_thread: CostByThread[]
   by_project: CostByProject[]
 }
