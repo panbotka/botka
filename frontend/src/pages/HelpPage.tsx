@@ -5,6 +5,14 @@ import {
   Keyboard,
   Zap,
   ListTodo,
+  Mic,
+  Paperclip,
+  Search,
+  Palette,
+  Terminal,
+  BarChart3,
+  Settings,
+  Globe,
 } from 'lucide-react'
 
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
@@ -83,9 +91,21 @@ const shortcuts = [
   { keys: 'Ctrl+K', description: 'Command palette' },
   { keys: '/', description: 'Focus chat input' },
   { keys: 'Ctrl+L', description: 'Focus chat input' },
-  { keys: 'Shift+Tab', description: 'Toggle plan mode (when textarea focused)' },
+  { keys: 'Shift+Tab', description: 'Toggle plan/act mode (when textarea focused)' },
   { keys: '?', description: 'Show shortcuts modal' },
   { keys: 'Escape', description: 'Close modals / blur input' },
+  { keys: 'Arrow Up/Down', description: 'Browse input history (in empty textarea)' },
+]
+
+const slashCommands = [
+  { name: '/new', description: 'Start a new thread' },
+  { name: '/status', description: 'Show current model info' },
+  { name: '/model', description: 'Switch the active model' },
+  { name: '/export', description: 'Export thread (md or json)' },
+  { name: '/search', description: 'Open the search panel' },
+  { name: '/clear', description: "Clear this thread's messages" },
+  { name: '/compact', description: 'Compact Claude context' },
+  { name: '/reset', description: 'Reset Claude session (fresh start)' },
 ]
 
 function Section({
@@ -114,30 +134,132 @@ export default function HelpPage() {
     <div className="mx-auto max-w-3xl">
       <h1 className="text-2xl font-bold text-zinc-900 mb-6">Help</h1>
 
-      <Section icon={MessageSquare} title="Chat & Projects">
+      <Section icon={MessageSquare} title="Chat">
         <ul className="space-y-2 list-disc pl-5">
           <li>
-            Threads (chats) can optionally be assigned to a <strong>project</strong>.
+            Each conversation lives in a <strong>thread</strong>. Threads can be pinned, archived,
+            tagged, and assigned to projects.
           </li>
           <li>
-            When a project is assigned, Claude runs in that project's directory as its working
-            directory.
+            When a project is assigned, Claude runs in that project's directory and gets its{' '}
+            <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">CLAUDE.md</code> as context.
           </li>
           <li>
-            When no project is assigned, Claude runs in the default directory (
-            <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">CLAUDE_DEFAULT_WORK_DIR</code>
-            ).
+            Switch AI models per-thread via the header dropdown or the{' '}
+            <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">/model</code> command.
           </li>
           <li>
-            The project's <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">CLAUDE.md</code>{' '}
-            content is injected into the context (layer 7).
+            <strong>Plan / Act mode</strong> — toggle with{' '}
+            <kbd className="rounded border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-xs font-mono">
+              Shift+Tab
+            </kbd>{' '}
+            in the textarea. Plan mode asks Claude to think before acting.
           </li>
           <li>
-            Projects are git repositories auto-discovered from the{' '}
-            <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">PROJECTS_DIR</code>{' '}
-            directory.
+            <strong>Export</strong> threads as Markdown or JSON via the thread menu or{' '}
+            <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">/export</code>.
           </li>
-          <li>The sidebar shows a project badge on threads that have a project assigned.</li>
+        </ul>
+      </Section>
+
+      <Section icon={Mic} title="Voice Input">
+        <ul className="space-y-2 list-disc pl-5">
+          <li>
+            Click the microphone icon in the chat input to dictate a message.
+          </li>
+          <li>
+            Uses the browser's Web Speech API when available, with Whisper API as a fallback.
+          </li>
+          <li>Recording times out after 2 minutes.</li>
+        </ul>
+      </Section>
+
+      <Section icon={Paperclip} title="File Uploads">
+        <ul className="space-y-2 list-disc pl-5">
+          <li>
+            Attach files by clicking the paperclip icon or pasting from clipboard.
+          </li>
+          <li>
+            Supported types: images, PDFs, text, Markdown, calendar files, and ZIPs.
+          </li>
+          <li>Maximum file size: 10 MB per file.</li>
+        </ul>
+      </Section>
+
+      <Section icon={Globe} title="URL Sources">
+        <ul className="space-y-2 list-disc pl-5">
+          <li>
+            Add URLs to a thread to include fetched web content as context.
+          </li>
+          <li>
+            Manage URL sources from the thread menu. Sources are fetched into context when a session starts.
+          </li>
+        </ul>
+      </Section>
+
+      <Section icon={Terminal} title="Slash Commands">
+        <p className="mb-3">
+          Type{' '}
+          <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">/</code> in the chat input
+          to see available commands:
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr>
+                <th className="text-left font-medium border-b border-zinc-200 px-3 py-2 bg-zinc-100">
+                  Command
+                </th>
+                <th className="text-left font-medium border-b border-zinc-200 px-3 py-2 bg-zinc-100">
+                  Action
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {slashCommands.map((c) => (
+                <tr key={c.name}>
+                  <td className="border-b border-zinc-200/50 px-3 py-2">
+                    <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-mono text-emerald-600">
+                      {c.name}
+                    </code>
+                  </td>
+                  <td className="border-b border-zinc-200/50 px-3 py-2">{c.description}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Section>
+
+      <Section icon={Search} title="Search & Command Palette">
+        <ul className="space-y-2 list-disc pl-5">
+          <li>
+            <kbd className="rounded border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-xs font-mono">
+              Ctrl+K
+            </kbd>{' '}
+            opens the command palette — search threads, tasks, projects, messages, and slash commands.
+          </li>
+          <li>
+            The sidebar search box filters threads by title and searches message content.
+          </li>
+        </ul>
+      </Section>
+
+      <Section icon={Palette} title="Personas & Tags">
+        <ul className="space-y-2 list-disc pl-5">
+          <li>
+            <strong>Personas</strong> — custom AI personalities with a system prompt, default model,
+            icon, and optional starter message. Create them in Settings &gt; Personas.
+          </li>
+          <li>
+            Selecting a persona when starting a new thread sets the system prompt and model. The
+            starter message is sent automatically.
+          </li>
+          <li>
+            <strong>Tags</strong> — colorable labels for organizing threads. Create them in Settings
+            &gt; Tags, then apply via the thread menu.
+          </li>
+          <li>Filter the thread list by tag or project using the sidebar filters.</li>
         </ul>
       </Section>
 
@@ -201,8 +323,8 @@ export default function HelpPage() {
             context.
           </p>
           <p>
-            The <strong className="text-zinc-700">session pool</strong> pre-warms Claude processes
-            between messages — the next message reuses a warm process, skipping startup time.
+            <strong className="text-zinc-700">App memories</strong> (layer 5) are managed in
+            Settings &gt; Memories and persist across all threads.
           </p>
         </div>
       </Section>
@@ -218,28 +340,107 @@ export default function HelpPage() {
             existing session ID. No context reassembly.
           </li>
           <li>
-            <strong>Session clear</strong> (from UI) — resets the session ID. The next message
-            creates a new session with full context.
+            <strong>Session clear</strong> (via{' '}
+            <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">/reset</code> or thread
+            menu) — resets the session ID. The next message creates a new session with full context.
           </li>
           <li>
-            <strong>Session pool</strong> — keeps a warm process ready for 5 minutes after each
-            message for fast response times.
+            <strong>Session pool</strong> — a warm Claude process is kept ready between messages for
+            fast response times. Evicted on model or project changes.
           </li>
         </ol>
       </Section>
 
-      <Section icon={ListTodo} title="Task Execution">
-        <p className="mb-2">Tasks differ from chat in several ways:</p>
+      <Section icon={ListTodo} title="Tasks">
         <ul className="space-y-2 list-disc pl-5">
           <li>
-            Tasks run <strong>standalone</strong> Claude sessions — no{' '}
-            <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">--resume</code>.
+            Tasks are autonomous Claude Code sessions that run in the background without
+            interaction.
           </li>
           <li>
-            Tasks run in the project's directory using the project's branch strategy.
+            Create tasks from the Tasks page or via the MCP tools (
+            <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">create_task</code>).
           </li>
+          <li>
+            Each task is assigned to a project and runs in that project's directory with its branch
+            strategy.
+          </li>
+          <li>
+            Statuses: Pending, Queued, Running, Done, Failed, Needs Review, Cancelled.
+          </li>
+          <li>Task output streams live via SSE — click a running task to watch.</li>
           <li>Tasks have retry logic with backoff and optional verification commands.</li>
-          <li>Task output is streamed live via SSE.</li>
+          <li>
+            The <strong>task runner</strong> is controlled from Settings &gt; Task Runner (start,
+            pause, stop, set worker count).
+          </li>
+        </ul>
+      </Section>
+
+      <Section icon={BarChart3} title="Cost & Usage">
+        <ul className="space-y-2 list-disc pl-5">
+          <li>
+            The <strong>Cost</strong> page shows token usage over time, broken down by model.
+          </li>
+          <li>See top threads and projects by cost for a selected period (7d, 30d, 90d).</li>
+          <li>
+            The <strong>Dashboard</strong> shows task stats (success rate, average duration, total
+            cost) and API rate limit usage for the 5-hour and 7-day windows.
+          </li>
+        </ul>
+      </Section>
+
+      <Section icon={FolderGit2} title="Projects">
+        <ul className="space-y-2 list-disc pl-5">
+          <li>
+            Projects are git repositories auto-discovered from the{' '}
+            <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">PROJECTS_DIR</code>{' '}
+            directory.
+          </li>
+          <li>
+            Each project can have a <strong>branch strategy</strong> (for tasks) and a{' '}
+            <strong>verification command</strong>.
+          </li>
+          <li>
+            Project detail pages show task stats, git status, commit history, and related tasks.
+          </li>
+          <li>
+            Assigning a project to a thread sets the working directory and injects the project's
+            CLAUDE.md into context.
+          </li>
+        </ul>
+      </Section>
+
+      <Section icon={Settings} title="Settings">
+        <ul className="space-y-2 list-disc pl-5">
+          <li>
+            <strong>General</strong> — theme (light, dark, dark green, dark blue), font size,
+            default model, notification sound, send-on-enter toggle.
+          </li>
+          <li>
+            <strong>Security</strong> — change password, manage passkeys (WebAuthn).
+          </li>
+          <li>
+            <strong>Users</strong> — create users, assign roles (Admin or External). External users
+            have read-only chat access.
+          </li>
+          <li>
+            <strong>Task Runner</strong> — start/pause/stop the runner, set max concurrent workers.
+          </li>
+          <li>
+            <strong>Personas</strong> — create AI personalities with custom prompts, models, icons,
+            and starter messages.
+          </li>
+          <li>
+            <strong>Tags</strong> — create colorable labels for organizing threads.
+          </li>
+          <li>
+            <strong>Memories</strong> — store persistent notes that are included in every chat
+            session (context layer 5).
+          </li>
+          <li>
+            <strong>Voice</strong> — voice input and transcription settings.
+          </li>
         </ul>
       </Section>
 
@@ -272,23 +473,12 @@ export default function HelpPage() {
         </div>
       </Section>
 
-      <Section icon={FolderGit2} title="Projects">
-        <ul className="space-y-2 list-disc pl-5">
-          <li>
-            Projects are git repositories discovered from the{' '}
-            <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">PROJECTS_DIR</code>{' '}
-            directory.
-          </li>
-          <li>
-            Each project can have a <strong>branch strategy</strong> (for tasks) and a{' '}
-            <strong>verification command</strong>.
-          </li>
-          <li>
-            Assigning a project to a thread sets the working directory and injects the project's
-            CLAUDE.md into context.
-          </li>
-        </ul>
-      </Section>
+      <div className="rounded-lg border border-zinc-200 bg-zinc-100/50 p-4 text-xs text-zinc-500 mb-8">
+        <p>
+          <strong className="text-zinc-700">PWA</strong> — Botka can be installed as an app from your
+          browser. An update banner appears when a new version is available.
+        </p>
+      </div>
     </div>
   )
 }
