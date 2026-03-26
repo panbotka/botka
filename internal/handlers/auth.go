@@ -66,7 +66,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	h.setSessionCookie(c, token)
-	respondOK(c, gin.H{"username": user.Username, "id": user.ID})
+	respondOK(c, gin.H{"username": user.Username, "id": user.ID, "role": user.Role})
 }
 
 // Logout clears the session cookie and deletes the session.
@@ -106,6 +106,7 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	respondOK(c, gin.H{
 		"id":            user.ID,
 		"username":      user.Username,
+		"role":          user.Role,
 		"passkey_count": passkeyCount,
 	})
 }

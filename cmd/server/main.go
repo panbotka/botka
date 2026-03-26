@@ -150,6 +150,9 @@ func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gi
 	// Auth middleware: protects all /api/v1/* except public auth endpoints.
 	router.Use(middleware.Auth(db))
 
+	// External access middleware: enforces role-based access for external users.
+	router.Use(middleware.ExternalAccess(db))
+
 	v1 := router.Group("/api/v1")
 
 	// Auth routes (login, logout, me, change password).
@@ -169,6 +172,10 @@ func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gi
 		passkeyHandler := handlers.NewPasskeyHandler(db, wan, authHandler)
 		handlers.RegisterPasskeyRoutes(v1, passkeyHandler)
 	}
+
+	// User management routes (admin only).
+	userHandler := handlers.NewUserHandler(db)
+	handlers.RegisterUserRoutes(v1, userHandler)
 
 	projectHandler := handlers.NewProjectHandler(db, cfg.ProjectsDir, projects.Scan, projects.SyncToDatabase)
 	handlers.RegisterProjectRoutes(v1, projectHandler)

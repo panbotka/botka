@@ -18,7 +18,7 @@ function base64urlToBuffer(base64url: string): ArrayBuffer {
 }
 
 export default function LoginPage() {
-  const { login, isAuthenticated } = useAuth()
+  const { login, isAuthenticated, user } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -29,13 +29,16 @@ export default function LoginPage() {
   const [passkeyLoading, setPasskeyLoading] = useState(false)
   const [supportsPasskey, setSupportsPasskey] = useState(false)
 
-  const redirectTo = (location.state as { from?: string })?.from || '/'
+  const defaultRedirect = user?.role === 'external' ? '/chat' : '/'
+  const redirectTo = (location.state as { from?: string })?.from || defaultRedirect
 
   useEffect(() => {
     if (isAuthenticated) {
-      navigate(redirectTo, { replace: true })
+      // External users should always go to /chat, even if they had a saved redirect.
+      const target = user?.role === 'external' ? '/chat' : redirectTo
+      navigate(target, { replace: true })
     }
-  }, [isAuthenticated, navigate, redirectTo])
+  }, [isAuthenticated, navigate, redirectTo, user?.role])
 
   useEffect(() => {
     // Check if WebAuthn is available.

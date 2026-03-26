@@ -30,14 +30,14 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const HelpPage = lazy(() => import('./pages/HelpPage'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 
-const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/chat', icon: MessageSquare, label: 'Chat' },
-  { to: '/tasks', icon: ListTodo, label: 'Tasks' },
-  { to: '/projects', icon: FolderGit2, label: 'Projects' },
-  { to: '/cost', icon: DollarSign, label: 'Cost' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
-  { to: '/help', icon: HelpCircle, label: 'Help' },
+const allNavItems = [
+  { to: '/', icon: LayoutDashboard, label: 'Dashboard', adminOnly: true },
+  { to: '/chat', icon: MessageSquare, label: 'Chat', adminOnly: false },
+  { to: '/tasks', icon: ListTodo, label: 'Tasks', adminOnly: true },
+  { to: '/projects', icon: FolderGit2, label: 'Projects', adminOnly: true },
+  { to: '/cost', icon: DollarSign, label: 'Cost', adminOnly: true },
+  { to: '/settings', icon: Settings, label: 'Settings', adminOnly: true },
+  { to: '/help', icon: HelpCircle, label: 'Help', adminOnly: false },
 ] as const
 
 function PageLoader() {
@@ -57,6 +57,10 @@ function FullPageLoader() {
 }
 
 function AppSidebar() {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+  const navItems = allNavItems.filter((item) => !item.adminOnly || isAdmin)
+
   return (
     <aside className="flex h-screen w-56 flex-col border-r border-zinc-200 bg-zinc-50 flex-shrink-0">
       <div className="flex h-14 items-center gap-2 border-b border-zinc-200 px-4">
@@ -88,11 +92,22 @@ function AppSidebar() {
 }
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth()
+  const { isAuthenticated, isLoading, user } = useAuth()
   const location = useLocation()
 
   if (isLoading) return <FullPageLoader />
   if (!isAuthenticated) return <Navigate to="/login" state={{ from: location.pathname }} replace />
+
+  // Redirect external users from admin-only pages to /chat.
+  if (user?.role === 'external') {
+    const path = location.pathname
+    const allowedPaths = ['/chat', '/help']
+    const isAllowed = allowedPaths.some((p) => path === p || path.startsWith(p + '/'))
+    if (!isAllowed) {
+      return <Navigate to="/chat" replace />
+    }
+  }
+
   return <>{children}</>
 }
 

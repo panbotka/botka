@@ -29,6 +29,7 @@ interface Props {
   streamingThreadId: number | null
   activeProcessThreadIds: Set<number>
   mobile?: boolean
+  readOnly?: boolean
 }
 
 export default function ThreadSidebar({
@@ -50,6 +51,7 @@ export default function ThreadSidebar({
   streamingThreadId,
   activeProcessThreadIds,
   mobile,
+  readOnly,
 }: Props) {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editTitle, setEditTitle] = useState('')
@@ -309,7 +311,7 @@ export default function ThreadSidebar({
             </div>
           </div>
 
-          <div
+          {!readOnly && <div
               className="relative flex items-stretch gap-0.5 flex-shrink-0"
               ref={menuOpenId === thread.id ? menuRef : undefined}
             >
@@ -450,7 +452,7 @@ export default function ThreadSidebar({
                   </button>
                 </div>
               )}
-            </div>
+            </div>}
         </>
       )}
     </div>
@@ -654,30 +656,32 @@ export default function ThreadSidebar({
         {/* Header */}
         <div className="p-3 pb-2 flex items-center justify-between relative" ref={personaDropdownRef}>
           <h1 className="text-base font-semibold text-zinc-900">Chats</h1>
-          <div className="flex items-center gap-0.5">
-            <button
-              onClick={() => { onNewThread(); clearSearch(); setPersonaDropdownOpen(false) }}
-              className="w-8 h-8 flex items-center justify-center rounded-lg
-                         text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/60
-                         transition-all cursor-pointer"
-              title="New chat"
-            >
-              <Plus className="w-5 h-5" />
-            </button>
-            {personas.length > 0 && (
+          {!readOnly && (
+            <div className="flex items-center gap-0.5">
               <button
-                onClick={() => setPersonaDropdownOpen(!personaDropdownOpen)}
-                className={`w-8 h-8 flex items-center justify-center rounded-lg
-                           transition-all cursor-pointer
-                           ${personaDropdownOpen
-                             ? 'bg-zinc-200/60 text-zinc-800'
-                             : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/60'}`}
-                title="Start with persona"
+                onClick={() => { onNewThread(); clearSearch(); setPersonaDropdownOpen(false) }}
+                className="w-8 h-8 flex items-center justify-center rounded-lg
+                           text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/60
+                           transition-all cursor-pointer"
+                title="New chat"
               >
-                <ChevronDown className="w-4 h-4" />
+                <Plus className="w-5 h-5" />
               </button>
-            )}
-          </div>
+              {personas.length > 0 && (
+                <button
+                  onClick={() => setPersonaDropdownOpen(!personaDropdownOpen)}
+                  className={`w-8 h-8 flex items-center justify-center rounded-lg
+                             transition-all cursor-pointer
+                             ${personaDropdownOpen
+                               ? 'bg-zinc-200/60 text-zinc-800'
+                               : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/60'}`}
+                  title="Start with persona"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          )}
           {personaDropdownOpen && (
             <div className="absolute left-3 right-3 top-full mt-1 z-50
                            bg-zinc-100 border border-zinc-200 rounded-xl

@@ -16,6 +16,7 @@ import {
   Cpu,
   Shield,
   KeyRound,
+  Users,
 } from 'lucide-react'
 
 import { useSettings, type Theme, type FontSize } from '../context/SettingsContext'
@@ -47,6 +48,7 @@ import {
   type PasskeyInfo,
 } from '../api/client'
 import type { Persona, Tag, Memory } from '../types'
+import UsersTab from '../components/UsersTab'
 
 // ── Constants ──
 
@@ -63,7 +65,7 @@ const TAG_COLORS = [
   { name: 'Pink', hex: '#EC4899' },
 ]
 
-type TabId = 'general' | 'security' | 'runner' | 'personas' | 'tags' | 'memories' | 'voice'
+type TabId = 'general' | 'security' | 'users' | 'runner' | 'personas' | 'tags' | 'memories' | 'voice'
 
 interface TabDef {
   id: TabId
@@ -74,6 +76,7 @@ interface TabDef {
 const TABS: TabDef[] = [
   { id: 'general', label: 'General', icon: SettingsIcon },
   { id: 'security', label: 'Security', icon: Shield },
+  { id: 'users', label: 'Users', icon: Users },
   { id: 'runner', label: 'Task Runner', icon: Cpu },
   { id: 'personas', label: 'Personas', icon: User },
   { id: 'tags', label: 'Tags', icon: TagIcon },
@@ -1423,6 +1426,7 @@ export default function SettingsPage() {
       <div>
         {activeTab === 'general' && <GeneralTab />}
         {activeTab === 'security' && <SecurityTab />}
+        {activeTab === 'users' && <UsersTab />}
         {activeTab === 'runner' && <RunnerTab />}
         {activeTab === 'personas' && <PersonasTab />}
         {activeTab === 'tags' && <TagsTab />}

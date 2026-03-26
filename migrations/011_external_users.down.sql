@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS thread_access;
+ALTER TABLE users DROP COLUMN IF EXISTS role;

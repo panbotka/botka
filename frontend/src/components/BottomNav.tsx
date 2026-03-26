@@ -1,19 +1,23 @@
 import { useLocation, useNavigate } from 'react-router-dom'
 import { LayoutDashboard, MessageSquare, ListTodo, DollarSign, Settings, HelpCircle } from 'lucide-react'
 import { clsx } from 'clsx'
+import { useAuth } from '../context/AuthContext'
 
-const tabs = [
-  { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { path: '/chat', icon: MessageSquare, label: 'Chat' },
-  { path: '/tasks', icon: ListTodo, label: 'Tasks' },
-  { path: '/cost', icon: DollarSign, label: 'Cost' },
-  { path: '/settings', icon: Settings, label: 'Settings' },
-  { path: '/help', icon: HelpCircle, label: 'Help' },
+const allTabs = [
+  { path: '/', icon: LayoutDashboard, label: 'Dashboard', adminOnly: true },
+  { path: '/chat', icon: MessageSquare, label: 'Chat', adminOnly: false },
+  { path: '/tasks', icon: ListTodo, label: 'Tasks', adminOnly: true },
+  { path: '/cost', icon: DollarSign, label: 'Cost', adminOnly: true },
+  { path: '/settings', icon: Settings, label: 'Settings', adminOnly: true },
+  { path: '/help', icon: HelpCircle, label: 'Help', adminOnly: false },
 ] as const
 
 export default function BottomNav() {
   const location = useLocation()
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+  const tabs = allTabs.filter((tab) => !tab.adminOnly || isAdmin)
 
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/'

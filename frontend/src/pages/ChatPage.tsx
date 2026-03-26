@@ -11,6 +11,7 @@ import ThreadSidebar from '../components/ThreadSidebar'
 import ProcessBar from '../components/ProcessBar'
 import ProjectPicker from '../components/ProjectPicker'
 import { MessageSquare, ArrowLeft } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
 
 function parseThreadIdFromPath(pathname: string): number | null {
   const match = pathname.match(/^\/chat\/(\d+)$/)
@@ -21,6 +22,8 @@ export default function ChatPage() {
   const isMobile = useIsMobile()
   const location = useLocation()
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const isExternal = user?.role === 'external'
   const [threads, setThreads] = useState<Thread[]>([])
   const [activeThreadId, setActiveThreadId] = useState<number | null>(
     () => parseThreadIdFromPath(window.location.pathname),
@@ -189,6 +192,7 @@ export default function ChatPage() {
     onSelectProject: setSelectedProjectId,
     streamingThreadId,
     activeProcessThreadIds,
+    readOnly: isExternal,
   }
 
   const showMobileChat = isMobile && activeThreadId !== null
@@ -249,17 +253,19 @@ export default function ChatPage() {
               {...sidebarProps}
               mobile
             />
-            {/* FAB: New Chat */}
-            <button
-              onClick={() => handleNewThread()}
-              className="fixed right-4 bottom-20 z-30 w-14 h-14 rounded-full
-                         bg-amber-500 hover:bg-amber-400 active:bg-amber-600
-                         text-white shadow-lg shadow-amber-500/20
-                         flex items-center justify-center cursor-pointer transition-colors"
-              style={{ marginBottom: 'env(safe-area-inset-bottom, 0px)' }}
-            >
-              <MessageSquare className="w-6 h-6" />
-            </button>
+            {/* FAB: New Chat (hidden for external users) */}
+            {!isExternal && (
+              <button
+                onClick={() => handleNewThread()}
+                className="fixed right-4 bottom-20 z-30 w-14 h-14 rounded-full
+                           bg-amber-500 hover:bg-amber-400 active:bg-amber-600
+                           text-white shadow-lg shadow-amber-500/20
+                           flex items-center justify-center cursor-pointer transition-colors"
+                style={{ marginBottom: 'env(safe-area-inset-bottom, 0px)' }}
+              >
+                <MessageSquare className="w-6 h-6" />
+              </button>
+            )}
           </>
         )}
 

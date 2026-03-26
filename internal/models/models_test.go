@@ -24,6 +24,8 @@ func TestTableNames(t *testing.T) {
 		{name: "BranchSelection", model: &BranchSelection{}, want: "branch_selections"},
 		{name: "Tag", model: &Tag{}, want: "tags"},
 		{name: "Memory", model: &Memory{}, want: "memories"},
+		{name: "User", model: &User{}, want: "users"},
+		{name: "ThreadAccess", model: &ThreadAccess{}, want: "thread_access"},
 	}
 
 	for _, tt := range tests {

@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"botka/internal/claude"
+	"botka/internal/middleware"
 	"botka/internal/models"
 )
 
@@ -57,6 +58,7 @@ type threadListRow struct {
 }
 
 // List returns all threads, optionally including archived ones.
+// External users only see threads they have access to.
 func (h *ThreadHandler) List(c *gin.Context) {
 	includeArchived := c.Query("archived") == "true"
 
@@ -69,6 +71,12 @@ func (h *ThreadHandler) List(c *gin.Context) {
 			FROM messages WHERE thread_id = t.id
 			ORDER BY created_at DESC LIMIT 1
 		) lm ON true`)
+
+	// External users only see threads they have been granted access to.
+	user := middleware.GetUser(c)
+	if user != nil && !user.IsAdmin() {
+		query = query.Where("t.id IN (SELECT thread_id FROM thread_access WHERE user_id = ?)", user.ID)
+	}
 
 	if !includeArchived {
 		query = query.Where("t.archived = ?", false)

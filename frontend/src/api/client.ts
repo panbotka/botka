@@ -671,10 +671,28 @@ export async function* streamSubscribe(
 
 // Auth
 
+export type UserRole = 'admin' | 'external'
+
 export interface AuthUser {
   id: number
   username: string
+  role: UserRole
   passkey_count: number
+}
+
+export interface ExternalUser {
+  id: number
+  username: string
+  role: UserRole
+  thread_count: number
+  created_at: string
+}
+
+export interface UserThreadAccess {
+  id: number
+  thread_id: number
+  thread_title: string
+  created_at: string
 }
 
 export function authMe(): Promise<AuthUser> {
@@ -770,6 +788,45 @@ function bufferToBase64url(buffer: ArrayBuffer): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
+// User management (admin only)
+
+export function fetchUsers(): Promise<ExternalUser[]> {
+  return requestData<ExternalUser[]>('/users')
+}
+
+export function createUser(username: string, password: string): Promise<ExternalUser> {
+  return requestData<ExternalUser>('/users', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  })
+}
+
+export function deleteUser(id: number): Promise<void> {
+  return request<void>(`/users/${id}`, { method: 'DELETE' })
+}
+
+export function resetUserPassword(id: number, password: string): Promise<void> {
+  return requestData<void>(`/users/${id}/password`, {
+    method: 'PUT',
+    body: JSON.stringify({ password }),
+  })
+}
+
+export function fetchUserThreads(userId: number): Promise<UserThreadAccess[]> {
+  return requestData<UserThreadAccess[]>(`/users/${userId}/threads`)
+}
+
+export function grantUserThread(userId: number, threadId: number): Promise<void> {
+  return requestData<void>(`/users/${userId}/threads`, {
+    method: 'POST',
+    body: JSON.stringify({ thread_id: threadId }),
+  })
+}
+
+export function revokeUserThread(userId: number, threadId: number): Promise<void> {
+  return request<void>(`/users/${userId}/threads/${threadId}`, { method: 'DELETE' })
+}
+
 // Convenience object for use in hooks that call api.methodName()
 export const api = {
   // Projects
@@ -840,4 +897,12 @@ export const api = {
   getModels,
   getTranscribeStatus,
   transcribe,
+  // User management
+  fetchUsers,
+  createUser,
+  deleteUser,
+  resetUserPassword,
+  fetchUserThreads,
+  grantUserThread,
+  revokeUserThread,
 }
