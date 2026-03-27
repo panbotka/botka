@@ -1,4 +1,4 @@
-.PHONY: help fmt vet lint test check build run clean migrate-up migrate-down migrate-create frontend-install frontend-dev dev-backend frontend-build prod-build deploy install-service docker-build docker-up docker-down ensure-dist test-db
+.PHONY: help fmt vet lint test check build run clean migrate-up migrate-down migrate-create frontend-install frontend-dev frontend-test dev-backend frontend-build prod-build deploy install-service docker-build docker-up docker-down ensure-dist test-db
 
 ## help: Show available targets
 help:
@@ -70,8 +70,12 @@ test: ensure-dist
 frontend-check:
 	cd frontend && npx tsc -b
 
-# Full CI gate: format + vet + lint + test + frontend type-check
-check: fmt vet lint test frontend-check
+# Run frontend unit tests
+frontend-test:
+	cd frontend && npx vitest run
+
+# Full CI gate: format + vet + lint + test + frontend type-check + frontend tests
+check: fmt vet lint test frontend-check frontend-test
 
 # Build the server binary
 build: ensure-dist
