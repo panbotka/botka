@@ -53,6 +53,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const userSentRef = useRef(false);
+  const isAtBottomRef = useRef(true);
   const feedbackTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const messageQueueRef = useRef<{ id: number; content: string; files?: File[] }[]>([]);
   const currentThreadIdRef = useRef(threadId);
@@ -337,6 +338,25 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingStarterMessage, threadId, loading]);
 
+  // --- Stick-to-bottom scroll tracking ---
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const checkAtBottom = () => {
+      const distance = container.scrollHeight - container.scrollTop - container.clientHeight;
+      isAtBottomRef.current = distance < 50;
+    };
+
+    container.addEventListener('scroll', checkAtBottom, { passive: true });
+    window.addEventListener('resize', checkAtBottom);
+
+    return () => {
+      container.removeEventListener('scroll', checkAtBottom);
+      window.removeEventListener('resize', checkAtBottom);
+    };
+  }, []);
+
   // --- Auto-scroll ---
   const prevThreadIdRef = useRef<number | null>(null);
   const needsScrollAfterLoadRef = useRef(false);
@@ -347,6 +367,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     if (isThreadSwitch) {
       prevThreadIdRef.current = threadId ?? null;
       needsScrollAfterLoadRef.current = true;
+      isAtBottomRef.current = true;
       requestAnimationFrame(() => {
         bottomRef.current?.scrollIntoView();
       });
@@ -354,6 +375,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     }
     if (needsScrollAfterLoadRef.current) {
       needsScrollAfterLoadRef.current = false;
+      isAtBottomRef.current = true;
       requestAnimationFrame(() => {
         bottomRef.current?.scrollIntoView();
       });
@@ -361,12 +383,12 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     }
     if (userSentRef.current) {
       userSentRef.current = false;
+      isAtBottomRef.current = true;
       bottomRef.current?.scrollIntoView();
       return;
     }
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    if (distanceFromBottom < 150) {
-      bottomRef.current?.scrollIntoView();
+    if (isAtBottomRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, streamingContent, streamingThinking, threadId]);
 
