@@ -136,6 +136,11 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
+	if msg := validateMaxLength("new_password", req.NewPassword, maxPasswordLength); msg != "" {
+		respondError(c, http.StatusBadRequest, msg)
+		return
+	}
+
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.CurrentPassword)); err != nil {
 		respondError(c, http.StatusUnauthorized, "current password is incorrect")
 		return

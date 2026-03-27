@@ -140,6 +140,11 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
+	if msg := validateMaxLength("content", content, maxContentLength); msg != "" {
+		respondError(c, http.StatusBadRequest, msg)
+		return
+	}
+
 	if content == "" {
 		content = "(attached files)"
 	}
@@ -250,6 +255,11 @@ func (h *ChatHandler) EditMessage(c *gin.Context) {
 		return
 	}
 
+	if msg := validateMaxLength("content", req.Content, maxContentLength); msg != "" {
+		respondError(c, http.StatusBadRequest, msg)
+		return
+	}
+
 	var thread models.Thread
 	if err := h.db.First(&thread, threadID).Error; err != nil {
 		respondError(c, http.StatusNotFound, "thread not found")
@@ -309,6 +319,11 @@ func (h *ChatHandler) Branch(c *gin.Context) {
 	content := strings.TrimSpace(req.Content)
 	if content == "" {
 		respondError(c, http.StatusBadRequest, "content is required")
+		return
+	}
+
+	if msg := validateMaxLength("content", content, maxContentLength); msg != "" {
+		respondError(c, http.StatusBadRequest, msg)
 		return
 	}
 
@@ -1042,6 +1057,6 @@ func (h *ChatHandler) Interrupt(c *gin.Context) {
 	case claude.ErrNotBusy:
 		respondError(c, http.StatusConflict, "not currently streaming")
 	default:
-		respondError(c, http.StatusInternalServerError, err.Error())
+		respondError(c, http.StatusInternalServerError, "failed to interrupt session")
 	}
 }

@@ -503,6 +503,51 @@ func TestThread_PinLimit(t *testing.T) {
 	}
 }
 
+func TestThread_RenameTitleTooLong(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	th := createTestThread(t, db)
+
+	r := threadRouter(db)
+	longTitle := `{"title":"` + string(make([]byte, maxTitleLength+1)) + `"}`
+	w := doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/threads/%d", th.ID), longTitle)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for long title, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestThread_UpdateModelInvalid(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	th := createTestThread(t, db)
+
+	r := threadRouter(db)
+	body := `{"model":"invalid-model"}`
+	w := doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/threads/%d/model", th.ID), body)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid model, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestThread_UpdateModelEmpty(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	th := createTestThread(t, db)
+
+	r := threadRouter(db)
+	body := `{"model":""}`
+	w := doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/threads/%d/model", th.ID), body)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty model, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestThread_CreateWithProject(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)

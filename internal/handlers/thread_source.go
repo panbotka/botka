@@ -66,6 +66,14 @@ func (h *ThreadSourceHandler) Create(c *gin.Context) {
 		return
 	}
 
+	if msg := firstError(
+		validateMaxLength("url", req.URL, maxURLLength),
+		validateMaxLength("label", req.Label, maxLabelLength),
+	); msg != "" {
+		respondError(c, http.StatusBadRequest, msg)
+		return
+	}
+
 	// Get next position
 	var maxPos int
 	h.db.Model(&models.ThreadSource{}).Where("thread_id = ?", threadID).Select("COALESCE(MAX(position), -1)").Scan(&maxPos)
@@ -100,6 +108,14 @@ func (h *ThreadSourceHandler) Update(c *gin.Context) {
 	var req createSourceRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.URL == "" {
 		respondError(c, http.StatusBadRequest, "url is required")
+		return
+	}
+
+	if msg := firstError(
+		validateMaxLength("url", req.URL, maxURLLength),
+		validateMaxLength("label", req.Label, maxLabelLength),
+	); msg != "" {
+		respondError(c, http.StatusBadRequest, msg)
 		return
 	}
 

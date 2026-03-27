@@ -117,7 +117,7 @@ func (h *PasskeyHandler) RegisterFinish(c *gin.Context) {
 
 	credential, err := h.wan.FinishRegistration(wanUser, *session, c.Request)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "registration failed: "+err.Error())
+		respondError(c, http.StatusBadRequest, "registration failed")
 		return
 	}
 
@@ -172,7 +172,7 @@ func (h *PasskeyHandler) LoginFinish(c *gin.Context) {
 
 	user, credential, err := h.wan.FinishPasskeyLogin(handler, *session, c.Request)
 	if err != nil {
-		respondError(c, http.StatusUnauthorized, "login failed: "+err.Error())
+		respondError(c, http.StatusUnauthorized, "login failed")
 		return
 	}
 

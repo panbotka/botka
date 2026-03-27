@@ -473,8 +473,12 @@ func (h *TaskHandler) applyReorder(items []reorderItem) error {
 
 // validateCreateRequest checks that a create request has all required fields.
 func validateCreateRequest(req *createTaskRequest) error {
-	if req.Title == "" {
-		return errors.New("title is required")
+	if msg := firstError(
+		validateRequired("title", req.Title),
+		validateMaxLength("title", req.Title, maxTitleLength),
+		validateMaxLength("spec", req.Spec, maxSpecLength),
+	); msg != "" {
+		return errors.New(msg)
 	}
 	if req.ProjectID == uuid.Nil {
 		return errors.New("project_id is required")
@@ -493,7 +497,20 @@ func validateUpdate(task models.Task, req updateTaskRequest) string {
 	if task.Status == models.TaskStatusRunning {
 		return "cannot update a running task"
 	}
+	if req.Title != nil {
+		if msg := validateMaxLength("title", *req.Title, maxTitleLength); msg != "" {
+			return msg
+		}
+	}
+	if req.Spec != nil {
+		if msg := validateMaxLength("spec", *req.Spec, maxSpecLength); msg != "" {
+			return msg
+		}
+	}
 	if req.Status != nil && *req.Status != task.Status {
+		if !req.Status.IsValid() {
+			return "invalid status value"
+		}
 		allowed, ok := allowedTransitions[task.Status]
 		if !ok || !allowed[*req.Status] {
 			return "invalid status transition"

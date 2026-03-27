@@ -171,6 +171,16 @@ func (r *updateProjectRequest) validate() error {
 		*r.BranchStrategy != "feature_branch" {
 		return errors.New("branch_strategy must be \"main\" or \"feature_branch\"")
 	}
+	if r.VerificationCommand != nil {
+		if msg := validateMaxLength("verification_command", *r.VerificationCommand, maxVerificationCmdLength); msg != "" {
+			return errors.New(msg)
+		}
+	}
+	if r.ClaudeMD != nil {
+		if msg := validateMaxLength("claude_md", *r.ClaudeMD, maxClaudeMDLength); msg != "" {
+			return errors.New(msg)
+		}
+	}
 	return nil
 }
 
@@ -220,12 +230,12 @@ func (h *ProjectHandler) Scan(c *gin.Context) {
 
 	discovered, err := h.scanFn(h.projectsDir)
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, "scan failed: "+err.Error())
+		respondError(c, http.StatusInternalServerError, "scan failed")
 		return
 	}
 
 	if err := h.syncFn(h.db, discovered); err != nil {
-		respondError(c, http.StatusInternalServerError, "sync failed: "+err.Error())
+		respondError(c, http.StatusInternalServerError, "sync failed")
 		return
 	}
 

@@ -45,10 +45,16 @@ type memoryRequest struct {
 }
 
 // Create creates a new memory.
+// Errors: 400 (missing/long content, limit reached), 500 (db error).
 func (h *MemoryHandler) Create(c *gin.Context) {
 	var req memoryRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.Content == "" {
 		respondError(c, http.StatusBadRequest, "content is required")
+		return
+	}
+
+	if msg := validateMaxLength("content", req.Content, maxContentLength); msg != "" {
+		respondError(c, http.StatusBadRequest, msg)
 		return
 	}
 
@@ -79,6 +85,11 @@ func (h *MemoryHandler) Update(c *gin.Context) {
 	var req memoryRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.Content == "" {
 		respondError(c, http.StatusBadRequest, "content is required")
+		return
+	}
+
+	if msg := validateMaxLength("content", req.Content, maxContentLength); msg != "" {
+		respondError(c, http.StatusBadRequest, msg)
 		return
 	}
 

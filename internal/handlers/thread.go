@@ -247,6 +247,11 @@ func (h *ThreadHandler) Rename(c *gin.Context) {
 		return
 	}
 
+	if msg := validateMaxLength("title", req.Title, maxTitleLength); msg != "" {
+		respondError(c, http.StatusBadRequest, msg)
+		return
+	}
+
 	if err := h.db.Model(&models.Thread{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"title":      req.Title,
 		"updated_at": time.Now(),
@@ -371,6 +376,16 @@ func (h *ThreadHandler) UpdateModel(c *gin.Context) {
 	var req updateModelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	if req.Model == "" {
+		respondError(c, http.StatusBadRequest, "model is required")
+		return
+	}
+
+	if msg := validateEnum("model", req.Model, h.availableModels); msg != "" {
+		respondError(c, http.StatusBadRequest, msg)
 		return
 	}
 

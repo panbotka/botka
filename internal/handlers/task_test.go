@@ -207,6 +207,55 @@ func TestValidateBatchTransitions_SameStatusSkipped(t *testing.T) {
 	}
 }
 
+func TestValidateCreateRequest_TitleTooLong(t *testing.T) {
+	req := &createTaskRequest{
+		Title:     string(make([]byte, maxTitleLength+1)),
+		ProjectID: uuid.New(),
+	}
+	err := validateCreateRequest(req)
+	if err == nil {
+		t.Fatal("expected error for title too long")
+	}
+	if err.Error() != fmt.Sprintf("title must be at most %d characters", maxTitleLength) {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateCreateRequest_SpecTooLong(t *testing.T) {
+	req := &createTaskRequest{
+		Title:     "ok",
+		Spec:      string(make([]byte, maxSpecLength+1)),
+		ProjectID: uuid.New(),
+	}
+	err := validateCreateRequest(req)
+	if err == nil {
+		t.Fatal("expected error for spec too long")
+	}
+	if err.Error() != fmt.Sprintf("spec must be at most %d characters", maxSpecLength) {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateUpdate_TitleTooLong(t *testing.T) {
+	task := models.Task{Status: models.TaskStatusPending}
+	longTitle := string(make([]byte, maxTitleLength+1))
+	req := updateTaskRequest{Title: &longTitle}
+	msg := validateUpdate(task, req)
+	if msg == "" {
+		t.Fatal("expected error for title too long")
+	}
+}
+
+func TestValidateUpdate_InvalidStatusValue(t *testing.T) {
+	task := models.Task{Status: models.TaskStatusPending}
+	badStatus := models.TaskStatus("bogus")
+	req := updateTaskRequest{Status: &badStatus}
+	msg := validateUpdate(task, req)
+	if msg != "invalid status value" {
+		t.Errorf("expected 'invalid status value', got %q", msg)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Integration tests (require test database)
 // ---------------------------------------------------------------------------

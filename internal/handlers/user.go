@@ -41,10 +41,19 @@ type createUserRequest struct {
 }
 
 // Create creates a new external user.
+// Errors: 400 (missing fields, short password, long username/password), 409 (duplicate), 500.
 func (h *UserHandler) Create(c *gin.Context) {
 	var req createUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "username and password required")
+		return
+	}
+
+	if msg := firstError(
+		validateMaxLength("username", req.Username, maxUsernameLength),
+		validateMaxLength("password", req.Password, maxPasswordLength),
+	); msg != "" {
+		respondError(c, http.StatusBadRequest, msg)
 		return
 	}
 
@@ -163,6 +172,11 @@ func (h *UserHandler) ResetPassword(c *gin.Context) {
 
 	if len(req.Password) < 8 {
 		respondError(c, http.StatusBadRequest, "password must be at least 8 characters")
+		return
+	}
+
+	if msg := validateMaxLength("password", req.Password, maxPasswordLength); msg != "" {
+		respondError(c, http.StatusBadRequest, msg)
 		return
 	}
 

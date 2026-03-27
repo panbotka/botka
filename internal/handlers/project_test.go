@@ -376,7 +376,7 @@ func TestProject_ScanError(t *testing.T) {
 	var resp map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	errMsg := resp["error"].(string)
-	if errMsg != "scan failed: disk error" {
+	if errMsg != "scan failed" {
 		t.Errorf("expected scan error message, got %q", errMsg)
 	}
 }
