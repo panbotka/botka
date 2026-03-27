@@ -13,6 +13,7 @@ import {
   BarChart3,
   Settings,
   Globe,
+  FileText,
 } from 'lucide-react'
 
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
@@ -81,6 +82,29 @@ const contextLayers = [
     description: 'Last 200 messages, each truncated to 500 chars',
     source: 'Thread message history',
     condition: 'Only for new sessions (not resume)',
+  },
+]
+
+const claudeMdHierarchy = [
+  {
+    num: 1,
+    name: 'Global',
+    path: '~/.claude/CLAUDE.md',
+    description: "User's private instructions that apply to all projects. Not checked into any repo.",
+  },
+  {
+    num: 2,
+    name: 'Project',
+    path: '<project>/CLAUDE.md',
+    description:
+      'Project-specific instructions checked into the repo. Shared with the team via version control.',
+  },
+  {
+    num: 3,
+    name: 'Auto-memory',
+    path: '~/.claude/projects/<encoded-dir>/memory/MEMORY.md',
+    description:
+      'Automatic per-project memory. Claude Code writes here to remember context across conversations.',
   },
 ]
 
@@ -261,6 +285,60 @@ export default function HelpPage() {
           </li>
           <li>Filter the thread list by tag or project using the sidebar filters.</li>
         </ul>
+      </Section>
+
+      <Section icon={FileText} title="CLAUDE.md Instruction Files">
+        <p className="mb-3">
+          Claude Code loads instruction files in a specific hierarchy. Each level narrows the scope
+          of the instructions:
+        </p>
+
+        <div className="overflow-x-auto mb-4">
+          <table className="w-full text-sm">
+            <thead>
+              <tr>
+                <th className="text-left font-medium border-b border-zinc-200 px-3 py-2 bg-zinc-100">
+                  #
+                </th>
+                <th className="text-left font-medium border-b border-zinc-200 px-3 py-2 bg-zinc-100">
+                  Scope
+                </th>
+                <th className="text-left font-medium border-b border-zinc-200 px-3 py-2 bg-zinc-100">
+                  Path
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {claudeMdHierarchy.map((item) => (
+                <tr key={item.num}>
+                  <td className="border-b border-zinc-200/50 px-3 py-2 text-amber-600 font-semibold">
+                    {item.num}
+                  </td>
+                  <td className="border-b border-zinc-200/50 px-3 py-2">
+                    <div className="font-medium text-zinc-900">{item.name}</div>
+                    <div className="text-xs text-zinc-400">{item.description}</div>
+                  </td>
+                  <td className="border-b border-zinc-200/50 px-3 py-2">
+                    <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">
+                      {item.path}
+                    </code>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="rounded-lg border border-zinc-200 bg-zinc-100/50 p-3 space-y-1.5 text-xs text-zinc-500">
+          <p>
+            All three levels are loaded into every Claude Code conversation. If instructions
+            conflict, more specific levels (project) override broader ones (global).
+          </p>
+          <p>
+            <strong className="text-zinc-700">Botka's context assembly</strong> (below) adds
+            additional layers on top of this hierarchy when running chat sessions through this app.
+          </p>
+        </div>
       </Section>
 
       <Section icon={Layers} title="Context Assembly">
