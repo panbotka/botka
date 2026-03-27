@@ -30,6 +30,7 @@ func (h *SettingsHandler) SetOnChange(fn func(key, value string)) {
 func RegisterSettingsRoutes(rg *gin.RouterGroup, h *SettingsHandler) {
 	rg.GET("/settings", h.Get)
 	rg.PUT("/settings", h.Update)
+	rg.DELETE("/settings/task-outputs", h.PurgeTaskOutputs)
 }
 
 // Get returns all settings as a key→value map. The max_workers value is
@@ -91,4 +92,18 @@ func (h *SettingsHandler) Update(c *gin.Context) {
 	}
 
 	h.Get(c)
+}
+
+// PurgeTaskOutputs sets raw_output to NULL on all task_executions rows where
+// raw_output IS NOT NULL and returns the number of affected rows.
+func (h *SettingsHandler) PurgeTaskOutputs(c *gin.Context) {
+	result := h.db.Model(&models.TaskExecution{}).
+		Where("raw_output IS NOT NULL").
+		Update("raw_output", nil)
+	if result.Error != nil {
+		respondError(c, http.StatusInternalServerError, "failed to purge task outputs")
+		return
+	}
+
+	respondOK(c, gin.H{"purged": result.RowsAffected})
 }

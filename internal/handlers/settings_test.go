@@ -133,3 +133,75 @@ func TestSettings_UpdateInvalidBody(t *testing.T) {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+func TestSettings_PurgeTaskOutputs(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	proj := createTestProject(t, db)
+	task := createTestTask(t, db, proj.ID, models.TaskStatusDone)
+
+	// Create executions with raw_output set.
+	output1 := "some output"
+	output2 := "more output"
+	exec1 := models.TaskExecution{TaskID: task.ID, Attempt: 1, StartedAt: task.CreatedAt, RawOutput: &output1}
+	exec2 := models.TaskExecution{TaskID: task.ID, Attempt: 2, StartedAt: task.CreatedAt, RawOutput: &output2}
+	exec3 := models.TaskExecution{TaskID: task.ID, Attempt: 3, StartedAt: task.CreatedAt, RawOutput: nil}
+	db.Create(&exec1)
+	db.Create(&exec2)
+	db.Create(&exec3)
+
+	h := NewSettingsHandler(db)
+	router := gin.New()
+	RegisterSettingsRoutes(router.Group("/api/v1"), h)
+
+	w := doRequest(router, http.MethodDelete, "/api/v1/settings/task-outputs", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			Purged int64 `json:"purged"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Data.Purged != 2 {
+		t.Errorf("expected purged=2, got %d", resp.Data.Purged)
+	}
+
+	// Verify raw_output is now NULL for all executions.
+	var count int64
+	db.Model(&models.TaskExecution{}).Where("raw_output IS NOT NULL").Count(&count)
+	if count != 0 {
+		t.Errorf("expected 0 rows with raw_output, got %d", count)
+	}
+}
+
+func TestSettings_PurgeTaskOutputs_NoneToDelete(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	h := NewSettingsHandler(db)
+	router := gin.New()
+	RegisterSettingsRoutes(router.Group("/api/v1"), h)
+
+	w := doRequest(router, http.MethodDelete, "/api/v1/settings/task-outputs", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			Purged int64 `json:"purged"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Data.Purged != 0 {
+		t.Errorf("expected purged=0, got %d", resp.Data.Purged)
+	}
+}

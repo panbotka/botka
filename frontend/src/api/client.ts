@@ -464,6 +464,12 @@ export function updateServerSettings(settings: Partial<ServerSettings>): Promise
   })
 }
 
+// Maintenance
+
+export function purgeTaskOutputs(): Promise<{ purged: number }> {
+  return requestData<{ purged: number }>('/settings/task-outputs', { method: 'DELETE' })
+}
+
 // Analytics
 
 export function fetchCostAnalytics(days?: number): Promise<CostAnalytics> {
@@ -892,6 +898,8 @@ export const api = {
   // Server settings
   fetchServerSettings,
   updateServerSettings,
+  // Maintenance
+  purgeTaskOutputs,
   // Analytics
   fetchCostAnalytics,
   // Status

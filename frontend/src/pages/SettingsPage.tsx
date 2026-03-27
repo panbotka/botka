@@ -40,6 +40,7 @@ import {
   getTranscribeStatus,
   fetchServerSettings,
   updateServerSettings,
+  purgeTaskOutputs,
   authChangePassword,
   fetchPasskeys,
   deletePasskey,
@@ -1331,6 +1332,8 @@ function RunnerTab() {
   const [maxWorkers, setMaxWorkers] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [purging, setPurging] = useState(false)
+  const [purgeResult, setPurgeResult] = useState<string | null>(null)
 
   useEffect(() => {
     fetchServerSettings()
@@ -1353,6 +1356,20 @@ function RunnerTab() {
     }
   }
 
+  async function handlePurge() {
+    if (!window.confirm('This will permanently delete all stored task outputs. Continue?')) return
+    setPurging(true)
+    setPurgeResult(null)
+    try {
+      const { purged } = await purgeTaskOutputs()
+      setPurgeResult(purged === 0 ? 'No task outputs to purge' : `Purged output from ${purged} execution${purged === 1 ? '' : 's'}`)
+    } catch {
+      setPurgeResult('Failed to purge task outputs')
+    } finally {
+      setPurging(false)
+    }
+  }
+
   if (maxWorkers === null && !error) {
     return (
       <div className="flex items-center gap-2 text-sm text-zinc-500">
@@ -1363,7 +1380,7 @@ function RunnerTab() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
         <label className="text-sm font-medium text-zinc-700">
           Max Workers
@@ -1386,6 +1403,29 @@ function RunnerTab() {
           {saving && <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />}
         </div>
         {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+      </div>
+
+      {/* Maintenance */}
+      <div className="border-t border-zinc-200 pt-6">
+        <h3 className="text-sm font-medium text-zinc-700">Maintenance</h3>
+        <p className="mt-0.5 text-xs text-zinc-500">
+          Delete stored raw output from all task executions. This frees database space but you won&apos;t be able to view past task outputs.
+        </p>
+        <div className="mt-3 flex items-center gap-3">
+          <button
+            onClick={handlePurge}
+            disabled={purging}
+            className="inline-flex items-center gap-2 rounded-md border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+          >
+            {purging ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            Purge task outputs
+          </button>
+          {purgeResult && (
+            <span className={clsx('text-sm', purgeResult.startsWith('Failed') ? 'text-red-500' : 'text-green-600')}>
+              {purgeResult}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   )
