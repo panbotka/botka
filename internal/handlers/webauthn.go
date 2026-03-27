@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/binary"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"sync"
@@ -131,6 +132,7 @@ func (h *PasskeyHandler) RegisterFinish(c *gin.Context) {
 		Name:         name,
 	}
 	if err := h.db.Create(&cred).Error; err != nil {
+		slog.Error("webauthn: failed to store credential", "error", err, "user", u.Username)
 		respondError(c, http.StatusInternalServerError, "failed to store credential")
 		return
 	}
@@ -172,6 +174,7 @@ func (h *PasskeyHandler) LoginFinish(c *gin.Context) {
 
 	user, credential, err := h.wan.FinishPasskeyLogin(handler, *session, c.Request)
 	if err != nil {
+		slog.Error("webauthn: login failed", "error", err)
 		respondError(c, http.StatusUnauthorized, "login failed")
 		return
 	}

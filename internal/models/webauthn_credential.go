@@ -8,7 +8,7 @@ type WebAuthnCredential struct {
 	UserID       int64     `gorm:"not null;index" json:"user_id"`
 	CredentialID []byte    `gorm:"type:bytea;uniqueIndex;not null" json:"-"`
 	PublicKey    []byte    `gorm:"type:bytea;not null" json:"-"`
-	AAGUID       []byte    `gorm:"type:bytea" json:"-"`
+	AAGUID       []byte    `gorm:"column:aaguid;type:bytea" json:"-"`
 	SignCount    uint32    `gorm:"not null;default:0" json:"-"`
 	Name         string    `gorm:"not null;default:'Passkey'" json:"name"`
 	CreatedAt    time.Time `gorm:"autoCreateTime" json:"created_at"`
