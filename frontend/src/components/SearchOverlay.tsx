@@ -21,6 +21,15 @@ type ResultItem = {
 function toItems(data: GlobalSearchResults): ResultItem[] {
   const items: ResultItem[] = []
 
+  for (const th of data.threads) {
+    items.push({
+      id: `thread-${th.id}`,
+      type: 'thread',
+      title: th.title || 'Untitled thread',
+      path: `/chat/${th.id}`,
+    })
+  }
+
   for (const t of data.tasks) {
     items.push({
       id: `task-${t.id}`,
@@ -38,15 +47,6 @@ function toItems(data: GlobalSearchResults): ResultItem[] {
       title: p.name,
       subtitle: p.path,
       path: `/projects/${p.id}`,
-    })
-  }
-
-  for (const th of data.threads) {
-    items.push({
-      id: `thread-${th.id}`,
-      type: 'thread',
-      title: th.title || 'Untitled thread',
-      path: `/chat/${th.id}`,
     })
   }
 
@@ -188,7 +188,7 @@ export default function SearchOverlay({ open, onClose }: Props) {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search tasks, projects, threads, messages..."
+            placeholder="Search threads, tasks, projects, messages..."
             className="flex-1 bg-transparent text-sm text-zinc-900 placeholder-zinc-400 outline-none"
           />
           {loading && <Loader2 className="w-4 h-4 text-zinc-400 animate-spin flex-shrink-0" />}
