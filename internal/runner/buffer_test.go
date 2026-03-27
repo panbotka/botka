@@ -494,3 +494,135 @@ func TestWriteExactlyDoubleCapacity(t *testing.T) {
 		t.Fatalf("ReadAll = %q, want %q", got, want)
 	}
 }
+
+func TestConcurrentSubscribeUnsubscribe(t *testing.T) {
+	b := NewBuffer(128)
+	var wg sync.WaitGroup
+
+	// Concurrently subscribe and unsubscribe while writing
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ch, unsub := b.Subscribe()
+			_ = ch
+			unsub()
+		}()
+	}
+
+	// Write data concurrently
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			b.Write([]byte("x"))
+		}
+	}()
+
+	wg.Wait()
+	b.Close()
+}
+
+func TestSubscriberSlowConsumer(t *testing.T) {
+	b := NewBuffer(256)
+	ch, unsub := b.Subscribe()
+	defer unsub()
+
+	// Write more than channel buffer size (64) without reading.
+	// This should not block because the buffer uses non-blocking sends.
+	for i := 0; i < 100; i++ {
+		b.Write([]byte("data"))
+	}
+
+	// Drain whatever was received (some may have been dropped)
+	count := 0
+	for {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				t.Fatal("channel unexpectedly closed")
+			}
+			count++
+		default:
+			goto done
+		}
+	}
+done:
+	// Should have received at most 64 messages (channel buffer size)
+	if count > 64 {
+		t.Errorf("received %d messages, expected at most 64", count)
+	}
+}
+
+func TestBuffer_ReadAllAfterClose(t *testing.T) {
+	b := NewBuffer(32)
+	b.Write([]byte("preserved data"))
+	b.Close()
+
+	got := string(b.ReadAll())
+	if got != "preserved data" {
+		t.Errorf("ReadAll after Close = %q, want %q", got, "preserved data")
+	}
+}
+
+func TestBuffer_LenAfterClose(t *testing.T) {
+	b := NewBuffer(32)
+	b.Write([]byte("hello"))
+	b.Close()
+
+	if b.Len() != 5 {
+		t.Errorf("Len after Close = %d, want 5", b.Len())
+	}
+}
+
+func TestBuffer_SingleByteCapacity(t *testing.T) {
+	b := NewBuffer(1)
+
+	b.Write([]byte("abc"))
+	got := string(b.ReadAll())
+	if got != "c" {
+		t.Errorf("ReadAll = %q, want %q (last byte)", got, "c")
+	}
+
+	b.Write([]byte("d"))
+	got = string(b.ReadAll())
+	if got != "d" {
+		t.Errorf("ReadAll = %q, want %q", got, "d")
+	}
+}
+
+func TestBuffer_SubscriberGetsExactWritePayload(t *testing.T) {
+	// Verify subscriber receives the exact write payload, even when buffer wraps.
+	b := NewBuffer(4)
+	ch, unsub := b.Subscribe()
+	defer unsub()
+
+	// Fill buffer and cause wrap
+	b.Write([]byte("abcdef"))
+
+	got := <-ch
+	// Subscriber should get the full write, not the truncated buffer content
+	if !bytes.Equal(got, []byte("abcdef")) {
+		t.Errorf("subscriber got %q, want %q (full write payload)", got, "abcdef")
+	}
+
+	// But the buffer itself only keeps the last 4 bytes
+	buffered := string(b.ReadAll())
+	if buffered != "cdef" {
+		t.Errorf("buffer ReadAll = %q, want %q", buffered, "cdef")
+	}
+}
+
+func TestBuffer_WriteNilSlice(t *testing.T) {
+	b := NewBuffer(16)
+	n, err := b.Write(nil)
+	if err != nil {
+		t.Fatalf("Write nil error: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("Write nil returned n=%d, want 0", n)
+	}
+	if b.Len() != 0 {
+		t.Fatalf("Len after nil write = %d, want 0", b.Len())
+	}
+}

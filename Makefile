@@ -1,4 +1,4 @@
-.PHONY: help fmt vet lint test check build run clean migrate-up migrate-down migrate-create frontend-install frontend-dev frontend-test dev-backend frontend-build prod-build deploy install-service docker-build docker-up docker-down ensure-dist test-db
+.PHONY: help fmt vet lint test test-coverage check build run clean migrate-up migrate-down migrate-create frontend-install frontend-dev frontend-test dev-backend frontend-build prod-build deploy install-service docker-build docker-up docker-down ensure-dist test-db
 
 ## help: Show available targets
 help:
@@ -14,6 +14,7 @@ help:
 	@echo "  vet              Run go vet"
 	@echo "  lint             Run golangci-lint"
 	@echo "  test             Run tests with race detector"
+	@echo "  test-coverage    Run tests with coverage report and threshold check"
 	@echo "  check            Full CI gate: fmt + vet + lint + test"
 	@echo ""
 	@echo "Build:"
@@ -65,6 +66,23 @@ test-db:
 DATABASE_TEST_URL ?= postgres://botka:botka@localhost:5432/botka_test?sslmode=disable
 test: ensure-dist
 	CGO_ENABLED=1 DATABASE_TEST_URL="$(DATABASE_TEST_URL)" go test -race -coverprofile=coverage.out ./cmd/... ./internal/...
+
+# Run tests with coverage and print summary; fail if below threshold
+test-coverage: ensure-dist
+	CGO_ENABLED=1 DATABASE_TEST_URL="$(DATABASE_TEST_URL)" go test -race -coverprofile=coverage.out ./cmd/... ./internal/...
+	@echo ""
+	@echo "=== Coverage by package ==="
+	@go tool cover -func=coverage.out | grep -E '(^total:|internal/)'
+	@echo ""
+	@go tool cover -html=coverage.out -o coverage.html
+	@echo "HTML report: coverage.html"
+	@total=$$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $$NF}' | tr -d '%'); \
+	threshold=45; \
+	echo "Total coverage: $${total}% (threshold: $${threshold}%)"; \
+	if [ $$(echo "$${total} < $${threshold}" | bc) -eq 1 ]; then \
+		echo "FAIL: coverage $${total}% is below $${threshold}%"; \
+		exit 1; \
+	fi
 
 # Type-check frontend (no bundle)
 frontend-check:

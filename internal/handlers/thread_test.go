@@ -283,3 +283,244 @@ func TestThread_UpdateModel(t *testing.T) {
 		t.Errorf("expected model=opus, got %v", updated.Model)
 	}
 }
+
+func TestThread_GetByID_Success(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	th := createTestThread(t, db)
+
+	r := threadRouter(db)
+	w := doRequest(r, http.MethodGet, fmt.Sprintf("/api/v1/threads/%d", th.ID), "")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	data := resp["data"].(map[string]interface{})
+	thread := data["thread"].(map[string]interface{})
+	if thread["title"] != "test thread" {
+		t.Errorf("expected title=test thread, got %v", thread["title"])
+	}
+}
+
+func TestThread_GetByID_NotFound(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	r := threadRouter(db)
+	w := doRequest(r, http.MethodGet, "/api/v1/threads/99999", "")
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestThread_GetByID_InvalidID(t *testing.T) {
+	db := setupTestDB(t)
+
+	r := threadRouter(db)
+	w := doRequest(r, http.MethodGet, "/api/v1/threads/not-a-number", "")
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestThread_Unarchive(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	th := createTestThread(t, db)
+
+	// Archive first.
+	db.Model(&models.Thread{}).Where("id = ?", th.ID).Update("archived", true)
+
+	r := threadRouter(db)
+	w := doRequest(r, http.MethodDelete, fmt.Sprintf("/api/v1/threads/%d/archive", th.ID), "")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var updated models.Thread
+	db.First(&updated, th.ID)
+	if updated.Archived {
+		t.Error("expected thread to be unarchived")
+	}
+}
+
+func TestThread_SetProject(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	th := createTestThread(t, db)
+	proj := createTestProject(t, db)
+
+	r := threadRouter(db)
+	body := fmt.Sprintf(`{"project_id":"%s"}`, proj.ID)
+	w := doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/threads/%d/project", th.ID), body)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var updated models.Thread
+	db.First(&updated, th.ID)
+	if updated.ProjectID == nil || *updated.ProjectID != proj.ID {
+		t.Errorf("expected project_id=%s, got %v", proj.ID, updated.ProjectID)
+	}
+}
+
+func TestThread_Usage(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	th := createTestThread(t, db)
+
+	// Create messages with token usage.
+	promptTokens := 100
+	completionTokens := 50
+	cost := 0.01
+	msg := models.Message{
+		ThreadID:         th.ID,
+		Role:             "assistant",
+		Content:          "test response",
+		PromptTokens:     &promptTokens,
+		CompletionTokens: &completionTokens,
+		CostUSD:          &cost,
+	}
+	db.Create(&msg)
+
+	r := threadRouter(db)
+	w := doRequest(r, http.MethodGet, fmt.Sprintf("/api/v1/threads/%d/usage", th.ID), "")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			TotalPromptTokens     int64   `json:"total_prompt_tokens"`
+			TotalCompletionTokens int64   `json:"total_completion_tokens"`
+			TotalTokens           int64   `json:"total_tokens"`
+			TotalCostUSD          float64 `json:"total_cost_usd"`
+			MessageCount          int64   `json:"message_count"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Data.TotalPromptTokens != 100 {
+		t.Errorf("expected prompt_tokens=100, got %d", resp.Data.TotalPromptTokens)
+	}
+	if resp.Data.TotalCompletionTokens != 50 {
+		t.Errorf("expected completion_tokens=50, got %d", resp.Data.TotalCompletionTokens)
+	}
+	if resp.Data.TotalTokens != 150 {
+		t.Errorf("expected total_tokens=150, got %d", resp.Data.TotalTokens)
+	}
+	if resp.Data.MessageCount != 1 {
+		t.Errorf("expected message_count=1, got %d", resp.Data.MessageCount)
+	}
+}
+
+func TestThread_ClearMessages(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	th := createTestThread(t, db)
+
+	// Create a message.
+	db.Create(&models.Message{ThreadID: th.ID, Role: "user", Content: "hello"})
+
+	r := threadRouter(db)
+	w := doRequest(r, http.MethodDelete, fmt.Sprintf("/api/v1/threads/%d/messages", th.ID), "")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify messages are gone.
+	var count int64
+	db.Model(&models.Message{}).Where("thread_id = ?", th.ID).Count(&count)
+	if count != 0 {
+		t.Errorf("expected 0 messages after clear, got %d", count)
+	}
+}
+
+func TestThread_SetTags(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	th := createTestThread(t, db)
+
+	// Create tags.
+	tag1 := models.Tag{Name: "tag1", Color: "#ff0000"}
+	tag2 := models.Tag{Name: "tag2", Color: "#00ff00"}
+	db.Create(&tag1)
+	db.Create(&tag2)
+
+	r := threadRouter(db)
+	body := fmt.Sprintf(`{"tag_ids":[%d,%d]}`, tag1.ID, tag2.ID)
+	w := doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/threads/%d/tags", th.ID), body)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify tags are set.
+	var count int64
+	db.Raw("SELECT COUNT(*) FROM thread_tags WHERE thread_id = ?", th.ID).Scan(&count)
+	if count != 2 {
+		t.Errorf("expected 2 thread_tags, got %d", count)
+	}
+}
+
+func TestThread_PinLimit(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	r := threadRouter(db)
+
+	// Pin 10 threads.
+	for i := 0; i < 10; i++ {
+		th := createTestThread(t, db)
+		w := doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/threads/%d/pin", th.ID), "")
+		if w.Code != http.StatusOK {
+			t.Fatalf("pin thread %d: expected 200, got %d: %s", i+1, w.Code, w.Body.String())
+		}
+	}
+
+	// 11th pin should fail.
+	th := createTestThread(t, db)
+	w := doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/threads/%d/pin", th.ID), "")
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409 for 11th pin, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestThread_CreateWithProject(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	proj := createTestProject(t, db)
+
+	r := threadRouter(db)
+	body := fmt.Sprintf(`{"project_id":"%s"}`, proj.ID)
+	w := doRequest(r, http.MethodPost, "/api/v1/threads", body)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	data := resp["data"].(map[string]interface{})
+	if data["project_id"] == nil {
+		t.Error("expected project_id to be set")
+	}
+}

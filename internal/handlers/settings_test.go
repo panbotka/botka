@@ -92,3 +92,44 @@ func TestSettings_UpdateMaxWorkers_InvalidHigh(t *testing.T) {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+func TestSettings_SetOnChange(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	h := NewSettingsHandler(db)
+	router := gin.New()
+	RegisterSettingsRoutes(router.Group("/api/v1"), h)
+
+	var calledKey, calledValue string
+	h.SetOnChange(func(key, value string) {
+		calledKey = key
+		calledValue = value
+	})
+
+	w := doRequest(router, http.MethodPut, "/api/v1/settings", `{"max_workers": 3}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if calledKey != "max_workers" {
+		t.Errorf("expected onChange key=max_workers, got %q", calledKey)
+	}
+	if calledValue != "3" {
+		t.Errorf("expected onChange value=3, got %q", calledValue)
+	}
+}
+
+func TestSettings_UpdateInvalidBody(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	h := NewSettingsHandler(db)
+	router := gin.New()
+	RegisterSettingsRoutes(router.Group("/api/v1"), h)
+
+	w := doRequest(router, http.MethodPut, "/api/v1/settings", `{invalid json}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}

@@ -329,3 +329,182 @@ func TestParseUsageJSON_HighUtilization(t *testing.T) {
 		t.Errorf("expected SevenDayPct %f, got %f", wantSevenDay, info.SevenDayPct)
 	}
 }
+
+func TestIsRateLimited_NoData(t *testing.T) {
+	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	// Zero-value info: no usage data yet
+	limited, reason := m.IsRateLimited()
+	if limited {
+		t.Errorf("should not be rate limited with no data, got reason: %s", reason)
+	}
+}
+
+func TestIsRateLimited_BothThresholdsExceeded(t *testing.T) {
+	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	m.info = UsageInfo{
+		FiveHourPct: 0.95,
+		SevenDayPct: 0.99,
+	}
+
+	limited, reason := m.IsRateLimited()
+	if !limited {
+		t.Error("expected rate limited when both thresholds exceeded")
+	}
+	// The 5-hour check comes first in the code, so reason should mention 5-hour
+	if reason == "" {
+		t.Error("expected non-empty reason")
+	}
+}
+
+func TestIsRateLimited_ExactlyAtThreshold(t *testing.T) {
+	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	// At the threshold but not exceeding (uses > not >=)
+	m.info = UsageInfo{
+		FiveHourPct: 0.90,
+		SevenDayPct: 0.95,
+	}
+
+	limited, reason := m.IsRateLimited()
+	if limited {
+		t.Errorf("should not be rate limited at exact threshold (> not >=), got reason: %s", reason)
+	}
+}
+
+func TestIsRateLimited_JustAboveThreshold(t *testing.T) {
+	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	m.info = UsageInfo{
+		FiveHourPct: 0.901,
+		SevenDayPct: 0.50,
+	}
+
+	limited, _ := m.IsRateLimited()
+	if !limited {
+		t.Error("expected rate limited when just above 5-hour threshold")
+	}
+}
+
+func TestIsRateLimited_FutureResetTimeNotIgnored(t *testing.T) {
+	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	m.info = UsageInfo{
+		FiveHourPct: 0.95,
+		SevenDayPct: 0.50,
+		ResetsAt:    time.Now().Add(1 * time.Hour), // reset in the future
+	}
+
+	limited, _ := m.IsRateLimited()
+	if !limited {
+		t.Error("expected rate limited when reset time is in the future")
+	}
+}
+
+func TestAdaptiveInterval_BoundaryAt50Percent(t *testing.T) {
+	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	m.info = UsageInfo{
+		FiveHourPct: 0.50,
+		SevenDayPct: 0.00,
+	}
+
+	got := m.adaptiveInterval()
+	// 0.50 is >= 0.50, so should be medium (30m)
+	want := 30 * time.Minute
+	if got != want {
+		t.Errorf("at 50%%: got %v, want %v", got, want)
+	}
+}
+
+func TestAdaptiveInterval_BoundaryAt70Percent(t *testing.T) {
+	configured := 10 * time.Minute
+	m := NewUsageMonitor("", 0.90, 0.95, configured)
+	m.info = UsageInfo{
+		FiveHourPct: 0.70,
+		SevenDayPct: 0.00,
+	}
+
+	got := m.adaptiveInterval()
+	// 0.70 is >= 0.70, so should use configured interval
+	if got != configured {
+		t.Errorf("at 70%%: got %v, want %v", got, configured)
+	}
+}
+
+func TestAdaptiveInterval_UsesMaxOfBothPcts(t *testing.T) {
+	configured := 10 * time.Minute
+	m := NewUsageMonitor("", 0.90, 0.95, configured)
+	// FiveHour is low but SevenDay is high -- should use the max
+	m.info = UsageInfo{
+		FiveHourPct: 0.10,
+		SevenDayPct: 0.80,
+	}
+
+	got := m.adaptiveInterval()
+	if got != configured {
+		t.Errorf("max pct is 0.80 (>=0.70): got %v, want configured %v", got, configured)
+	}
+}
+
+func TestParseUsageJSON_EmptyDataObject(t *testing.T) {
+	input := []byte(`{"data": {}}`)
+
+	info, err := parseUsageJSON(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if info.FiveHourPct != 0 {
+		t.Errorf("expected FiveHourPct 0, got %f", info.FiveHourPct)
+	}
+	if info.SevenDayPct != 0 {
+		t.Errorf("expected SevenDayPct 0, got %f", info.SevenDayPct)
+	}
+}
+
+func TestParseUsageJSON_MissingResetsAt(t *testing.T) {
+	input := []byte(`{
+		"data": {
+			"five_hour": {
+				"utilization": 42.0
+			},
+			"seven_day": {
+				"utilization": 10.0
+			}
+		}
+	}`)
+
+	info, err := parseUsageJSON(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if info.FiveHourPct != 0.42 {
+		t.Errorf("expected FiveHourPct 0.42, got %f", info.FiveHourPct)
+	}
+	if !info.ResetsAt.IsZero() {
+		t.Errorf("expected zero ResetsAt when resets_at is missing, got %v", info.ResetsAt)
+	}
+}
+
+func TestParseUsageJSON_EmptyBytes(t *testing.T) {
+	_, err := parseUsageJSON([]byte{})
+	if err == nil {
+		t.Fatal("expected error for empty bytes, got nil")
+	}
+}
+
+func TestCurrentUsage_ZeroValue(t *testing.T) {
+	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	usage := m.CurrentUsage()
+	if usage.FiveHourPct != 0 || usage.SevenDayPct != 0 {
+		t.Errorf("expected zero usage, got five_hour=%f seven_day=%f", usage.FiveHourPct, usage.SevenDayPct)
+	}
+	if !usage.ResetsAt.IsZero() {
+		t.Errorf("expected zero ResetsAt, got %v", usage.ResetsAt)
+	}
+}
+
+func TestResetsAt_ZeroValue(t *testing.T) {
+	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	got := m.ResetsAt()
+	if !got.IsZero() {
+		t.Errorf("expected zero ResetsAt, got %v", got)
+	}
+}

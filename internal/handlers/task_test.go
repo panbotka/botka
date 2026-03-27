@@ -735,3 +735,77 @@ func TestTaskDelete_SoftDeleteFailed(t *testing.T) {
 		t.Errorf("expected status deleted, got %s", got.Status)
 	}
 }
+
+func TestTask_Stats(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createTestProject(t, db)
+
+	// Create tasks with various statuses.
+	createTestTask(t, db, proj.ID, models.TaskStatusPending)
+	createTestTask(t, db, proj.ID, models.TaskStatusPending)
+	createTestTask(t, db, proj.ID, models.TaskStatusQueued)
+	createTestTask(t, db, proj.ID, models.TaskStatusDone)
+	createTestTask(t, db, proj.ID, models.TaskStatusDone)
+	createTestTask(t, db, proj.ID, models.TaskStatusDone)
+	createTestTask(t, db, proj.ID, models.TaskStatusFailed)
+
+	r := taskRouter(db)
+	w := doRequest(r, http.MethodGet, "/api/v1/tasks/stats", "")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			Total    int64 `json:"total"`
+			ByStatus struct {
+				Pending     int64 `json:"pending"`
+				Queued      int64 `json:"queued"`
+				Running     int64 `json:"running"`
+				Done        int64 `json:"done"`
+				Failed      int64 `json:"failed"`
+				NeedsReview int64 `json:"needs_review"`
+				Cancelled   int64 `json:"cancelled"`
+			} `json:"by_status"`
+			SuccessRate *float64         `json:"success_rate"`
+			TopProject  *json.RawMessage `json:"top_project"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if resp.Data.Total != 7 {
+		t.Errorf("expected total=7, got %d", resp.Data.Total)
+	}
+	if resp.Data.ByStatus.Pending != 2 {
+		t.Errorf("expected pending=2, got %d", resp.Data.ByStatus.Pending)
+	}
+	if resp.Data.ByStatus.Queued != 1 {
+		t.Errorf("expected queued=1, got %d", resp.Data.ByStatus.Queued)
+	}
+	if resp.Data.ByStatus.Done != 3 {
+		t.Errorf("expected done=3, got %d", resp.Data.ByStatus.Done)
+	}
+	if resp.Data.ByStatus.Failed != 1 {
+		t.Errorf("expected failed=1, got %d", resp.Data.ByStatus.Failed)
+	}
+	if resp.Data.ByStatus.Running != 0 {
+		t.Errorf("expected running=0, got %d", resp.Data.ByStatus.Running)
+	}
+
+	// Success rate: 3 done / (3 done + 1 failed) = 0.75
+	if resp.Data.SuccessRate == nil {
+		t.Fatal("expected success_rate to be non-nil")
+	}
+	if *resp.Data.SuccessRate != 0.75 {
+		t.Errorf("expected success_rate=0.75, got %f", *resp.Data.SuccessRate)
+	}
+
+	// Top project should be our test project.
+	if resp.Data.TopProject == nil {
+		t.Error("expected top_project to be non-nil")
+	}
+}

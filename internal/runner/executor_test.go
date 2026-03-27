@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"botka/internal/models"
+
+	"github.com/google/uuid"
 )
 
 func TestClassifyOutcome_Timeout(t *testing.T) {
@@ -368,4 +370,202 @@ func TestTruncate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTruncate_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		maxLen int
+		want   string
+	}{
+		{"zero max length truncates everything", "hello", 0, "..."},
+		{"single char max", "hello", 1, "h..."},
+		{"one over max", "abcdef", 5, "abcde..."},
+		{"max length of 500 (maxErrLen)", strings.Repeat("x", 600), 500, strings.Repeat("x", 500) + "..."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncate(tt.input, tt.maxLen)
+			if got != tt.want {
+				t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClassifyOutcome_SuccessNoLastText(t *testing.T) {
+	out := &spawnOutput{
+		exitCode: 0,
+		lastResult: &Event{
+			Type:       EventResult,
+			CostUSD:    0.10,
+			DurationMs: 20000,
+		},
+		lastText: "",
+	}
+	task := &models.Task{RetryCount: 0}
+
+	r := classifyOutcome(out, task)
+
+	if r.Status != models.TaskStatusDone {
+		t.Errorf("status = %v, want %v", r.Status, models.TaskStatusDone)
+	}
+	if r.Summary != "" {
+		t.Errorf("Summary = %q, want empty", r.Summary)
+	}
+}
+
+func TestClassifyOutcome_CrashMaxRetries(t *testing.T) {
+	out := &spawnOutput{
+		exitCode: 1,
+		stderr:   "unknown crash",
+	}
+	task := &models.Task{RetryCount: 1}
+
+	r := classifyOutcome(out, task)
+
+	if r.Status != models.TaskStatusFailed {
+		t.Errorf("status = %v, want %v", r.Status, models.TaskStatusFailed)
+	}
+	if r.ShouldRetry {
+		t.Error("ShouldRetry = true, want false (RetryCount=1 == maxRetries)")
+	}
+	if !strings.Contains(r.ErrorMessage, "crashed") {
+		t.Errorf("ErrorMessage = %q, want it to contain 'crashed'", r.ErrorMessage)
+	}
+}
+
+func TestClassifyOutcome_TimeoutExhaustsRetries(t *testing.T) {
+	out := &spawnOutput{timedOut: true}
+	task := &models.Task{RetryCount: 1}
+
+	r := classifyOutcome(out, task)
+
+	if r.ShouldRetry {
+		t.Error("ShouldRetry = true, want false (RetryCount == maxRetries)")
+	}
+	if r.ErrorMessage != "execution timed out" {
+		t.Errorf("ErrorMessage = %q, want %q", r.ErrorMessage, "execution timed out")
+	}
+}
+
+func TestBuildFailureResult_NilResultFieldsZero(t *testing.T) {
+	out := &spawnOutput{
+		stderr:   "something went wrong",
+		lastText: "partial output",
+		lastResult: &Event{
+			Type: EventResult,
+			// CostUSD and DurationMs default to zero
+		},
+	}
+	task := &models.Task{RetryCount: 0}
+
+	r := buildFailureResult(out, task)
+
+	if r.CostUSD != 0 {
+		t.Errorf("CostUSD = %v, want 0", r.CostUSD)
+	}
+	if r.DurationMs != 0 {
+		t.Errorf("DurationMs = %v, want 0", r.DurationMs)
+	}
+}
+
+func TestBuildFailureResult_LongStderrTruncated(t *testing.T) {
+	longStderr := strings.Repeat("error ", 200) // ~1200 chars
+	out := &spawnOutput{
+		stderr:     longStderr,
+		lastText:   "output",
+		lastResult: &Event{Type: EventResult},
+	}
+	task := &models.Task{RetryCount: 0}
+
+	r := buildFailureResult(out, task)
+
+	if len(r.ErrorMessage) > maxErrLen+10 {
+		t.Errorf("ErrorMessage length = %d, expected <= %d (maxErrLen + ellipsis)", len(r.ErrorMessage), maxErrLen+10)
+	}
+	if !strings.HasSuffix(r.ErrorMessage, "...") {
+		t.Errorf("ErrorMessage should end with '...', got %q", r.ErrorMessage[len(r.ErrorMessage)-10:])
+	}
+}
+
+func TestIsAPIError_AllPatterns(t *testing.T) {
+	// Ensure each documented pattern is individually matched.
+	patterns := []string{"500", "502", "503", "529", "overloaded", "rate_limit", "capacity"}
+	for _, p := range patterns {
+		if !isAPIError(p) {
+			t.Errorf("isAPIError(%q) = false, want true", p)
+		}
+	}
+}
+
+func TestIsAPIError_CaseInsensitive(t *testing.T) {
+	tests := []string{"OVERLOADED", "Overloaded", "RATE_LIMIT", "Rate_Limit", "CAPACITY", "Capacity"}
+	for _, input := range tests {
+		if !isAPIError(input) {
+			t.Errorf("isAPIError(%q) = false, want true (case insensitive)", input)
+		}
+	}
+}
+
+func TestBuildPrompt_Basic(t *testing.T) {
+	e := &Executor{claudePath: "/usr/bin/claude"}
+	task := &models.Task{RetryCount: 0}
+	task.ID = parseUUID("11111111-1111-1111-1111-111111111111")
+	task.Title = "Fix login bug"
+
+	prompt := e.buildPrompt(task)
+
+	if !strings.Contains(prompt, "Fix login bug") {
+		t.Error("prompt should contain task title")
+	}
+	if !strings.Contains(prompt, "task-11111111-1111-1111-1111-111111111111.md") {
+		t.Error("prompt should reference the spec file path")
+	}
+	if !strings.Contains(prompt, "NEVER run deploy") {
+		t.Error("prompt should contain safety warning")
+	}
+}
+
+func TestBuildPrompt_WithRetryInfo(t *testing.T) {
+	e := &Executor{claudePath: "/usr/bin/claude"}
+	failReason := "tests failed: 2 errors"
+	task := &models.Task{
+		RetryCount:    1,
+		FailureReason: &failReason,
+	}
+	task.ID = parseUUID("22222222-2222-2222-2222-222222222222")
+	task.Title = "Add feature"
+
+	prompt := e.buildPrompt(task)
+
+	if !strings.Contains(prompt, "Previous attempt failed") {
+		t.Error("prompt should mention previous failure")
+	}
+	if !strings.Contains(prompt, "tests failed: 2 errors") {
+		t.Error("prompt should contain the failure reason")
+	}
+}
+
+func TestBuildPrompt_RetryCountZeroNoFailureInfo(t *testing.T) {
+	e := &Executor{claudePath: "/usr/bin/claude"}
+	task := &models.Task{RetryCount: 0}
+	task.ID = parseUUID("33333333-3333-3333-3333-333333333333")
+	task.Title = "First attempt"
+
+	prompt := e.buildPrompt(task)
+
+	if strings.Contains(prompt, "Previous attempt") {
+		t.Error("prompt should not mention previous failure on first attempt")
+	}
+}
+
+// parseUUID is a test helper to create a uuid.UUID from a string.
+func parseUUID(s string) uuid.UUID {
+	id, err := uuid.Parse(s)
+	if err != nil {
+		panic(err)
+	}
+	return id
 }

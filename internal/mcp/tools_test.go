@@ -302,6 +302,8 @@ func TestAllowedTransitions(t *testing.T) {
 		{"needs_review to queued", models.TaskStatusNeedsReview, models.TaskStatusQueued, true},
 		{"needs_review to done", models.TaskStatusNeedsReview, models.TaskStatusDone, true},
 		{"done to queued", models.TaskStatusDone, models.TaskStatusQueued, false},
+		{"running to queued", models.TaskStatusRunning, models.TaskStatusQueued, false},
+		{"deleted to pending", models.TaskStatusDeleted, models.TaskStatusPending, true},
 	}
 
 	for _, tt := range tests {
@@ -313,5 +315,117 @@ func TestAllowedTransitions(t *testing.T) {
 				t.Errorf("transition %s → %s: got %v, want %v", tt.from, tt.to, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestCreateTaskArgs_validateErrorMessages verifies exact error messages from validation.
+func TestCreateTaskArgs_validateErrorMessages(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		args    createTaskArgs
+		wantErr string
+		wantSt  models.TaskStatus
+	}{
+		{"empty title", createTaskArgs{ProjectName: "p", Spec: "s"}, "title is required", ""},
+		{"empty project", createTaskArgs{Title: "t", Spec: "s"}, "project_name is required", ""},
+		{"empty spec", createTaskArgs{Title: "t", ProjectName: "p"}, "spec is required", ""},
+		{"default status", createTaskArgs{Title: "t", ProjectName: "p", Spec: "s"}, "", models.TaskStatusQueued},
+		{"explicit pending", createTaskArgs{Title: "t", ProjectName: "p", Spec: "s", Status: "pending"}, "", models.TaskStatusPending},
+		{"explicit queued", createTaskArgs{Title: "t", ProjectName: "p", Spec: "s", Status: "queued"}, "", models.TaskStatusQueued},
+		{"invalid status", createTaskArgs{Title: "t", ProjectName: "p", Spec: "s", Status: "running"}, "status must be pending or queued", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			st, err := tt.args.validate()
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Errorf("validate() error = %v, want %q", err, tt.wantErr)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if st != tt.wantSt {
+					t.Errorf("status = %s, want %s", st, tt.wantSt)
+				}
+			}
+		})
+	}
+}
+
+// TestUpdateTaskArgs_buildUpdatesFieldCounts verifies the number of update entries
+// and changed field names for various update combinations.
+func TestUpdateTaskArgs_buildUpdatesFieldCounts(t *testing.T) {
+	t.Parallel()
+
+	strPtr := func(s string) *string { return &s }
+	intPtr := func(i int) *int { return &i }
+
+	tests := []struct {
+		name       string
+		args       updateTaskArgs
+		current    models.TaskStatus
+		wantCount  int
+		wantFields []string
+		wantErr    bool
+	}{
+		{"title only", updateTaskArgs{Title: strPtr("new title")}, models.TaskStatusPending, 1, []string{"title"}, false},
+		{"spec only", updateTaskArgs{Spec: strPtr("new spec")}, models.TaskStatusPending, 1, []string{"spec"}, false},
+		{"priority only", updateTaskArgs{Priority: intPtr(5)}, models.TaskStatusPending, 1, []string{"priority"}, false},
+		{"valid status transition", updateTaskArgs{Status: strPtr("queued")}, models.TaskStatusPending, 1, []string{"status"}, false},
+		{"invalid transition from done", updateTaskArgs{Status: strPtr("queued")}, models.TaskStatusDone, 0, nil, true},
+		{"all fields", updateTaskArgs{Title: strPtr("new title"), Spec: strPtr("new spec"), Priority: intPtr(5)}, models.TaskStatusPending, 3, []string{"title", "spec", "priority"}, false},
+		{"no changes", updateTaskArgs{}, models.TaskStatusPending, 0, nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			updates, changed, err := tt.args.buildUpdates(tt.current)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(updates) != tt.wantCount {
+				t.Errorf("got %d updates, want %d", len(updates), tt.wantCount)
+			}
+			if len(changed) != len(tt.wantFields) {
+				t.Errorf("got changed %v, want %v", changed, tt.wantFields)
+			}
+		})
+	}
+}
+
+// TestFormatTaskDetail_withExecutions verifies that executions are included in task detail formatting.
+func TestFormatTaskDetail_withExecutions(t *testing.T) {
+	t.Parallel()
+
+	exitCode := 0
+	duration := int64(5000)
+	cost := 0.05
+	summary := "All tests pass"
+	task := &models.Task{
+		Title:   "Test Task",
+		Status:  models.TaskStatusDone,
+		Project: models.Project{Name: "test"},
+		Executions: []models.TaskExecution{
+			{Attempt: 1, ExitCode: &exitCode, DurationMs: &duration, CostUSD: &cost, Summary: &summary},
+		},
+	}
+	result := formatTaskDetail(task)
+	checks := []string{"Test Task", "Attempt 1", "exit_code=0", "All tests pass"}
+	for _, check := range checks {
+		if !strings.Contains(result, check) {
+			t.Errorf("formatTaskDetail missing %q in output:\n%s", check, result)
+		}
 	}
 }

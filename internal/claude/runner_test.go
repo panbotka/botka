@@ -3,9 +3,11 @@ package claude
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -283,5 +285,63 @@ func TestRun_ContextCancellation(t *testing.T) {
 		// Channel closed, test passes
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for channel to close after context cancellation")
+	}
+}
+
+func TestStderrBuffer_Add(t *testing.T) {
+	b := &stderrBuffer{}
+	b.Add("line1")
+	b.Add("line2")
+	got := b.String()
+	if got != "line1\nline2" {
+		t.Errorf("got %q, want %q", got, "line1\nline2")
+	}
+}
+
+func TestStderrBuffer_Eviction(t *testing.T) {
+	b := &stderrBuffer{}
+	for i := 0; i < 25; i++ {
+		b.Add(fmt.Sprintf("line%d", i))
+	}
+	lines := strings.Split(b.String(), "\n")
+	if len(lines) != maxStderrLines {
+		t.Errorf("got %d lines, want %d", len(lines), maxStderrLines)
+	}
+	// Should have evicted early lines
+	if lines[0] != "line5" {
+		t.Errorf("first line = %q, want %q", lines[0], "line5")
+	}
+}
+
+func TestStderrBuffer_Empty(t *testing.T) {
+	b := &stderrBuffer{}
+	if got := b.String(); got != "" {
+		t.Errorf("empty buffer should return empty string, got %q", got)
+	}
+}
+
+func TestTitleFromContent_Truncation(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantLen int // max length check (0 = skip)
+		wantEnd string
+	}{
+		{"short", "Hello", 5, "Hello"},
+		{"exactly_60", strings.Repeat("a", 60), 60, strings.Repeat("a", 60)},
+		{"long with space", "This is a very long message that should be truncated at a reasonable word boundary point somewhere", 0, "..."},
+		{"long no good space", strings.Repeat("x", 100), 63, "..."},
+		{"whitespace only", "   ", 0, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := TitleFromContent(tt.input)
+			if tt.wantEnd != "" && !strings.HasSuffix(got, tt.wantEnd) {
+				t.Errorf("TitleFromContent(%q) = %q, want suffix %q", tt.input, got, tt.wantEnd)
+			}
+			if tt.wantLen > 0 && len(got) > tt.wantLen {
+				t.Errorf("TitleFromContent(%q) len=%d, want max %d", tt.input, len(got), tt.wantLen)
+			}
+		})
 	}
 }

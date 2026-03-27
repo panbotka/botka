@@ -1,6 +1,14 @@
 package middleware
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+
+	"botka/internal/models"
+)
 
 func TestIsAllowedExternalPath(t *testing.T) {
 	tests := []struct {
@@ -92,5 +100,109 @@ func TestExtractThreadID(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("extractThreadID(%q) = %d, want %d", tt.path, got, tt.want)
 		}
+	}
+}
+
+// TestExternalAccess_AdminPassesThrough verifies that admin users bypass
+// external access restrictions entirely.
+func TestExternalAccess_AdminPassesThrough(t *testing.T) {
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set(ContextKeyUser, &models.User{ID: 1, Role: models.RoleAdmin})
+		c.Next()
+	})
+	r.Use(ExternalAccess(nil))
+	r.GET("/api/v1/tasks", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/tasks", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 for admin user, got %d", w.Code)
+	}
+}
+
+// TestExternalAccess_NoUserReturns401 verifies that requests without a user
+// in the context get a 401 on protected paths.
+func TestExternalAccess_NoUserReturns401(t *testing.T) {
+	r := gin.New()
+	r.Use(ExternalAccess(nil))
+	r.GET("/api/v1/tasks", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/tasks", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for missing user, got %d", w.Code)
+	}
+}
+
+// TestExternalAccess_ExternalUserForbiddenOnAdminPath verifies that external
+// users are blocked from admin-only paths (e.g., /api/v1/tasks).
+func TestExternalAccess_ExternalUserForbiddenOnAdminPath(t *testing.T) {
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set(ContextKeyUser, &models.User{ID: 2, Role: models.RoleExternal})
+		c.Next()
+	})
+	r.Use(ExternalAccess(nil))
+	r.GET("/api/v1/tasks", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/tasks", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for external user on admin path, got %d", w.Code)
+	}
+}
+
+// TestExternalAccess_PublicPathPassesThrough verifies that public paths
+// pass through the ExternalAccess middleware without user checks.
+func TestExternalAccess_PublicPathPassesThrough(t *testing.T) {
+	r := gin.New()
+	r.Use(ExternalAccess(nil))
+	r.POST("/api/v1/auth/login", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequest("POST", "/api/v1/auth/login", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 for public path, got %d", w.Code)
+	}
+}
+
+// TestExternalAccess_ExternalUserAllowedThreadList verifies that external
+// users can access the thread list endpoint (GET /api/v1/threads).
+func TestExternalAccess_ExternalUserAllowedThreadList(t *testing.T) {
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set(ContextKeyUser, &models.User{ID: 2, Role: models.RoleExternal})
+		c.Next()
+	})
+	r.Use(ExternalAccess(nil))
+	r.GET("/api/v1/threads", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/threads", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	// Thread list is an allowed external path and has no thread ID to check,
+	// so it should pass through.
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 for external user on thread list, got %d", w.Code)
 	}
 }
