@@ -1,4 +1,4 @@
-.PHONY: help fmt vet lint test test-coverage check build run clean migrate-up migrate-down migrate-create frontend-install frontend-dev frontend-test dev-backend frontend-build prod-build deploy install-service docker-build docker-up docker-down ensure-dist test-db
+.PHONY: help fmt vet lint test test-coverage check build run clean migrate-up migrate-down migrate-create frontend-install frontend-dev frontend-test test-e2e test-e2e-setup dev-backend frontend-build prod-build deploy install-service docker-build docker-up docker-down ensure-dist test-db
 
 ## help: Show available targets
 help:
@@ -16,6 +16,7 @@ help:
 	@echo "  test             Run tests with race detector"
 	@echo "  test-coverage    Run tests with coverage report and threshold check"
 	@echo "  check            Full CI gate: fmt + vet + lint + test"
+	@echo "  test-e2e         Run Playwright E2E tests (requires running app on :5110)"
 	@echo ""
 	@echo "Build:"
 	@echo "  build            Build Go binary to build/botka"
@@ -91,6 +92,17 @@ frontend-check:
 # Run frontend unit tests
 frontend-test:
 	cd frontend && npx vitest run
+
+# Create E2E test user (run once, requires running app)
+test-e2e-setup:
+	@echo "Creating E2E test user (e2e-test / e2e-test-password)..."
+	@docker exec shared-postgres psql -U botka -d botka -c \
+		"INSERT INTO users (username, password_hash, role, created_at, updated_at) VALUES ('e2e-test', '\$$2b\$$12\$$217dqYKEL1rJ7BE9ao4GR.clp0CD1gqJaF53t/TSP9b.kY3BAWx.a', 'admin', NOW(), NOW()) ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash;" \
+		2>/dev/null && echo "Done." || echo "Failed — is shared-postgres running?"
+
+# Run Playwright E2E tests (requires running app on :5110)
+test-e2e:
+	cd frontend && npx playwright test
 
 # Full CI gate: format + vet + lint + test + frontend type-check + frontend tests
 check: fmt vet lint test frontend-check frontend-test
