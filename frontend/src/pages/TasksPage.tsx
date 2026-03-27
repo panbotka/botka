@@ -4,12 +4,17 @@ import { clsx } from 'clsx'
 import { Plus, Loader2 } from 'lucide-react'
 
 import { TaskList } from '../components/TaskList'
+import { Pagination } from '../components/Pagination'
 import { useTasks } from '../hooks/useTasks'
+import { useTaskCounts } from '../hooks/useTaskCounts'
+import { useProjects } from '../hooks/useProjects'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import type { TaskStatus } from '../types'
 
 type Filter = 'all' | TaskStatus
+
+const PAGE_SIZE = 100
 
 const filters: { value: Filter; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -31,80 +36,67 @@ export default function TasksPage() {
 
   const urlStatus = searchParams.get('status')
   const urlProject = searchParams.get('project')
+  const urlPage = searchParams.get('page')
   const hasValidUrlParam = urlStatus !== null && validFilters.has(urlStatus)
 
   const autoSelectedFilter = useRef<Filter | null>(null)
 
-  const isDeletedView = urlStatus === 'deleted'
+  // Parse current page from URL (1-based)
+  const currentPage = Math.max(1, parseInt(urlPage ?? '1', 10) || 1)
 
-  // Fetch non-deleted tasks (backend excludes deleted by default)
-  const { tasks: mainTasks, loading: mainLoading, error: mainError, refetch: mainRefetch } = useTasks()
-  // Fetch deleted tasks separately for the Deleted tab
-  const { tasks: deletedTasks, loading: deletedLoading, error: deletedError, refetch: deletedRefetch } = useTasks({ status: 'deleted' })
+  // Fetch projects for dropdown and name→ID mapping
+  const { projects } = useProjects()
 
-  const refetch = useCallback(async () => {
-    await Promise.all([mainRefetch(), deletedRefetch()])
-  }, [mainRefetch, deletedRefetch])
-
-  useRefreshOnFocus(refetch)
-
-  const tasks = isDeletedView ? deletedTasks : mainTasks
-  const loading = isDeletedView ? deletedLoading : mainLoading
-  const error = isDeletedView ? deletedError : mainError
-
-  // Derive unique project names from main tasks (not deleted)
-  const projectNames = useMemo(() => {
-    const names = new Set<string>()
-    for (const t of mainTasks) {
-      const name = t.project_name ?? t.project?.name
-      if (name) names.add(name)
-    }
-    return Array.from(names).sort((a, b) => a.localeCompare(b))
-  }, [mainTasks])
+  const projectNames = useMemo(
+    () => projects.map((p) => p.name).sort((a, b) => a.localeCompare(b)),
+    [projects],
+  )
 
   const activeProject = urlProject && projectNames.includes(urlProject) ? urlProject : null
 
-  // Auto-select most actionable status when no valid URL param is present
-  useEffect(() => {
-    if (hasValidUrlParam || autoSelectedFilter.current !== null || mainTasks.length === 0) return
-    const projectTasks = activeProject
-      ? mainTasks.filter((t) => (t.project_name ?? t.project?.name) === activeProject)
-      : mainTasks
-    const hasStatus = (s: TaskStatus) => projectTasks.some((t) => t.status === s)
-    if (hasStatus('running')) autoSelectedFilter.current = 'running'
-    else if (hasStatus('queued')) autoSelectedFilter.current = 'queued'
-    else if (hasStatus('pending')) autoSelectedFilter.current = 'pending'
-    else autoSelectedFilter.current = 'all'
-  }, [mainTasks, hasValidUrlParam, activeProject])
+  // Map project name to project ID for server-side filtering
+  const activeProjectId = useMemo(() => {
+    if (!activeProject) return undefined
+    const proj = projects.find((p) => p.name === activeProject)
+    return proj?.id
+  }, [activeProject, projects])
 
+  // Determine the active status filter
   const activeFilter: Filter = hasValidUrlParam
     ? (urlStatus as Filter)
     : (autoSelectedFilter.current ?? 'all')
 
-  // Filter tasks by project first, then compute status counts
-  const projectFiltered = useMemo(
-    () =>
-      activeProject
-        ? tasks.filter((t) => (t.project_name ?? t.project?.name) === activeProject)
-        : tasks,
-    [tasks, activeProject],
-  )
+  // Build server-side filter params
+  const apiStatus = activeFilter === 'all' ? undefined : activeFilter
+  const offset = (currentPage - 1) * PAGE_SIZE
 
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { all: projectFiltered.length, deleted: deletedTasks.length }
-    for (const t of projectFiltered) {
-      c[t.status] = (c[t.status] ?? 0) + 1
-    }
-    return c
-  }, [projectFiltered, deletedTasks.length])
+  // Fetch paginated tasks with server-side filters
+  const { tasks, total, loading, error, refetch } = useTasks({
+    status: apiStatus,
+    project_id: activeProjectId,
+    limit: PAGE_SIZE,
+    offset,
+  })
 
-  const filtered = useMemo(
-    () =>
-      activeFilter === 'all' || activeFilter === 'deleted'
-        ? projectFiltered
-        : projectFiltered.filter((t) => t.status === activeFilter),
-    [projectFiltered, activeFilter],
-  )
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  // Fetch tab counts from stats endpoint
+  const { counts, refetch: refetchCounts } = useTaskCounts()
+
+  // Auto-select most actionable status when no valid URL param is present
+  useEffect(() => {
+    if (hasValidUrlParam || autoSelectedFilter.current !== null) return
+    if (counts.running > 0) autoSelectedFilter.current = 'running'
+    else if (counts.queued > 0) autoSelectedFilter.current = 'queued'
+    else if (counts.pending > 0) autoSelectedFilter.current = 'pending'
+    else autoSelectedFilter.current = 'all'
+  }, [counts, hasValidUrlParam])
+
+  const refetchAll = useCallback(async () => {
+    await Promise.all([refetch(), refetchCounts()])
+  }, [refetch, refetchCounts])
+
+  useRefreshOnFocus(refetchAll)
 
   const updateSearchParams = useCallback(
     (updates: Record<string, string | null>) => {
@@ -120,7 +112,7 @@ export default function TasksPage() {
 
   const handleFilterChange = useCallback(
     (value: Filter) => {
-      updateSearchParams({ status: value === 'all' ? null : value })
+      updateSearchParams({ status: value === 'all' ? null : value, page: null })
       setSelectedIds(new Set())
     },
     [updateSearchParams],
@@ -128,7 +120,15 @@ export default function TasksPage() {
 
   const handleProjectChange = useCallback(
     (value: string) => {
-      updateSearchParams({ project: value || null })
+      updateSearchParams({ project: value || null, page: null })
+      setSelectedIds(new Set())
+    },
+    [updateSearchParams],
+  )
+
+  const handlePageChange = useCallback(
+    (page: number) => {
+      updateSearchParams({ page: page <= 1 ? null : String(page) })
       setSelectedIds(new Set())
     },
     [updateSearchParams],
@@ -139,8 +139,8 @@ export default function TasksPage() {
   }, [])
 
   const handleStatusChange = useCallback(() => {
-    refetch()
-  }, [refetch])
+    refetchAll()
+  }, [refetchAll])
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
@@ -161,7 +161,7 @@ export default function TasksPage() {
         <div className="flex flex-wrap items-center gap-3 border-b border-zinc-200 pb-px">
           <div className="flex flex-wrap gap-1">
             {filters.map(({ value, label }) => {
-              const count = counts[value] ?? 0
+              const count = counts[value as keyof typeof counts] ?? 0
               return (
                 <button
                   key={value}
@@ -215,13 +215,20 @@ export default function TasksPage() {
           <p className="text-sm text-red-500">{error}</p>
         </div>
       ) : (
-        <TaskList
-          tasks={filtered}
-          onReorder={refetch}
-          selectedIds={selectedIds}
-          onSelectionChange={handleSelectionChange}
-          onStatusChange={handleStatusChange}
-        />
+        <>
+          <TaskList
+            tasks={tasks}
+            onReorder={refetchAll}
+            selectedIds={selectedIds}
+            onSelectionChange={handleSelectionChange}
+            onStatusChange={handleStatusChange}
+          />
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={handlePageChange}
+          />
+        </>
       )}
     </div>
   )
