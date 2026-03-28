@@ -8,10 +8,12 @@ interface UseProjectCommandsResult {
   runningDev: RunningCommandStatus | undefined
   runningDeploy: RunningCommandStatus | undefined
   toast: string | null
+  restarting: boolean
   confirmDeploy: boolean
   setConfirmDeploy: (v: boolean) => void
   handleRun: (type: 'dev' | 'deploy') => void
   handleKill: (pid: number) => void
+  handleRestart: () => void
   confirmAndDeploy: () => void
 }
 
@@ -19,6 +21,7 @@ export function useProjectCommands(project: Project | undefined): UseProjectComm
   const [commands, setCommands] = useState<RunningCommandStatus[]>([])
   const [toast, setToast] = useState<string | null>(null)
   const [confirmDeploy, setConfirmDeploy] = useState(false)
+  const [restarting, setRestarting] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const hasDevCommand = !!project?.dev_command
@@ -74,6 +77,25 @@ export function useProjectCommands(project: Project | undefined): UseProjectComm
     }
   }, [projectId, showToast, loadCommands])
 
+  const handleRestart = useCallback(async () => {
+    if (!projectId) return
+    const devCmd = commands.find((c) => c.command_type === 'dev')
+    if (!devCmd) return
+    setRestarting(true)
+    showToast('Restarting dev...')
+    try {
+      await killProjectCommand(projectId, devCmd.pid)
+      await new Promise((r) => setTimeout(r, 1500))
+      const result = await runProjectCommand(projectId, 'dev')
+      showToast(`Dev restarted (PID ${result.pid})`)
+      loadCommands()
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to restart', 4000)
+    } finally {
+      setRestarting(false)
+    }
+  }, [projectId, commands, showToast, loadCommands])
+
   const confirmAndDeploy = useCallback(() => {
     setConfirmDeploy(false)
     handleRun('deploy')
@@ -88,10 +110,12 @@ export function useProjectCommands(project: Project | undefined): UseProjectComm
     runningDev,
     runningDeploy,
     toast,
+    restarting,
     confirmDeploy,
     setConfirmDeploy,
     handleRun,
     handleKill,
+    handleRestart,
     confirmAndDeploy,
   }
 }

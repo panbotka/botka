@@ -1,4 +1,4 @@
-import { Play, Square, Rocket } from 'lucide-react'
+import { Play, Square, Rocket, RefreshCw } from 'lucide-react'
 import type { Project } from '../types'
 import { useProjectCommands } from '../hooks/useProjectCommands'
 
@@ -9,10 +9,12 @@ export default function CommandButtons({ project }: { project: Project | undefin
     runningDev,
     runningDeploy,
     toast,
+    restarting,
     confirmDeploy,
     setConfirmDeploy,
     handleRun,
     handleKill,
+    handleRestart,
     confirmAndDeploy,
   } = useProjectCommands(project)
 
@@ -24,18 +26,43 @@ export default function CommandButtons({ project }: { project: Project | undefin
         {/* Dev button */}
         {hasDevCommand && (
           runningDev ? (
-            <button
-              onClick={() => handleKill(runningDev.pid)}
-              title={`Stop Dev${runningDev.port ? ` on :${runningDev.port}` : ''} (PID ${runningDev.pid})`}
-              className="inline-flex items-center gap-1 rounded-md bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-200 transition-colors cursor-pointer"
-            >
-              <span className="relative flex h-2 w-2">
+            <div className="inline-flex items-center gap-1 rounded-md bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800">
+              <span className="relative flex h-2 w-2 flex-shrink-0">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-600" />
               </span>
-              <Square className="h-3 w-3" />
-              <span className="hidden sm:inline">Dev</span>
-            </button>
+              {runningDev.port ? (
+                <a
+                  href={`http://${window.location.hostname}:${runningDev.port}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:underline"
+                  title={`Open http://${window.location.hostname}:${runningDev.port}`}
+                >
+                  {window.location.hostname}:{runningDev.port}
+                </a>
+              ) : (
+                <span className="hidden sm:inline">Dev</span>
+              )}
+              <span className="text-emerald-600 hidden sm:inline" title={`PID ${runningDev.pid}`}>
+                ({runningDev.pid})
+              </span>
+              <button
+                onClick={handleRestart}
+                disabled={restarting}
+                title="Restart Dev"
+                className="ml-0.5 rounded p-0.5 hover:bg-emerald-200 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3 w-3 ${restarting ? 'animate-spin' : ''}`} />
+              </button>
+              <button
+                onClick={() => handleKill(runningDev.pid)}
+                title="Stop Dev"
+                className="rounded p-0.5 hover:bg-emerald-200 transition-colors cursor-pointer"
+              >
+                <Square className="h-3 w-3" />
+              </button>
+            </div>
           ) : (
             <button
               onClick={() => handleRun('dev')}
@@ -51,18 +78,20 @@ export default function CommandButtons({ project }: { project: Project | undefin
         {/* Deploy button */}
         {hasDeployCommand && (
           runningDeploy ? (
-            <button
-              onClick={() => handleKill(runningDeploy.pid)}
-              title={`Stop Deploy${runningDeploy.port ? ` on :${runningDeploy.port}` : ''} (PID ${runningDeploy.pid})`}
-              className="inline-flex items-center gap-1 rounded-md bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-200 transition-colors cursor-pointer"
-            >
-              <span className="relative flex h-2 w-2">
+            <div className="inline-flex items-center gap-1 rounded-md bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800">
+              <span className="relative flex h-2 w-2 flex-shrink-0">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-75" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600" />
               </span>
-              <Square className="h-3 w-3" />
-              <span className="hidden sm:inline">Deploy</span>
-            </button>
+              <span className="hidden sm:inline">Deploying...</span>
+              <button
+                onClick={() => handleKill(runningDeploy.pid)}
+                title="Stop Deploy"
+                className="ml-0.5 rounded p-0.5 hover:bg-blue-200 transition-colors cursor-pointer"
+              >
+                <Square className="h-3 w-3" />
+              </button>
+            </div>
           ) : (
             <button
               onClick={() => setConfirmDeploy(true)}
