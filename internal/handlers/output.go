@@ -17,6 +17,12 @@ import (
 
 const keepaliveInterval = 15 * time.Second
 
+// bufferProvider abstracts the method used to look up a task's output buffer.
+// *runner.Runner satisfies this interface.
+type bufferProvider interface {
+	GetBuffer(taskID uuid.UUID) *runner.Buffer
+}
+
 // RegisterOutputRoute registers the SSE live output route on the given router group.
 func RegisterOutputRoute(rg *gin.RouterGroup, r *runner.Runner, db *gorm.DB) {
 	rg.GET("/tasks/:id/output", newOutputHandler(r))
@@ -33,14 +39,24 @@ func newOutputHandler(r *runner.Runner) gin.HandlerFunc {
 // streamTaskOutput streams live task output as SSE events.
 // It sends existing buffered data first, then streams new data as it arrives.
 // Each data event is base64-encoded. A final "done" event is sent when the task completes.
-func streamTaskOutput(c *gin.Context, r *runner.Runner) {
+func streamTaskOutput(c *gin.Context, bp bufferProvider) {
 	taskID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusBadRequest, "invalid task id")
 		return
 	}
 
-	buf := r.GetBuffer(taskID)
+	// The buffer may not exist yet if the task was just claimed (status set to
+	// "running" in DB) but the executor goroutine hasn't created the buffer.
+	// Wait briefly before giving up.
+	var buf *runner.Buffer
+	for range 10 {
+		buf = bp.GetBuffer(taskID)
+		if buf != nil {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 	if buf == nil {
 		// Task is not currently running (already completed or not started).
 		// Send a "done" event via SSE so the frontend stops reconnecting.
