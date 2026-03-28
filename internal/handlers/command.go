@@ -183,6 +183,20 @@ func (ct *CommandTracker) Run(proj *models.Project, commandType string) (*Runnin
 	cmd.Stderr = nil
 	cmd.Stdin = nil
 
+	// Build a clean environment for the child process. Botka's env (e.g. PORT=5110)
+	// must not leak into dev scripts — a dev.sh using PORT would find and kill Botka.
+	cleanEnv := []string{}
+	for _, e := range os.Environ() {
+		key := strings.SplitN(e, "=", 2)[0]
+		switch key {
+		case "PORT", "DATABASE_URL", "MCP_TOKEN", "SESSION_MAX_AGE":
+			continue // strip Botka-specific vars
+		default:
+			cleanEnv = append(cleanEnv, e)
+		}
+	}
+	cmd.Env = cleanEnv
+
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start command: %w", err)
 	}
