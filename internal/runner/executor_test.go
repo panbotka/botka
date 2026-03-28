@@ -561,6 +561,40 @@ func TestBuildPrompt_RetryCountZeroNoFailureInfo(t *testing.T) {
 	}
 }
 
+func TestIsBotkaProject(t *testing.T) {
+	tests := []struct {
+		name string
+		proj *models.Project
+		want bool
+	}{
+		{"name=botka", &models.Project{Name: "botka", Path: "/home/pi/projects/botka"}, true},
+		{"name=Botka (case)", &models.Project{Name: "Botka", Path: "/somewhere/else"}, true},
+		{"path ends with /botka", &models.Project{Name: "my-app", Path: "/home/pi/projects/botka"}, true},
+		{"unrelated project", &models.Project{Name: "saiduler", Path: "/home/pi/projects/saiduler"}, false},
+		{"name contains botka but not exact", &models.Project{Name: "botka-utils", Path: "/home/pi/projects/botka-utils"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isBotkaProject(tt.proj)
+			if got != tt.want {
+				t.Errorf("isBotkaProject(%q, %q) = %v, want %v", tt.proj.Name, tt.proj.Path, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBotkaSafetyPromptNotEmpty(t *testing.T) {
+	if botkaSafetyPrompt == "" {
+		t.Error("botkaSafetyPrompt should not be empty")
+	}
+	if !strings.Contains(botkaSafetyPrompt, "make deploy") {
+		t.Error("botkaSafetyPrompt should mention 'make deploy'")
+	}
+	if !strings.Contains(botkaSafetyPrompt, "systemctl restart botka") {
+		t.Error("botkaSafetyPrompt should mention 'systemctl restart botka'")
+	}
+}
+
 // parseUUID is a test helper to create a uuid.UUID from a string.
 func parseUUID(s string) uuid.UUID {
 	id, err := uuid.Parse(s)

@@ -204,7 +204,11 @@ Exposes task management tools: create_task, list_tasks, get_task, update_task, l
 
 ## Task Agent Safety
 
-**NEVER run `make deploy`, `make install-service`, `systemctl restart botka`, or any command that would restart the Botka service.** Task agents run inside Botka — deploying or restarting would kill the agent's own process and leave the task stuck in "running" state forever. Only build and test, never deploy.
+**CRITICAL: Running `make deploy`, `make install-service`, `systemctl restart botka`, or `systemctl stop botka` WILL KILL THIS PROCESS and leave the task stuck forever. This applies to ALL commands that restart the botka systemd service.**
+
+Task agents run inside Botka — deploying or restarting would kill the agent's own process. Only build and test, never deploy.
+
+If your task requires deploying changes, mark the task as done and note that deployment is needed — the user will deploy manually.
 
 ## Important Patterns
 

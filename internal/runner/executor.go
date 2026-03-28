@@ -132,16 +132,36 @@ func (e *Executor) buildPrompt(task *models.Task) string {
 	return prompt
 }
 
+// botkaSafetyPrompt is appended as a system prompt when executing tasks on the
+// botka project itself, to prevent task agents from running commands that would
+// restart the service and kill the agent's own process.
+const botkaSafetyPrompt = `CRITICAL SAFETY RULE: You are running as an autonomous task agent inside the Botka process. ` +
+	`Running 'make deploy', 'make install-service', 'systemctl restart botka', or 'systemctl stop botka' ` +
+	`will kill your own process immediately. NEVER run these commands. If deployment is needed, ` +
+	`just commit your changes and note it in the task output.`
+
+// isBotkaProject returns true if the given project is the botka application itself.
+func isBotkaProject(project *models.Project) bool {
+	name := strings.ToLower(project.Name)
+	return name == "botka" || strings.HasSuffix(project.Path, "/botka")
+}
+
 func (e *Executor) spawnClaude(
 	ctx context.Context, claudePath string, task *models.Task,
 	project *models.Project, buffer *Buffer,
 ) (*spawnOutput, error) {
-	cmd := exec.CommandContext(ctx, claudePath, //nolint:gosec // args are controlled
+	args := []string{
 		"--dangerously-skip-permissions", "--verbose",
 		"--output-format", "stream-json",
-		"-p", e.buildPrompt(task),
-	)
+	}
+	if isBotkaProject(project) {
+		args = append(args, "--append-system-prompt", botkaSafetyPrompt)
+	}
+	args = append(args, "-p", e.buildPrompt(task))
+
+	cmd := exec.CommandContext(ctx, claudePath, args...) //nolint:gosec // args are controlled
 	cmd.Dir = project.Path
+	cmd.Env = append(os.Environ(), "BOTKA_TASK_AGENT=1")
 	// Use a process group so we can kill the entire tree (claude + child processes)
 	// on timeout or cancellation, not just the top-level process.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
