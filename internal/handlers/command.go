@@ -118,6 +118,8 @@ type CommandStatus struct {
 }
 
 // ListCommands returns currently tracked commands for a project, cleaning up dead ones.
+// It also detects services already running on configured ports (e.g. started manually
+// or before botka restarted) and adopts them into the tracker.
 func (h *CommandHandler) ListCommands(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -125,7 +127,57 @@ func (h *CommandHandler) ListCommands(c *gin.Context) {
 		return
 	}
 
-	respondOK(c, h.tracker.List(id))
+	result := h.tracker.List(id)
+
+	// Check if services are running on configured ports but not tracked.
+	var proj models.Project
+	if err := h.db.First(&proj, "id = ?", id).Error; err == nil {
+		h.adoptOrphan(&result, &proj, "dev", proj.DevPort)
+		h.adoptOrphan(&result, &proj, "deploy", proj.DeployPort)
+	}
+
+	respondOK(c, result)
+}
+
+// adoptOrphan detects a service running on a configured port that isn't tracked
+// and adopts it into the tracker so the UI can show and control it.
+func (h *CommandHandler) adoptOrphan(result *[]CommandStatus, proj *models.Project, cmdType string, port *int) {
+	if port == nil || *port == 0 {
+		return
+	}
+	// Already tracked for this command type?
+	for _, cs := range *result {
+		if cs.CommandType == cmdType {
+			return
+		}
+	}
+	// Check if something is actually listening on the port.
+	if !isPortInUse(*port) {
+		return
+	}
+	pid := findPIDOnPort(*port)
+	if pid <= 0 {
+		return
+	}
+	// Adopt into tracker so Kill works on it.
+	rc := &RunningCommand{
+		PID:         pid,
+		Port:        *port,
+		CommandType: cmdType,
+		ProjectID:   proj.ID,
+		StartedAt:   time.Now(), // approximate
+	}
+	h.tracker.mu.Lock()
+	h.tracker.commands[pid] = rc
+	h.tracker.mu.Unlock()
+
+	*result = append(*result, CommandStatus{
+		PID:         pid,
+		Port:        *port,
+		CommandType: cmdType,
+		StartedAt:   rc.StartedAt,
+		Alive:       true,
+	})
 }
 
 // KillCommand kills a running command process and its process group.
