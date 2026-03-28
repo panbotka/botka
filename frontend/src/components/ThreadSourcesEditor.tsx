@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Plus, Trash2, Globe, GripVertical } from 'lucide-react'
 import type { ThreadSource } from '../types'
 import {
@@ -14,11 +14,16 @@ interface Props {
   onClose: () => void
 }
 
+const isTempId = (id: number) => id < 0
+
 export default function ThreadSourcesEditor({ threadId, onClose }: Props) {
   const [sources, setSources] = useState<ThreadSource[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<number | null>(null)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const newRowRef = useRef<number | null>(null)
+  const urlInputRefs = useRef<Map<number, HTMLInputElement>>(new Map())
 
   const load = useCallback(async () => {
     try {
@@ -31,22 +36,55 @@ export default function ThreadSourcesEditor({ threadId, onClose }: Props) {
 
   useEffect(() => { load() }, [load])
 
-  const handleAdd = async () => {
-    const src = await createThreadSource(threadId, { url: '', label: '' })
-    setSources(prev => [...prev, src])
+  useEffect(() => {
+    if (newRowRef.current !== null) {
+      const input = urlInputRefs.current.get(newRowRef.current)
+      if (input) input.focus()
+      newRowRef.current = null
+    }
+  })
+
+  const handleAdd = () => {
+    const tempId = -Date.now()
+    setSources(prev => [...prev, { id: tempId, url: '', label: '', position: prev.length } as ThreadSource])
+    newRowRef.current = tempId
   }
 
   const handleSave = async (source: ThreadSource) => {
+    if (isTempId(source.id)) {
+      if (!source.url.trim()) return
+      setSaving(source.id)
+      setError(null)
+      try {
+        const created = await createThreadSource(threadId, { url: source.url, label: source.label })
+        setSources(prev => prev.map(s => s.id === source.id ? created : s))
+      } catch {
+        setSources(prev => prev.filter(s => s.id !== source.id))
+        setError('Failed to create source')
+        setTimeout(() => setError(null), 3000)
+      } finally {
+        setSaving(null)
+      }
+      return
+    }
     if (!source.url.trim()) return
     setSaving(source.id)
+    setError(null)
     try {
       await updateThreadSource(threadId, source.id, { url: source.url, label: source.label })
+    } catch {
+      setError('Failed to save source')
+      setTimeout(() => setError(null), 3000)
     } finally {
       setSaving(null)
     }
   }
 
   const handleDelete = async (id: number) => {
+    if (isTempId(id)) {
+      setSources(prev => prev.filter(s => s.id !== id))
+      return
+    }
     await deleteThreadSource(threadId, id)
     setSources(prev => prev.filter(s => s.id !== id))
   }
@@ -68,7 +106,8 @@ export default function ThreadSourcesEditor({ threadId, onClose }: Props) {
   }
   const handleDragEnd = async () => {
     setDragIdx(null)
-    await reorderThreadSources(threadId, sources.map(s => s.id))
+    const persistedIds = sources.filter(s => !isTempId(s.id)).map(s => s.id)
+    if (persistedIds.length > 0) await reorderThreadSources(threadId, persistedIds)
   }
 
   return (
@@ -117,6 +156,7 @@ export default function ThreadSourcesEditor({ threadId, onClose }: Props) {
                 />
                 <input
                   type="url"
+                  ref={el => { if (el) urlInputRefs.current.set(src.id, el); else urlInputRefs.current.delete(src.id) }}
                   value={src.url}
                   onChange={e => handleChange(src.id, 'url', e.target.value)}
                   onBlur={() => handleSave(src)}
@@ -138,7 +178,10 @@ export default function ThreadSourcesEditor({ threadId, onClose }: Props) {
           )}
         </div>
 
-        <div className="px-5 py-3 border-t border-zinc-100">
+        <div className="px-5 py-3 border-t border-zinc-100 space-y-2">
+          {error && (
+            <p className="text-xs text-red-500">{error}</p>
+          )}
           <button onClick={handleAdd}
                   className="flex items-center gap-1.5 text-xs text-zinc-500
                              hover:text-zinc-700 transition-colors cursor-pointer">
