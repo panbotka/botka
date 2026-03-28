@@ -288,24 +288,33 @@ func (ct *CommandTracker) Kill(pid int) bool {
 		return false
 	}
 
-	// Kill the tracked PID's process group.
+	// Kill the tracked PID directly and via process group.
+	// The process group kill works when the PID is a group leader (e.g. the
+	// original bash script). The direct kill works when waitForPort replaced
+	// the PID with the actual server (which is a group member, not leader).
+	_ = syscall.Kill(rc.PID, syscall.SIGTERM)
 	_ = syscall.Kill(-rc.PID, syscall.SIGTERM)
 
-	// If there's a port, also kill whatever is currently on that port
-	// (handles PID changes after restarts).
+	// If there's a port, also kill whatever is currently on that port.
+	// This handles PID changes after restarts and catches the server even
+	// when the tracked PID has gone stale.
 	if rc.Port > 0 {
-		if portPID := findPIDOnPort(rc.Port); portPID > 0 && portPID != rc.PID {
+		if portPID := findPIDOnPort(rc.Port); portPID > 0 {
+			_ = syscall.Kill(portPID, syscall.SIGTERM)
 			_ = syscall.Kill(-portPID, syscall.SIGTERM)
-			go func(p int) {
-				time.Sleep(3 * time.Second)
-				_ = syscall.Kill(-p, syscall.SIGKILL)
-			}(portPID)
 		}
 	}
 
 	go func() {
 		time.Sleep(3 * time.Second)
+		_ = syscall.Kill(rc.PID, syscall.SIGKILL)
 		_ = syscall.Kill(-rc.PID, syscall.SIGKILL)
+		if rc.Port > 0 {
+			if portPID := findPIDOnPort(rc.Port); portPID > 0 {
+				_ = syscall.Kill(portPID, syscall.SIGKILL)
+				_ = syscall.Kill(-portPID, syscall.SIGKILL)
+			}
+		}
 	}()
 
 	return true
