@@ -349,6 +349,10 @@ func (r *Runner) collectTickState() (eligible bool, activeProjectIDs, blockedTas
 		}
 	}
 
+	if len(activeProjectIDs) > 0 {
+		slog.Debug("scheduler: excluding active projects", "project_ids", activeProjectIDs)
+	}
+
 	return true, activeProjectIDs, blockedTaskIDs
 }
 
@@ -369,6 +373,9 @@ func (r *Runner) pickNextTask(
 		}
 		return nil, nil, fmt.Errorf("query task: %w", err)
 	}
+
+	slog.Info("scheduler: picked task",
+		"task_id", task.ID, "project_id", task.ProjectID, "title", task.Title)
 
 	return r.claimTask(tx, &task)
 }
@@ -431,10 +438,21 @@ func (r *Runner) claimTask(
 }
 
 func (r *Runner) launchTask(task *models.Task, execution *models.TaskExecution) {
+	r.mu.Lock()
+	if existing, ok := r.executors[task.ProjectID]; ok {
+		r.mu.Unlock()
+		slog.Error("scheduler: refusing to launch second task for same project",
+			"project_id", task.ProjectID,
+			"existing_task", existing.task.ID,
+			"new_task", task.ID)
+		// Requeue the task so it can be picked up later.
+		r.db.Model(task).Update("status", models.TaskStatusQueued)
+		return
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	buf := NewBuffer(bufferCapacity)
 
-	r.mu.Lock()
 	r.executors[task.ProjectID] = &activeTask{
 		task:      task,
 		execution: execution,
