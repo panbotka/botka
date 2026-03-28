@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { Persona, Tag, Thread, Project, SearchResult } from '../types'
 import { api, searchMessages } from '../api/client'
 import { downloadExport } from '../utils/exportThread'
+import { clearDraft } from './ChatInput'
 import ModelPicker from './ModelPicker'
 import ThreadSourcesEditor from './ThreadSourcesEditor'
 import CustomContextEditor from './CustomContextEditor'
@@ -158,6 +159,7 @@ export default function ThreadSidebar({
   const handleDelete = async (id: number) => {
     try {
       await api.deleteThread(id)
+      clearDraft(id)
       onThreadsChange()
     } catch { /* ignore */ }
   }

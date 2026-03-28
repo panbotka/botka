@@ -1030,7 +1030,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
             </div>
           ) : null;
         })()}
-        <ChatInput key={threadId} ref={chatInputRef} onSend={handleSend} onSlashCommand={handleSlashCommand} queuedCount={queuedIds.size} planMode={planMode} onTogglePlanMode={() => setPlanMode((p) => !p)} isStreaming={isStreamingThisThread} onStop={handleStop} />
+        <ChatInput key={threadId} ref={chatInputRef} threadId={threadId} onSend={handleSend} onSlashCommand={handleSlashCommand} queuedCount={queuedIds.size} planMode={planMode} onTogglePlanMode={() => setPlanMode((p) => !p)} isStreaming={isStreamingThisThread} onStop={handleStop} />
       </div>
       {lightbox && (
         <Lightbox

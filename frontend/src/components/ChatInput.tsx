@@ -1,9 +1,16 @@
-import { useState, useRef, useCallback, useImperativeHandle, forwardRef, type FormEvent, type KeyboardEvent } from 'react';
+import { useState, useRef, useCallback, useEffect, useImperativeHandle, forwardRef, type FormEvent, type KeyboardEvent } from 'react';
 import { useAutoResize } from '../hooks/useAutoResize';
 import { useInputHistory } from '../hooks/useInputHistory';
 import { useVoiceInput } from '../hooks/useVoiceInput';
 import { useSettings } from '../context/SettingsContext';
 import SlashCommandMenu, { getFilteredCommands } from './SlashCommandMenu';
+
+// Module-level draft storage — survives component remounts but not page reloads
+const draftsMap = new Map<number, string>();
+
+export function clearDraft(threadId: number): void {
+  draftsMap.delete(threadId);
+}
 
 export const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const ALLOWED_MIME_TYPES = [
@@ -25,6 +32,7 @@ export function getFileExtension(file: File): string {
 }
 
 interface Props {
+  threadId?: number | null;
   onSend: (content: string, files?: File[]) => void;
   onSlashCommand: (command: string, args: string) => void;
   queuedCount?: number;
@@ -39,11 +47,28 @@ export interface ChatInputHandle {
   focus: () => void;
 }
 
-const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ onSend, onSlashCommand, queuedCount = 0, planMode, onTogglePlanMode, isStreaming, onStop }, ref) {
+const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ threadId, onSend, onSlashCommand, queuedCount = 0, planMode, onTogglePlanMode, isStreaming, onStop }, ref) {
   const { settings } = useSettings();
-  const [value, setValue] = useState('');
+  const [value, setValue] = useState(() => (threadId ? draftsMap.get(threadId) ?? '' : ''));
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [files, setFiles] = useState<File[]>([]);
+
+  // Save draft on unmount (threadId change causes remount via key=)
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  useEffect(() => {
+    const tid = threadId;
+    return () => {
+      if (tid) {
+        const draft = valueRef.current.trim();
+        if (draft) {
+          draftsMap.set(tid, valueRef.current);
+        } else {
+          draftsMap.delete(tid);
+        }
+      }
+    };
+  }, [threadId]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   useAutoResize(textareaRef);
@@ -98,6 +123,7 @@ const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ onSend
     history.reset();
     setValue('');
     setFiles([]);
+    if (threadId) clearDraft(threadId);
     setSelectedIndex(0);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
