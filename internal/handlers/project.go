@@ -67,6 +67,8 @@ type projectResponse struct {
 	Path                string     `json:"path"`
 	BranchStrategy      string     `json:"branch_strategy"`
 	VerificationCommand *string    `json:"verification_command"`
+	DevCommand          *string    `json:"dev_command"`
+	DeployCommand       *string    `json:"deploy_command"`
 	Active              bool       `json:"active"`
 	ClaudeMD            string     `json:"claude_md"`
 	SortOrder           int        `json:"sort_order"`
@@ -121,6 +123,8 @@ func (h *ProjectHandler) Get(c *gin.Context) {
 type updateProjectRequest struct {
 	BranchStrategy      *string `json:"branch_strategy"`
 	VerificationCommand *string `json:"verification_command"`
+	DevCommand          *string `json:"dev_command"`
+	DeployCommand       *string `json:"deploy_command"`
 	ClaudeMD            *string `json:"claude_md"`
 	SortOrder           *int    `json:"sort_order"`
 	Active              *bool   `json:"active"`
@@ -176,6 +180,16 @@ func (r *updateProjectRequest) validate() error {
 			return errors.New(msg)
 		}
 	}
+	if r.DevCommand != nil {
+		if msg := validateMaxLength("dev_command", *r.DevCommand, maxCommandLength); msg != "" {
+			return errors.New(msg)
+		}
+	}
+	if r.DeployCommand != nil {
+		if msg := validateMaxLength("deploy_command", *r.DeployCommand, maxCommandLength); msg != "" {
+			return errors.New(msg)
+		}
+	}
 	if r.ClaudeMD != nil {
 		if msg := validateMaxLength("claude_md", *r.ClaudeMD, maxClaudeMDLength); msg != "" {
 			return errors.New(msg)
@@ -192,6 +206,12 @@ func (h *ProjectHandler) applyProjectUpdates(proj *models.Project, req updatePro
 	}
 	if req.VerificationCommand != nil {
 		updates["verification_command"] = *req.VerificationCommand
+	}
+	if req.DevCommand != nil {
+		updates["dev_command"] = *req.DevCommand
+	}
+	if req.DeployCommand != nil {
+		updates["deploy_command"] = *req.DeployCommand
 	}
 	if req.ClaudeMD != nil {
 		updates["claude_md"] = *req.ClaudeMD
@@ -546,6 +566,8 @@ func (h *ProjectHandler) buildProjectResponse(p *models.Project) (projectRespons
 		Path:                p.Path,
 		BranchStrategy:      p.BranchStrategy,
 		VerificationCommand: p.VerificationCommand,
+		DevCommand:          p.DevCommand,
+		DeployCommand:       p.DeployCommand,
 		Active:              p.Active,
 		ClaudeMD:            p.ClaudeMD,
 		SortOrder:           p.SortOrder,

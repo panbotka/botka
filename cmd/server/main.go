@@ -180,6 +180,10 @@ func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gi
 	projectHandler := handlers.NewProjectHandler(db, cfg.ProjectsDir, projects.Scan, projects.SyncToDatabase)
 	handlers.RegisterProjectRoutes(v1, projectHandler)
 
+	commandTracker := handlers.NewCommandTracker()
+	commandHandler := handlers.NewCommandHandler(db, commandTracker)
+	handlers.RegisterCommandRoutes(v1, commandHandler)
+
 	taskHandler := handlers.NewTaskHandler(db)
 	handlers.RegisterTaskRoutes(v1, taskHandler)
 

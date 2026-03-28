@@ -8,6 +8,8 @@ export interface Project {
   path: string
   branch_strategy: BranchStrategy
   verification_command?: string
+  dev_command?: string
+  deploy_command?: string
   active: boolean
   claude_md: string
   sort_order: number
@@ -35,6 +37,14 @@ export interface GitStatus {
   clean: boolean
   changed_files: ChangedFile[]
   diff_stat: string
+}
+
+export interface RunningCommandStatus {
+  pid: number
+  command_type: string
+  command: string
+  started_at: string
+  alive: boolean
 }
 
 export interface ProjectStats {

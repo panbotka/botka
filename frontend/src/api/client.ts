@@ -1,4 +1,4 @@
-import type { Project, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings } from '../types'
+import type { Project, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -81,6 +81,23 @@ export function fetchProjectGitStatus(id: string): Promise<GitStatus> {
 
 export function fetchProjectStats(id: string): Promise<ProjectStats> {
   return requestData<ProjectStats>(`/projects/${id}/stats`)
+}
+
+// Project Commands
+
+export function runProjectCommand(id: string, command: 'dev' | 'deploy'): Promise<{ pid: number; command_type: string }> {
+  return requestData(`/projects/${id}/run-command`, {
+    method: 'POST',
+    body: JSON.stringify({ command }),
+  })
+}
+
+export function fetchProjectCommands(id: string): Promise<RunningCommandStatus[]> {
+  return requestData<RunningCommandStatus[]>(`/projects/${id}/commands`)
+}
+
+export function killProjectCommand(projectId: string, pid: number): Promise<void> {
+  return request<void>(`/projects/${projectId}/commands/${pid}`, { method: 'DELETE' })
 }
 
 // Tasks
@@ -845,6 +862,9 @@ export const api = {
   fetchProjectGitLog,
   fetchProjectGitStatus,
   fetchProjectStats,
+  runProjectCommand,
+  fetchProjectCommands,
+  killProjectCommand,
   // Threads
   getThread,
   createThread,

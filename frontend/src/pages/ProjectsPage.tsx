@@ -74,13 +74,17 @@ function ProjectConfigEditor({
   const [verificationCommand, setVerificationCommand] = useState(
     project.verification_command ?? '',
   )
+  const [devCommand, setDevCommand] = useState(project.dev_command ?? '')
+  const [deployCommand, setDeployCommand] = useState(project.deploy_command ?? '')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const hasChanges =
     branchStrategy !== project.branch_strategy ||
-    (verificationCommand || null) !== (project.verification_command ?? null)
+    (verificationCommand || null) !== (project.verification_command ?? null) ||
+    (devCommand || null) !== (project.dev_command ?? null) ||
+    (deployCommand || null) !== (project.deploy_command ?? null)
 
   async function handleSave() {
     try {
@@ -89,6 +93,8 @@ function ProjectConfigEditor({
       await updateProject(project.id, {
         branch_strategy: branchStrategy,
         verification_command: verificationCommand || undefined,
+        dev_command: devCommand || undefined,
+        deploy_command: deployCommand || undefined,
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
@@ -140,6 +146,36 @@ function ProjectConfigEditor({
           value={verificationCommand}
           onChange={(e) => setVerificationCommand(e.target.value)}
           placeholder="e.g., make test, go test ./..."
+          className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+        />
+      </div>
+
+      {/* Dev Command */}
+      <div>
+        <label htmlFor={`dev-${project.id}`} className="text-sm font-medium text-zinc-700">
+          Dev Command
+        </label>
+        <input
+          id={`dev-${project.id}`}
+          type="text"
+          value={devCommand}
+          onChange={(e) => setDevCommand(e.target.value)}
+          placeholder="e.g., make frontend-dev"
+          className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+        />
+      </div>
+
+      {/* Deploy Command */}
+      <div>
+        <label htmlFor={`deploy-${project.id}`} className="text-sm font-medium text-zinc-700">
+          Deploy Command
+        </label>
+        <input
+          id={`deploy-${project.id}`}
+          type="text"
+          value={deployCommand}
+          onChange={(e) => setDeployCommand(e.target.value)}
+          placeholder="e.g., make deploy"
           className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
         />
       </div>

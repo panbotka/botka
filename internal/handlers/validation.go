@@ -35,6 +35,9 @@ const maxClaudeMDLength = 200000
 // maxVerificationCmdLength is the maximum length for project verification commands.
 const maxVerificationCmdLength = 1000
 
+// maxCommandLength is the maximum length for project dev/deploy commands.
+const maxCommandLength = 1000
+
 // validateRequired checks that a string field is non-empty after trimming whitespace.
 // Returns an error message like "<field> is required" if empty.
 func validateRequired(field, value string) string {

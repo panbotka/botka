@@ -18,6 +18,8 @@ type Project struct {
 	Path                string    `gorm:"size:1024;uniqueIndex;not null" json:"path"`
 	BranchStrategy      string    `gorm:"size:20;not null;default:main" json:"branch_strategy"`
 	VerificationCommand *string   `gorm:"type:text" json:"verification_command"`
+	DevCommand          *string   `gorm:"type:text" json:"dev_command"`
+	DeployCommand       *string   `gorm:"type:text" json:"deploy_command"`
 	Active              bool      `gorm:"not null;default:true" json:"active"`
 	ClaudeMD            string    `gorm:"column:claude_md;type:text;not null;default:''" json:"claude_md"`
 	SortOrder           int       `gorm:"not null;default:0" json:"sort_order"`

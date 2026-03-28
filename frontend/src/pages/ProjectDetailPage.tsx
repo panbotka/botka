@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { clsx } from 'clsx'
 import {
@@ -19,18 +19,24 @@ import {
   DollarSign,
   Timer,
   TrendingUp,
+  Play,
+  Rocket,
+  Square,
 } from 'lucide-react'
 import {
   fetchProject,
   fetchProjectGitLog,
   fetchProjectGitStatus,
   fetchProjectStats,
+  fetchProjectCommands,
+  runProjectCommand,
+  killProjectCommand,
   fetchTasks,
   updateProject,
 } from '../api/client'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
-import type { Project, Task, BranchStrategy, GitCommit, GitStatus, ProjectStats } from '../types'
+import type { Project, Task, BranchStrategy, GitCommit, GitStatus, ProjectStats, RunningCommandStatus } from '../types'
 
 type TabId = 'stats' | 'git-status' | 'git-history' | 'tasks' | 'settings'
 
@@ -415,13 +421,17 @@ function SettingsTab({ project, onSaved }: { project: Project; onSaved: () => vo
   const [verificationCommand, setVerificationCommand] = useState(
     project.verification_command ?? '',
   )
+  const [devCommand, setDevCommand] = useState(project.dev_command ?? '')
+  const [deployCommand, setDeployCommand] = useState(project.deploy_command ?? '')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const hasChanges =
     branchStrategy !== project.branch_strategy ||
-    (verificationCommand || null) !== (project.verification_command ?? null)
+    (verificationCommand || null) !== (project.verification_command ?? null) ||
+    (devCommand || null) !== (project.dev_command ?? null) ||
+    (deployCommand || null) !== (project.deploy_command ?? null)
 
   async function handleSave() {
     try {
@@ -430,6 +440,8 @@ function SettingsTab({ project, onSaved }: { project: Project; onSaved: () => vo
       await updateProject(project.id, {
         branch_strategy: branchStrategy,
         verification_command: verificationCommand || undefined,
+        dev_command: devCommand || undefined,
+        deploy_command: deployCommand || undefined,
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
@@ -506,6 +518,34 @@ function SettingsTab({ project, onSaved }: { project: Project; onSaved: () => vo
           />
         </div>
 
+        <div>
+          <label htmlFor="dev-cmd" className="text-sm font-medium text-zinc-700">
+            Dev Command
+          </label>
+          <input
+            id="dev-cmd"
+            type="text"
+            value={devCommand}
+            onChange={(e) => setDevCommand(e.target.value)}
+            placeholder="e.g., make frontend-dev"
+            className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="deploy-cmd" className="text-sm font-medium text-zinc-700">
+            Deploy Command
+          </label>
+          <input
+            id="deploy-cmd"
+            type="text"
+            value={deployCommand}
+            onChange={(e) => setDeployCommand(e.target.value)}
+            placeholder="e.g., make deploy"
+            className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+          />
+        </div>
+
         <div className="flex items-center gap-3">
           <button
             onClick={handleSave}
@@ -549,6 +589,150 @@ function TabLoader() {
 function TabError({ message }: { message: string }) {
   return (
     <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{message}</div>
+  )
+}
+
+// ── Commands Section ──
+
+function CommandsSection({ project }: { project: Project }) {
+  const [commands, setCommands] = useState<RunningCommandStatus[]>([])
+  const [toast, setToast] = useState<string | null>(null)
+  const [confirmDeploy, setConfirmDeploy] = useState(false)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const hasDevCommand = !!project.dev_command
+  const hasDeployCommand = !!project.deploy_command
+
+  const loadCommands = useCallback(async () => {
+    try {
+      const cmds = await fetchProjectCommands(project.id)
+      setCommands(cmds)
+    } catch {
+      // ignore polling errors
+    }
+  }, [project.id])
+
+  useEffect(() => {
+    if (!hasDevCommand && !hasDeployCommand) return
+    loadCommands()
+    intervalRef.current = setInterval(loadCommands, 5000)
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [loadCommands, hasDevCommand, hasDeployCommand])
+
+  if (!hasDevCommand && !hasDeployCommand) return null
+
+  const runningDev = commands.find((c) => c.command_type === 'dev')
+  const runningDeploy = commands.find((c) => c.command_type === 'deploy')
+
+  async function handleRun(type: 'dev' | 'deploy') {
+    try {
+      const result = await runProjectCommand(project.id, type)
+      setToast(`${type === 'dev' ? 'Dev' : 'Deploy'} started (PID ${result.pid})`)
+      setTimeout(() => setToast(null), 3000)
+      loadCommands()
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'Failed to start command')
+      setTimeout(() => setToast(null), 4000)
+    }
+  }
+
+  async function handleKill(pid: number) {
+    try {
+      await killProjectCommand(project.id, pid)
+      setToast('Process stopped')
+      setTimeout(() => setToast(null), 3000)
+      loadCommands()
+    } catch {
+      setToast('Failed to stop process')
+      setTimeout(() => setToast(null), 4000)
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {/* Dev button */}
+      {hasDevCommand && (
+        runningDev ? (
+          <button
+            onClick={() => handleKill(runningDev.pid)}
+            className="inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-200 transition-colors"
+          >
+            <Square className="h-3.5 w-3.5" />
+            Stop Dev (PID {runningDev.pid})
+          </button>
+        ) : (
+          <button
+            onClick={() => handleRun('dev')}
+            className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 transition-colors"
+          >
+            <Play className="h-3.5 w-3.5" />
+            Start Dev
+          </button>
+        )
+      )}
+
+      {/* Deploy button */}
+      {hasDeployCommand && (
+        runningDeploy ? (
+          <button
+            onClick={() => handleKill(runningDeploy.pid)}
+            className="inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-200 transition-colors"
+          >
+            <Square className="h-3.5 w-3.5" />
+            Stop Deploy (PID {runningDeploy.pid})
+          </button>
+        ) : (
+          <button
+            onClick={() => setConfirmDeploy(true)}
+            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+          >
+            <Rocket className="h-3.5 w-3.5" />
+            Deploy
+          </button>
+        )
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <span className="rounded-md bg-zinc-800 px-3 py-1.5 text-sm text-white">
+          {toast}
+        </span>
+      )}
+
+      {/* Deploy confirmation dialog */}
+      {confirmDeploy && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setConfirmDeploy(false)}>
+          <div className="mx-4 w-full max-w-md rounded-lg bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-zinc-900">Confirm Deploy</h3>
+            <p className="mt-2 text-sm text-zinc-600">
+              This will execute the following command:
+            </p>
+            <pre className="mt-2 rounded-md bg-zinc-100 px-3 py-2 text-sm font-mono text-zinc-800">
+              {project.deploy_command}
+            </pre>
+            <div className="mt-4 flex justify-end gap-3">
+              <button
+                onClick={() => setConfirmDeploy(false)}
+                className="rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setConfirmDeploy(false)
+                  handleRun('deploy')
+                }}
+                className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+              >
+                Deploy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -629,6 +813,11 @@ export default function ProjectDetailPage() {
           </span>
         </div>
         <p className="mt-1 text-sm text-zinc-400 font-mono">{project.path}</p>
+
+        {/* Command buttons */}
+        <div className="mt-3">
+          <CommandsSection project={project} />
+        </div>
       </div>
 
       {/* Tabs */}

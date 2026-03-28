@@ -1,0 +1,2 @@
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS dev_command TEXT;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS deploy_command TEXT;
