@@ -124,12 +124,14 @@ func (h *PasskeyHandler) RegisterFinish(c *gin.Context) {
 
 	// Store the credential in the database.
 	cred := models.WebAuthnCredential{
-		UserID:       u.ID,
-		CredentialID: credential.ID,
-		PublicKey:    credential.PublicKey,
-		AAGUID:       credential.Authenticator.AAGUID,
-		SignCount:    credential.Authenticator.SignCount,
-		Name:         name,
+		UserID:         u.ID,
+		CredentialID:   credential.ID,
+		PublicKey:      credential.PublicKey,
+		AAGUID:         credential.Authenticator.AAGUID,
+		SignCount:      credential.Authenticator.SignCount,
+		BackupEligible: credential.Flags.BackupEligible,
+		BackupState:    credential.Flags.BackupState,
+		Name:           name,
 	}
 	if err := h.db.Create(&cred).Error; err != nil {
 		slog.Error("webauthn: failed to store credential", "error", err, "user", u.Username)
@@ -179,10 +181,13 @@ func (h *PasskeyHandler) LoginFinish(c *gin.Context) {
 		return
 	}
 
-	// Update sign count.
+	// Update sign count and backup state (which can change between logins).
 	h.db.Model(&models.WebAuthnCredential{}).
 		Where("credential_id = ?", credential.ID).
-		Update("sign_count", credential.Authenticator.SignCount)
+		Updates(map[string]interface{}{
+			"sign_count":   credential.Authenticator.SignCount,
+			"backup_state": credential.Flags.BackupState,
+		})
 
 	h.removeSession(session.Challenge)
 
@@ -267,6 +272,10 @@ func (h *PasskeyHandler) loadWebAuthnUser(u *models.User) *webAuthnUser {
 			Authenticator: webauthn.Authenticator{
 				AAGUID:    c.AAGUID,
 				SignCount: c.SignCount,
+			},
+			Flags: webauthn.CredentialFlags{
+				BackupEligible: c.BackupEligible,
+				BackupState:    c.BackupState,
 			},
 		}
 	}
