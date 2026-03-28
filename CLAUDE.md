@@ -18,8 +18,8 @@ cmd/migrate-data/    Data migration utilities from source projects
 internal/
   config/            Environment config loading (.env + env vars)
   database/          GORM connection + golang-migrate migrations
-  models/            All GORM models (12 models)
-  handlers/          Gin HTTP handlers (15 handler files)
+  models/            All GORM models (20 models)
+  handlers/          Gin HTTP handlers (23 handler files)
   claude/            Chat subprocess runner + context assembly
   runner/            Task scheduler loop + batch executor
   projects/          Git repo discovery and DB sync
@@ -28,10 +28,10 @@ internal/
   static/            Frontend static file serving (go:embed)
 frontend/src/
   api/               API client methods
-  components/        React components (25 files)
+  components/        React components (36 files)
   context/           React context (SSEContext, SettingsContext)
-  hooks/             Custom React hooks (13 hooks)
-  pages/             Page components (8 pages)
+  hooks/             Custom React hooks (20 hooks)
+  pages/             Page components (10 pages)
   types/             TypeScript type definitions
   utils/             Utility functions
 migrations/          SQL migration files (golang-migrate)
@@ -76,7 +76,7 @@ make clean          # Remove build artifacts
 
 ## Testing
 
-**~312 tests** across 29 test files covering all packages. Tests use stdlib `testing` only (no external test frameworks).
+**~615 tests** across 57 test files covering all packages. Go tests use stdlib `testing`; frontend tests use Vitest.
 
 ```bash
 make test           # Run all tests with race detector
@@ -98,7 +98,8 @@ Tests auto-skip when the database is unavailable, so `make test` always passes. 
 
 - **Unit tests** (no DB): `config`, `middleware`, `runner` (buffer, parser, executor, usage), `projects`
 - **Integration tests** (need `botka_test`): all `handlers` — HTTP-level tests via `httptest` + Gin test mode
-- **Existing tests**: `models` (enums, table names), `mcp` (JSON-RPC, tools, SSE), `claude` (event parsing, context assembly, registry)
+- **Model/package tests**: `models` (enums, table names), `mcp` (JSON-RPC, tools, SSE), `claude` (event parsing, context assembly, registry)
+- **Frontend tests**: Vitest unit tests in `frontend/src/` (94 tests across 10 files)
 
 ### Linting
 
@@ -196,6 +197,9 @@ Exposes task management tools: create_task, list_tasks, get_task, update_task, l
 | `UPLOAD_DIR` | `./data/uploads` | Directory for uploaded files |
 | `AI_MODEL` | `sonnet` | Default Claude model for new chats |
 | `AVAILABLE_MODELS` | `sonnet,opus,haiku` | CSV list of available models |
+| `WEBAUTHN_ORIGIN` | `http://localhost:5110` | WebAuthn relying party origin |
+| `WEBAUTHN_RPID` | *(derived from origin)* | WebAuthn relying party ID (hostname) |
+| `SESSION_MAX_AGE` | `720h` | Authentication session cookie max age |
 | `MCP_TOKEN` | *(empty)* | Bearer token for MCP SSE transport (empty = SSE disabled) |
 
 ## Task Agent Safety

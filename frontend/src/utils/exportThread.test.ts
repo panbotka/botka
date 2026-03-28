@@ -19,6 +19,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     title: 'Test Thread',
     model: 'sonnet',
     system_prompt: '',
+    custom_context: '',
     pinned: false,
     archived: false,
     created_at: '2024-06-15T10:30:00Z',
