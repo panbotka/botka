@@ -10,6 +10,7 @@ import ChatView from '../components/ChatView'
 import ThreadSidebar from '../components/ThreadSidebar'
 import ProcessBar from '../components/ProcessBar'
 import ProjectPicker from '../components/ProjectPicker'
+import CommandButtons from '../components/CommandButtons'
 import { MessageSquare, ArrowLeft } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
@@ -83,6 +84,7 @@ export default function ChatPage() {
 
   // Update document title
   const activeThread = threads.find(t => t.id === activeThreadId)
+  const activeProject = projects.find(p => p.id === activeThread?.project_id)
   useDocumentTitle(activeThread?.title || 'Chat')
 
   // Data loading
@@ -229,6 +231,7 @@ export default function ChatPage() {
                     currentProjectId={activeThread.project_id}
                     onSelect={(projectId) => handleProjectChange(activeThread.id, projectId)}
                   />
+                  <CommandButtons project={activeProject} />
                   <span className="text-[11px] text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md flex-shrink-0">
                     {activeThread.model || 'Default'}
                   </span>
@@ -308,6 +311,7 @@ export default function ChatPage() {
                     currentProjectId={activeThread.project_id}
                     onSelect={(projectId) => handleProjectChange(activeThread.id, projectId)}
                   />
+                  <CommandButtons project={activeProject} />
                   <span className="text-[11px] text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md flex-shrink-0">
                     {activeThread.model || 'Default'}
                   </span>
