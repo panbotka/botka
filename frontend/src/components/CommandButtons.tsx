@@ -33,13 +33,13 @@ export default function CommandButtons({ project }: { project: Project | undefin
               </span>
               {runningDev.port ? (
                 <a
-                  href={`http://${window.location.hostname}:${runningDev.port}`}
+                  href={`http://pi:${runningDev.port}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="hover:underline"
-                  title={`Open http://${window.location.hostname}:${runningDev.port}`}
+                  title={`Open http://pi:${runningDev.port}`}
                 >
-                  {window.location.hostname}:{runningDev.port}
+                  pi:{runningDev.port}
                 </a>
               ) : (
                 <span className="hidden sm:inline">Dev</span>

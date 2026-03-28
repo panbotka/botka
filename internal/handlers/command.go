@@ -315,7 +315,9 @@ func (ct *CommandTracker) Kill(pid int) bool {
 // If the command has a port, it checks port availability; otherwise falls back to PID signal-0.
 func isCommandAlive(rc *RunningCommand) bool {
 	if rc.Port > 0 {
-		return isPortInUse(rc.Port)
+		// Port listening means alive. If not yet listening (e.g. during build),
+		// fall back to checking whether the startup process is still running.
+		return isPortInUse(rc.Port) || isProcessAlive(rc.PID)
 	}
 	return isProcessAlive(rc.PID)
 }

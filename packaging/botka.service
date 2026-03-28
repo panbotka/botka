@@ -8,7 +8,7 @@ Type=simple
 User=pi
 Group=pi
 EnvironmentFile=/home/pi/projects/botka/.env
-Environment=PATH=/home/pi/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PATH=/home/pi/.local/bin:/home/pi/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/usr/local/bin/botka
 WorkingDirectory=/home/pi/projects/botka
 Restart=on-failure
