@@ -54,7 +54,7 @@ func TestAssembleContext_AllLayers(t *testing.T) {
 		ContextDir:        contextDir,
 	}
 
-	path, err := AssembleContext(context.Background(), cfg, 42, memFn, systemPrompt, folderMD, "myproject", "/home/pi/projects/myproject", nil, messages)
+	path, err := AssembleContext(context.Background(), cfg, 42, memFn, systemPrompt, "", folderMD, "myproject", "/home/pi/projects/myproject", nil, messages)
 	if err != nil {
 		t.Fatalf("AssembleContext error: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestAssembleContext_EmptyWorkspace(t *testing.T) {
 		ContextDir:        contextDir,
 	}
 
-	path, err := AssembleContext(context.Background(), cfg, 1, nil, "", "", "", "", nil, nil)
+	path, err := AssembleContext(context.Background(), cfg, 1, nil, "", "", "", "", "", nil, nil)
 	if err != nil {
 		t.Fatalf("AssembleContext error: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestAssembleContext_MessageTruncation(t *testing.T) {
 		ContextDir:        contextDir,
 	}
 
-	path, err := AssembleContext(context.Background(), cfg, 1, nil, "", "", "", "", nil, messages)
+	path, err := AssembleContext(context.Background(), cfg, 1, nil, "", "", "", "", "", nil, messages)
 	if err != nil {
 		t.Fatalf("AssembleContext error: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestAssembleContext_MessageLimit(t *testing.T) {
 		ContextDir:        contextDir,
 	}
 
-	path, err := AssembleContext(context.Background(), cfg, 1, nil, "", "", "", "", nil, messages)
+	path, err := AssembleContext(context.Background(), cfg, 1, nil, "", "", "", "", "", nil, messages)
 	if err != nil {
 		t.Fatalf("AssembleContext error: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestAssembleContext_MemoryFuncError(t *testing.T) {
 		ContextDir:        contextDir,
 	}
 
-	_, err := AssembleContext(context.Background(), cfg, 1, memFn, "", "", "", "", nil, nil)
+	_, err := AssembleContext(context.Background(), cfg, 1, memFn, "", "", "", "", "", nil, nil)
 	if err != nil {
 		t.Fatalf("AssembleContext should not fail on memory error: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestAssembleContext_WithSources(t *testing.T) {
 
 	sources := []SourceInput{{URL: srv.URL, Label: "Test Docs"}}
 
-	path, err := AssembleContext(context.Background(), cfg, 99, nil, "Be helpful", "", "", "", sources, nil)
+	path, err := AssembleContext(context.Background(), cfg, 99, nil, "Be helpful", "", "", "", "", sources, nil)
 	if err != nil {
 		t.Fatalf("AssembleContext error: %v", err)
 	}
@@ -248,6 +248,71 @@ func TestAssembleContext_WithSources(t *testing.T) {
 	}
 	if !strings.Contains(assembled, "Test Docs") {
 		t.Error("expected source label")
+	}
+}
+
+func TestAssembleContext_CustomContext(t *testing.T) {
+	workspace := t.TempDir()
+	contextDir := t.TempDir()
+
+	cfg := ContextConfig{
+		OpenClawWorkspace: workspace,
+		ContextDir:        contextDir,
+	}
+
+	customCtx := "API endpoint: POST /users\nSchema: id, name, email"
+
+	path, err := AssembleContext(context.Background(), cfg, 50, nil, "Be helpful", customCtx, "project CLAUDE.md content", "myproject", "/home/pi/projects/myproject", nil, nil)
+	if err != nil {
+		t.Fatalf("AssembleContext error: %v", err)
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+
+	assembled := string(content)
+	if !strings.Contains(assembled, "# Reference Context") {
+		t.Error("expected Reference Context section header")
+	}
+	if !strings.Contains(assembled, "API endpoint: POST /users") {
+		t.Error("expected custom context content")
+	}
+
+	// Verify ordering: Thread Instructions before Reference Context before Project Context
+	instrIdx := strings.Index(assembled, "# Thread Instructions")
+	refCtxIdx := strings.Index(assembled, "# Reference Context")
+	projCtxIdx := strings.Index(assembled, "# Project Context")
+	if instrIdx >= refCtxIdx {
+		t.Error("expected Thread Instructions before Reference Context")
+	}
+	if refCtxIdx >= projCtxIdx {
+		t.Error("expected Reference Context before Project Context")
+	}
+}
+
+func TestAssembleContext_EmptyCustomContext(t *testing.T) {
+	workspace := t.TempDir()
+	contextDir := t.TempDir()
+
+	cfg := ContextConfig{
+		OpenClawWorkspace: workspace,
+		ContextDir:        contextDir,
+	}
+
+	path, err := AssembleContext(context.Background(), cfg, 51, nil, "", "", "", "", "", nil, nil)
+	if err != nil {
+		t.Fatalf("AssembleContext error: %v", err)
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+
+	if strings.Contains(string(content), "# Reference Context") {
+		t.Error("empty custom context should not produce a Reference Context section")
 	}
 }
 

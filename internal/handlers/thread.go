@@ -47,6 +47,7 @@ func RegisterThreadRoutes(rg *gin.RouterGroup, h *ThreadHandler) {
 	rg.GET("/threads/:id/usage", h.Usage)
 	rg.DELETE("/threads/:id/messages", h.ClearMessages)
 	rg.PUT("/threads/:id/tags", h.SetTags)
+	rg.PUT("/threads/:id/custom-context", h.UpdateCustomContext)
 }
 
 // threadListRow is used for the list query which includes a last message preview.
@@ -513,6 +514,41 @@ func (h *ThreadHandler) SetTags(c *gin.Context) {
 	}
 	if err := tx.Commit().Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "failed to set tags")
+		return
+	}
+
+	respondOK(c, gin.H{"status": "ok"})
+}
+
+type updateCustomContextRequest struct {
+	CustomContext string `json:"custom_context"`
+}
+
+// UpdateCustomContext updates a thread's custom reference context.
+func (h *ThreadHandler) UpdateCustomContext(c *gin.Context) {
+	id, err := paramInt64(c, "id")
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "invalid thread id")
+		return
+	}
+
+	var thread models.Thread
+	if err := h.db.First(&thread, id).Error; err != nil {
+		respondError(c, http.StatusNotFound, "thread not found")
+		return
+	}
+
+	var req updateCustomContextRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := h.db.Model(&thread).Updates(map[string]interface{}{
+		"custom_context": req.CustomContext,
+		"updated_at":     time.Now(),
+	}).Error; err != nil {
+		respondError(c, http.StatusInternalServerError, "failed to update custom context")
 		return
 	}
 

@@ -14,6 +14,7 @@ type Thread struct {
 	Title           string     `gorm:"size:500;not null;default:New Chat" json:"title"`
 	Model           *string    `gorm:"size:100" json:"model"`
 	SystemPrompt    string     `gorm:"type:text;not null;default:''" json:"system_prompt"`
+	CustomContext   string     `gorm:"type:text;not null;default:''" json:"custom_context"`
 	PersonaID       *int64     `json:"persona_id"`
 	Persona         *Persona   `gorm:"foreignKey:PersonaID" json:"persona,omitempty"`
 	PersonaName     string     `gorm:"size:255;not null;default:''" json:"persona_name"`

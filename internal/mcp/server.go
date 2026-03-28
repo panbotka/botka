@@ -229,6 +229,8 @@ func (s *Server) toolHandlers() map[string]toolHandler {
 		"add_thread_source":    s.handleAddThreadSource,
 		"remove_thread_source": s.handleRemoveThreadSource,
 		"update_thread_source": s.handleUpdateThreadSource,
+		"get_thread_context":   s.handleGetThreadContext,
+		"set_thread_context":   s.handleSetThreadContext,
 	}
 }
 
@@ -467,6 +469,21 @@ func threadToolDefinitions() []toolDef {
 				"url":       prop("string", "New URL"),
 				"label":     prop("string", "New label"),
 			}, "thread_id", "source_id"),
+		},
+		{
+			Name:        "get_thread_context",
+			Description: "Get a thread's custom reference context",
+			InputSchema: schema(map[string]interface{}{
+				"thread_id": prop("integer", "Thread ID"),
+			}, "thread_id"),
+		},
+		{
+			Name:        "set_thread_context",
+			Description: "Set a thread's custom reference context (replaces existing)",
+			InputSchema: schema(map[string]interface{}{
+				"thread_id": prop("integer", "Thread ID"),
+				"content":   prop("string", "Custom context content (replaces existing)"),
+			}, "thread_id", "content"),
 		},
 	}
 }

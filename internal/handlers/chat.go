@@ -459,7 +459,7 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 		}
 
 		var err error
-		contextFile, err = claude.AssembleContext(c.Request.Context(), h.contextCfg, threadID, getMemories, thread.SystemPrompt, projectClaudeMD, projectName, projectPath, sourceInputs, existingMessages)
+		contextFile, err = claude.AssembleContext(c.Request.Context(), h.contextCfg, threadID, getMemories, thread.SystemPrompt, thread.CustomContext, projectClaudeMD, projectName, projectPath, sourceInputs, existingMessages)
 		if err != nil {
 			log.Printf("failed to assemble context: %v", err)
 		}

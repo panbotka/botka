@@ -533,6 +533,64 @@ func TestThread_UpdateModelInvalid(t *testing.T) {
 	}
 }
 
+func TestThread_UpdateCustomContext(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	thread := models.Thread{Title: "Test"}
+	db.Create(&thread)
+
+	r := threadRouter(db)
+	body := `{"custom_context":"API docs: POST /users creates a user"}`
+	w := doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/threads/%d/custom-context", thread.ID), body)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify it was saved
+	var updated models.Thread
+	db.First(&updated, thread.ID)
+	if updated.CustomContext != "API docs: POST /users creates a user" {
+		t.Errorf("expected custom context to be saved, got %q", updated.CustomContext)
+	}
+}
+
+func TestThread_UpdateCustomContextEmpty(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	thread := models.Thread{Title: "Test", CustomContext: "old content"}
+	db.Create(&thread)
+
+	r := threadRouter(db)
+	body := `{"custom_context":""}`
+	w := doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/threads/%d/custom-context", thread.ID), body)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var updated models.Thread
+	db.First(&updated, thread.ID)
+	if updated.CustomContext != "" {
+		t.Errorf("expected empty custom context, got %q", updated.CustomContext)
+	}
+}
+
+func TestThread_UpdateCustomContextNotFound(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	r := threadRouter(db)
+	body := `{"custom_context":"some content"}`
+	w := doRequest(r, http.MethodPut, "/api/v1/threads/99999/custom-context", body)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestThread_UpdateModelEmpty(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)

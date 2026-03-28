@@ -249,3 +249,68 @@ func (s *Server) handleUpdateThreadSource(raw json.RawMessage) (interface{}, err
 		"position": source.Position,
 	}, nil
 }
+
+// getThreadContextArgs holds the arguments for the get_thread_context tool.
+type getThreadContextArgs struct {
+	ThreadID int64 `json:"thread_id"`
+}
+
+// handleGetThreadContext returns a thread's custom context content.
+func (s *Server) handleGetThreadContext(raw json.RawMessage) (interface{}, error) {
+	var args getThreadContextArgs
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if args.ThreadID <= 0 {
+		return nil, errors.New("thread_id is required")
+	}
+
+	var thread models.Thread
+	if err := s.db.First(&thread, args.ThreadID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("thread not found")
+		}
+		return nil, fmt.Errorf("failed to find thread: %w", err)
+	}
+
+	return map[string]interface{}{
+		"thread_id":      thread.ID,
+		"custom_context": thread.CustomContext,
+		"length":         len(thread.CustomContext),
+	}, nil
+}
+
+// setThreadContextArgs holds the arguments for the set_thread_context tool.
+type setThreadContextArgs struct {
+	ThreadID int64  `json:"thread_id"`
+	Content  string `json:"content"`
+}
+
+// handleSetThreadContext updates a thread's custom context content.
+func (s *Server) handleSetThreadContext(raw json.RawMessage) (interface{}, error) {
+	var args setThreadContextArgs
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if args.ThreadID <= 0 {
+		return nil, errors.New("thread_id is required")
+	}
+
+	var thread models.Thread
+	if err := s.db.First(&thread, args.ThreadID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("thread not found")
+		}
+		return nil, fmt.Errorf("failed to find thread: %w", err)
+	}
+
+	if err := s.db.Model(&thread).Update("custom_context", args.Content).Error; err != nil {
+		return nil, fmt.Errorf("failed to update custom context: %w", err)
+	}
+
+	return map[string]interface{}{
+		"thread_id": thread.ID,
+		"length":    len(args.Content),
+		"status":    "updated",
+	}, nil
+}

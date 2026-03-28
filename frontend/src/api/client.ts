@@ -311,6 +311,13 @@ export function updateThreadProject(id: number, projectId: string | null): Promi
   })
 }
 
+export function updateCustomContext(threadId: number, customContext: string): Promise<void> {
+  return request<void>(`/threads/${threadId}/custom-context`, {
+    method: 'PUT',
+    body: JSON.stringify({ custom_context: customContext }),
+  })
+}
+
 // Thread Sources
 
 export function fetchThreadSources(threadId: number): Promise<ThreadSource[]> {

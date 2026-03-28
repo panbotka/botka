@@ -1,0 +1,1 @@
+ALTER TABLE threads ADD COLUMN custom_context TEXT NOT NULL DEFAULT '';

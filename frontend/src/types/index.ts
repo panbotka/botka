@@ -149,6 +149,7 @@ export interface Thread {
   title: string
   model: string
   system_prompt: string
+  custom_context: string
   persona_id?: number
   persona_icon?: string
   persona_name?: string

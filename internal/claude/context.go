@@ -37,7 +37,7 @@ type MemoryFunc func(ctx context.Context) (string, error)
 //
 // This layering ensures Claude has full context even when starting a new session
 // (e.g., after a session reset or server restart).
-func AssembleContext(ctx context.Context, cfg ContextConfig, threadID int64, getMemories MemoryFunc, systemPrompt, folderClaudeMD, projectName, projectPath string, sources []SourceInput, messages []models.Message) (string, error) {
+func AssembleContext(ctx context.Context, cfg ContextConfig, threadID int64, getMemories MemoryFunc, systemPrompt, customContext, folderClaudeMD, projectName, projectPath string, sources []SourceInput, messages []models.Message) (string, error) {
 	var parts []string
 
 	// Layer 1: SOUL.md (identity)
@@ -70,6 +70,11 @@ func AssembleContext(ctx context.Context, cfg ContextConfig, threadID int64, get
 	// Layer 6: Thread system prompt (from persona or custom)
 	if systemPrompt != "" {
 		parts = append(parts, "# Thread Instructions\n\n"+systemPrompt)
+	}
+
+	// Layer 6a: Custom reference context
+	if customContext != "" {
+		parts = append(parts, "# Reference Context\n\n"+customContext)
 	}
 
 	// Layer 6b: Thread URL sources (fetched fresh)

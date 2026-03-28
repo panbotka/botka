@@ -4,10 +4,11 @@ import { api, searchMessages } from '../api/client'
 import { downloadExport } from '../utils/exportThread'
 import ModelPicker from './ModelPicker'
 import ThreadSourcesEditor from './ThreadSourcesEditor'
+import CustomContextEditor from './CustomContextEditor'
 import {
   Plus, Search, Pin, Archive, MoreVertical, Pencil,
   Trash2, Download, Cpu, Tag as TagIcon, ChevronRight,
-  X, ChevronDown, FolderGit2, Globe,
+  X, ChevronDown, FolderGit2, Globe, FileText,
 } from 'lucide-react'
 
 interface Props {
@@ -59,6 +60,7 @@ export default function ThreadSidebar({
   const [modelPickerThread, setModelPickerThread] = useState<Thread | null>(null)
   const [tagMenuThreadId, setTagMenuThreadId] = useState<number | null>(null)
   const [sourcesThreadId, setSourcesThreadId] = useState<number | null>(null)
+  const [customContextThread, setCustomContextThread] = useState<Thread | null>(null)
   const [personaDropdownOpen, setPersonaDropdownOpen] = useState(false)
   const personaDropdownRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -399,6 +401,21 @@ export default function ThreadSidebar({
                   >
                     <Globe className="w-4 h-4 flex-shrink-0 text-zinc-400" />
                     Sources
+                  </button>
+                  <button
+                    onClick={() => { setCustomContextThread(thread); setMenuOpenId(null) }}
+                    className="w-full flex items-center gap-3 px-3 py-2
+                               text-sm text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                  >
+                    <FileText className="w-4 h-4 flex-shrink-0 text-zinc-400" />
+                    <div className="flex-1 min-w-0 text-left">
+                      <div>Custom Context</div>
+                      {thread.custom_context && (
+                        <div className="text-[11px] text-zinc-400 truncate">
+                          {thread.custom_context.length.toLocaleString()} chars
+                        </div>
+                      )}
+                    </div>
                   </button>
                   {tags.length > 0 && (
                     <div>
@@ -746,6 +763,14 @@ export default function ThreadSidebar({
         <ThreadSourcesEditor
           threadId={sourcesThreadId}
           onClose={() => setSourcesThreadId(null)}
+        />
+      )}
+      {customContextThread && (
+        <CustomContextEditor
+          threadId={customContextThread.id}
+          initialContent={customContextThread.custom_context || ''}
+          onClose={() => setCustomContextThread(null)}
+          onSaved={onThreadsChange}
         />
       )}
     </>
