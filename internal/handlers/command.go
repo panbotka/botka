@@ -3,10 +3,12 @@ package handlers
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -21,6 +23,7 @@ import (
 // RunningCommand tracks a background command process.
 type RunningCommand struct {
 	PID         int       `json:"pid"`
+	Port        int       `json:"port,omitempty"`
 	CommandType string    `json:"command_type"`
 	Command     string    `json:"command"`
 	ProjectID   uuid.UUID `json:"project_id"`
@@ -92,48 +95,11 @@ func (h *CommandHandler) RunCommand(c *gin.Context) {
 		return
 	}
 
-	var cmdStr string
-	switch req.Command {
-	case "dev":
-		if proj.DevCommand == nil || *proj.DevCommand == "" {
-			respondError(c, http.StatusBadRequest, "dev command not configured for this project")
-			return
-		}
-		cmdStr = *proj.DevCommand
-	case "deploy":
-		if proj.DeployCommand == nil || *proj.DeployCommand == "" {
-			respondError(c, http.StatusBadRequest, "deploy command not configured for this project")
-			return
-		}
-		cmdStr = *proj.DeployCommand
-	}
-
-	cmd := exec.Command("bash", "-c", cmdStr)
-	cmd.Dir = proj.Path
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	cmd.Stdin = nil
-
-	if err := cmd.Start(); err != nil {
-		respondError(c, http.StatusInternalServerError, fmt.Sprintf("failed to start command: %v", err))
+	rc, err := h.tracker.Run(&proj, req.Command)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, err.Error())
 		return
 	}
-
-	rc := &RunningCommand{
-		PID:         cmd.Process.Pid,
-		CommandType: req.Command,
-		Command:     cmdStr,
-		ProjectID:   proj.ID,
-		StartedAt:   time.Now(),
-	}
-
-	h.tracker.mu.Lock()
-	h.tracker.commands[rc.PID] = rc
-	h.tracker.mu.Unlock()
-
-	// Reap the process in background to avoid zombies.
-	go func() { _ = cmd.Wait() }()
 
 	respondOK(c, gin.H{
 		"pid":          rc.PID,
@@ -141,9 +107,10 @@ func (h *CommandHandler) RunCommand(c *gin.Context) {
 	})
 }
 
-// commandStatus represents a running command's status.
-type commandStatus struct {
+// CommandStatus represents a running command's status.
+type CommandStatus struct {
 	PID         int       `json:"pid"`
+	Port        int       `json:"port,omitempty"`
 	CommandType string    `json:"command_type"`
 	Command     string    `json:"command"`
 	StartedAt   time.Time `json:"started_at"`
@@ -158,40 +125,7 @@ func (h *CommandHandler) ListCommands(c *gin.Context) {
 		return
 	}
 
-	h.tracker.mu.Lock()
-	defer h.tracker.mu.Unlock()
-
-	var result []commandStatus
-	var deadPIDs []int
-
-	for pid, rc := range h.tracker.commands {
-		if rc.ProjectID != id {
-			continue
-		}
-		alive := isProcessAlive(pid)
-		if !alive {
-			deadPIDs = append(deadPIDs, pid)
-			continue
-		}
-		result = append(result, commandStatus{
-			PID:         rc.PID,
-			CommandType: rc.CommandType,
-			Command:     rc.Command,
-			StartedAt:   rc.StartedAt,
-			Alive:       alive,
-		})
-	}
-
-	// Clean up dead processes.
-	for _, pid := range deadPIDs {
-		delete(h.tracker.commands, pid)
-	}
-
-	if result == nil {
-		result = []commandStatus{}
-	}
-
-	respondOK(c, result)
+	respondOK(c, h.tracker.List(id))
 }
 
 // KillCommand kills a running command process and its process group.
@@ -208,28 +142,168 @@ func (h *CommandHandler) KillCommand(c *gin.Context) {
 		return
 	}
 
-	h.tracker.mu.Lock()
-	rc, exists := h.tracker.commands[pid]
-	if exists {
-		delete(h.tracker.commands, pid)
-	}
-	h.tracker.mu.Unlock()
-
-	if !exists {
+	if !h.tracker.Kill(pid) {
 		respondError(c, http.StatusNotFound, "command not found")
 		return
 	}
 
-	// Kill the process group (negative PID kills all children too).
+	c.Status(http.StatusNoContent)
+}
+
+// Run starts a project command in the background and tracks it.
+// commandType must be "dev" or "deploy". Returns the running command or an error.
+func (ct *CommandTracker) Run(proj *models.Project, commandType string) (*RunningCommand, error) {
+	var cmdStr string
+	var port int
+	switch commandType {
+	case "dev":
+		if proj.DevCommand == nil || *proj.DevCommand == "" {
+			return nil, fmt.Errorf("dev command not configured for project %s", proj.Name)
+		}
+		cmdStr = *proj.DevCommand
+		if proj.DevPort != nil {
+			port = *proj.DevPort
+		}
+	case "deploy":
+		if proj.DeployCommand == nil || *proj.DeployCommand == "" {
+			return nil, fmt.Errorf("deploy command not configured for project %s", proj.Name)
+		}
+		cmdStr = *proj.DeployCommand
+		if proj.DeployPort != nil {
+			port = *proj.DeployPort
+		}
+	default:
+		return nil, fmt.Errorf("command must be \"dev\" or \"deploy\"")
+	}
+
+	cmd := exec.Command("bash", "-c", cmdStr)
+	cmd.Dir = proj.Path
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Stdin = nil
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start command: %w", err)
+	}
+
+	rc := &RunningCommand{
+		PID:         cmd.Process.Pid,
+		Port:        port,
+		CommandType: commandType,
+		Command:     cmdStr,
+		ProjectID:   proj.ID,
+		StartedAt:   time.Now(),
+	}
+
+	ct.mu.Lock()
+	ct.commands[rc.PID] = rc
+	ct.mu.Unlock()
+
+	// Wait for the command to finish, then try to detect the real process on the port.
+	go func() {
+		_ = cmd.Wait()
+		if port == 0 {
+			return
+		}
+		// The bash script exited. Try to find the actual server process on the port.
+		realPID := waitForPort(port, 5*time.Second, 500*time.Millisecond)
+		ct.mu.Lock()
+		defer ct.mu.Unlock()
+		if realPID > 0 {
+			// Replace the tracker entry: remove old PID key, add new one.
+			delete(ct.commands, rc.PID)
+			rc.PID = realPID
+			ct.commands[realPID] = rc
+		} else {
+			// Nothing on port after bash exited — command is done/failed.
+			delete(ct.commands, rc.PID)
+		}
+	}()
+
+	return rc, nil
+}
+
+// List returns running commands for the given project, cleaning up dead processes.
+func (ct *CommandTracker) List(projectID uuid.UUID) []CommandStatus {
+	ct.mu.Lock()
+	defer ct.mu.Unlock()
+
+	var result []CommandStatus
+	var deadPIDs []int
+
+	for pid, rc := range ct.commands {
+		if rc.ProjectID != projectID {
+			continue
+		}
+		alive := isCommandAlive(rc)
+		if !alive {
+			deadPIDs = append(deadPIDs, pid)
+			continue
+		}
+		result = append(result, CommandStatus{
+			PID:         rc.PID,
+			Port:        rc.Port,
+			CommandType: rc.CommandType,
+			Command:     rc.Command,
+			StartedAt:   rc.StartedAt,
+			Alive:       alive,
+		})
+	}
+
+	for _, pid := range deadPIDs {
+		delete(ct.commands, pid)
+	}
+
+	if result == nil {
+		result = []CommandStatus{}
+	}
+	return result
+}
+
+// Kill terminates a running command by PID. Returns true if found and killed.
+func (ct *CommandTracker) Kill(pid int) bool {
+	ct.mu.Lock()
+	rc, exists := ct.commands[pid]
+	if exists {
+		delete(ct.commands, pid)
+	}
+	ct.mu.Unlock()
+
+	if !exists {
+		return false
+	}
+
+	// Kill the tracked PID's process group.
 	_ = syscall.Kill(-rc.PID, syscall.SIGTERM)
 
-	// Give it a moment then force kill if still alive.
+	// If there's a port, also kill whatever is currently on that port
+	// (handles PID changes after restarts).
+	if rc.Port > 0 {
+		if portPID := findPIDOnPort(rc.Port); portPID > 0 && portPID != rc.PID {
+			_ = syscall.Kill(-portPID, syscall.SIGTERM)
+			go func(p int) {
+				time.Sleep(3 * time.Second)
+				_ = syscall.Kill(-p, syscall.SIGKILL)
+			}(portPID)
+		}
+	}
+
 	go func() {
 		time.Sleep(3 * time.Second)
 		_ = syscall.Kill(-rc.PID, syscall.SIGKILL)
 	}()
 
-	c.Status(http.StatusNoContent)
+	return true
+}
+
+// isCommandAlive checks if a command is still running.
+// If the command has a port, it checks port availability; otherwise falls back to PID signal-0.
+func isCommandAlive(rc *RunningCommand) bool {
+	if rc.Port > 0 {
+		return isPortInUse(rc.Port)
+	}
+	return isProcessAlive(rc.PID)
 }
 
 // isProcessAlive checks if a process is still running using signal 0.
@@ -240,4 +314,45 @@ func isProcessAlive(pid int) bool {
 	}
 	err = proc.Signal(syscall.Signal(0))
 	return err == nil
+}
+
+// isPortInUse checks if something is listening on the given TCP port.
+func isPortInUse(port int) bool {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), time.Second)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+// findPIDOnPort uses lsof to find the PID of the process listening on a port.
+func findPIDOnPort(port int) int {
+	out, err := exec.Command("lsof", "-ti", fmt.Sprintf(":%d", port)).Output()
+	if err != nil {
+		return 0
+	}
+	// lsof may return multiple PIDs (one per line). Take the first.
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) == 0 || lines[0] == "" {
+		return 0
+	}
+	pid, err := strconv.Atoi(lines[0])
+	if err != nil {
+		return 0
+	}
+	return pid
+}
+
+// waitForPort polls until something is listening on the port or timeout expires.
+// Returns the PID on that port, or 0 if nothing appeared.
+func waitForPort(port int, timeout, interval time.Duration) int {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if isPortInUse(port) {
+			return findPIDOnPort(port)
+		}
+		time.Sleep(interval)
+	}
+	return 0
 }

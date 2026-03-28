@@ -20,6 +20,8 @@ type Project struct {
 	VerificationCommand *string   `gorm:"type:text" json:"verification_command"`
 	DevCommand          *string   `gorm:"type:text" json:"dev_command"`
 	DeployCommand       *string   `gorm:"type:text" json:"deploy_command"`
+	DevPort             *int      `gorm:"type:integer" json:"dev_port"`
+	DeployPort          *int      `gorm:"type:integer" json:"deploy_port"`
 	Active              bool      `gorm:"not null;default:true" json:"active"`
 	ClaudeMD            string    `gorm:"column:claude_md;type:text;not null;default:''" json:"claude_md"`
 	SortOrder           int       `gorm:"not null;default:0" json:"sort_order"`

@@ -422,16 +422,23 @@ function SettingsTab({ project, onSaved }: { project: Project; onSaved: () => vo
     project.verification_command ?? '',
   )
   const [devCommand, setDevCommand] = useState(project.dev_command ?? '')
+  const [devPort, setDevPort] = useState(project.dev_port?.toString() ?? '')
   const [deployCommand, setDeployCommand] = useState(project.deploy_command ?? '')
+  const [deployPort, setDeployPort] = useState(project.deploy_port?.toString() ?? '')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const devPortNum = devPort ? parseInt(devPort, 10) : undefined
+  const deployPortNum = deployPort ? parseInt(deployPort, 10) : undefined
 
   const hasChanges =
     branchStrategy !== project.branch_strategy ||
     (verificationCommand || null) !== (project.verification_command ?? null) ||
     (devCommand || null) !== (project.dev_command ?? null) ||
-    (deployCommand || null) !== (project.deploy_command ?? null)
+    (deployCommand || null) !== (project.deploy_command ?? null) ||
+    (devPortNum ?? null) !== (project.dev_port ?? null) ||
+    (deployPortNum ?? null) !== (project.deploy_port ?? null)
 
   async function handleSave() {
     try {
@@ -442,6 +449,8 @@ function SettingsTab({ project, onSaved }: { project: Project; onSaved: () => vo
         verification_command: verificationCommand || undefined,
         dev_command: devCommand || undefined,
         deploy_command: deployCommand || undefined,
+        dev_port: devPortNum ?? 0,
+        deploy_port: deployPortNum ?? 0,
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
@@ -522,28 +531,52 @@ function SettingsTab({ project, onSaved }: { project: Project; onSaved: () => vo
           <label htmlFor="dev-cmd" className="text-sm font-medium text-zinc-700">
             Dev Command
           </label>
-          <input
-            id="dev-cmd"
-            type="text"
-            value={devCommand}
-            onChange={(e) => setDevCommand(e.target.value)}
-            placeholder="e.g., make frontend-dev"
-            className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-          />
+          <div className="mt-1 flex gap-2">
+            <input
+              id="dev-cmd"
+              type="text"
+              value={devCommand}
+              onChange={(e) => setDevCommand(e.target.value)}
+              placeholder="e.g., make frontend-dev"
+              className="flex-1 rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+            />
+            <input
+              id="dev-port"
+              type="number"
+              value={devPort}
+              onChange={(e) => setDevPort(e.target.value)}
+              placeholder="Port"
+              min="1"
+              max="65535"
+              className="w-20 rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+            />
+          </div>
         </div>
 
         <div>
           <label htmlFor="deploy-cmd" className="text-sm font-medium text-zinc-700">
             Deploy Command
           </label>
-          <input
-            id="deploy-cmd"
-            type="text"
-            value={deployCommand}
-            onChange={(e) => setDeployCommand(e.target.value)}
-            placeholder="e.g., make deploy"
-            className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-          />
+          <div className="mt-1 flex gap-2">
+            <input
+              id="deploy-cmd"
+              type="text"
+              value={deployCommand}
+              onChange={(e) => setDeployCommand(e.target.value)}
+              placeholder="e.g., make deploy"
+              className="flex-1 rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+            />
+            <input
+              id="deploy-port"
+              type="number"
+              value={deployPort}
+              onChange={(e) => setDeployPort(e.target.value)}
+              placeholder="Port"
+              min="1"
+              max="65535"
+              className="w-20 rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+            />
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
@@ -660,7 +693,7 @@ function CommandsSection({ project }: { project: Project }) {
             className="inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-200 transition-colors"
           >
             <Square className="h-3.5 w-3.5" />
-            Stop Dev (PID {runningDev.pid})
+            Stop Dev{runningDev.port ? ` :${runningDev.port}` : ''} (PID {runningDev.pid})
           </button>
         ) : (
           <button
@@ -681,7 +714,7 @@ function CommandsSection({ project }: { project: Project }) {
             className="inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-200 transition-colors"
           >
             <Square className="h-3.5 w-3.5" />
-            Stop Deploy (PID {runningDeploy.pid})
+            Stop Deploy{runningDeploy.port ? ` :${runningDeploy.port}` : ''} (PID {runningDeploy.pid})
           </button>
         ) : (
           <button

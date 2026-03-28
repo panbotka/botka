@@ -1,0 +1,2 @@
+ALTER TABLE projects ADD COLUMN dev_port INTEGER;
+ALTER TABLE projects ADD COLUMN deploy_port INTEGER;

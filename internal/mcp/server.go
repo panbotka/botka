@@ -11,6 +11,8 @@ import (
 	"os"
 
 	"gorm.io/gorm"
+
+	"botka/internal/handlers"
 )
 
 var newline = []byte{'\n'}
@@ -63,21 +65,22 @@ type RunnerController interface {
 // Server handles MCP protocol messages. It is transport-agnostic;
 // use RunStdio for stdio or SSEHandler for HTTP/SSE.
 type Server struct {
-	db     *gorm.DB
-	runner RunnerController // nil in stdio mode
+	db       *gorm.DB
+	runner   RunnerController         // nil in stdio mode
+	commands *handlers.CommandTracker // nil in stdio mode
 }
 
 // NewServer creates a new MCP server backed by the given database.
-// The runner parameter may be nil (e.g. in stdio mode) — runner control tools
-// will return an error in that case.
-func NewServer(db *gorm.DB, runner RunnerController) *Server {
-	return &Server{db: db, runner: runner}
+// The runner and commands parameters may be nil (e.g. in stdio mode) —
+// runner control and command execution tools will return an error in that case.
+func NewServer(db *gorm.DB, runner RunnerController, commands *handlers.CommandTracker) *Server {
+	return &Server{db: db, runner: runner, commands: commands}
 }
 
 // RunStdio reads JSON-RPC 2.0 messages from stdin and writes responses
 // to stdout. It blocks until stdin is closed or a read error occurs.
 func RunStdio(db *gorm.DB) error {
-	return NewServer(db, nil).serve(os.Stdin, os.Stdout)
+	return NewServer(db, nil, nil).serve(os.Stdin, os.Stdout)
 }
 
 // HandleMessage processes a single JSON-RPC 2.0 message and returns
@@ -172,8 +175,8 @@ func (s *Server) handleToolsCall(req *request) *response {
 		return errorResponse(req.ID, codeInvalidParams, "missing tool name")
 	}
 
-	handlers := s.toolHandlers()
-	handler, ok := handlers[params.Name]
+	toolMap := s.toolHandlers()
+	handler, ok := toolMap[params.Name]
 	if !ok {
 		return toolErrorResponse(req.ID, "unknown tool: "+params.Name)
 	}
@@ -210,13 +213,22 @@ func formatToolResult(id json.RawMessage, result interface{}) *response {
 // toolHandlers returns the mapping of tool names to their handler functions.
 func (s *Server) toolHandlers() map[string]toolHandler {
 	return map[string]toolHandler{
-		"create_task":       s.handleCreateTask,
-		"list_tasks":        s.handleListTasks,
-		"get_task":          s.handleGetTask,
-		"update_task":       s.handleUpdateTask,
-		"list_projects":     s.handleListProjects,
-		"get_runner_status": s.handleGetRunnerStatus,
-		"start_runner":      s.handleStartRunner,
+		"create_task":          s.handleCreateTask,
+		"list_tasks":           s.handleListTasks,
+		"get_task":             s.handleGetTask,
+		"update_task":          s.handleUpdateTask,
+		"list_projects":        s.handleListProjects,
+		"get_runner_status":    s.handleGetRunnerStatus,
+		"start_runner":         s.handleStartRunner,
+		"update_project":       s.handleUpdateProject,
+		"run_command":          s.handleRunCommand,
+		"list_commands":        s.handleListCommands,
+		"kill_command":         s.handleKillCommand,
+		"list_threads":         s.handleListThreads,
+		"list_thread_sources":  s.handleListThreadSources,
+		"add_thread_source":    s.handleAddThreadSource,
+		"remove_thread_source": s.handleRemoveThreadSource,
+		"update_thread_source": s.handleUpdateThreadSource,
 	}
 }
 
@@ -281,7 +293,11 @@ func schema(props map[string]interface{}, required ...string) map[string]interfa
 // toolDefinitions returns the MCP tool definitions for the tools/list response.
 func toolDefinitions() []toolDef {
 	defs := taskToolDefinitions()
-	return append(defs, runnerToolDefinitions()...)
+	defs = append(defs, runnerToolDefinitions()...)
+	defs = append(defs, projectToolDefinitions()...)
+	defs = append(defs, commandToolDefinitions()...)
+	defs = append(defs, threadToolDefinitions()...)
+	return defs
 }
 
 // taskToolDefinitions returns tool definitions for task management operations.
@@ -354,6 +370,103 @@ func runnerToolDefinitions() []toolDef {
 			InputSchema: schema(map[string]interface{}{
 				"count": prop("integer", "Number of tasks to process before auto-stopping (0 or omit for unlimited)"),
 			}),
+		},
+	}
+}
+
+// projectToolDefinitions returns tool definitions for project settings.
+func projectToolDefinitions() []toolDef {
+	return []toolDef{
+		{
+			Name:        "update_project",
+			Description: "Update a project's configuration (dev/deploy commands, ports, verification, branch strategy)",
+			InputSchema: schema(map[string]interface{}{
+				"project_name":         prop("string", "Project name (case-insensitive)"),
+				"dev_command":          prop("string", "Shell command for dev environment (empty string clears)"),
+				"deploy_command":       prop("string", "Shell command for production deploy (empty string clears)"),
+				"dev_port":             prop("integer", "Port the dev server listens on (0 clears)"),
+				"deploy_port":          prop("integer", "Port for deploy (0 clears)"),
+				"verification_command": prop("string", "Command to verify task execution (empty string clears)"),
+				"branch_strategy":      enumProp("Branch strategy", "main", "feature_branch"),
+			}, "project_name"),
+		},
+	}
+}
+
+// commandToolDefinitions returns tool definitions for command execution.
+func commandToolDefinitions() []toolDef {
+	return []toolDef{
+		{
+			Name:        "run_command",
+			Description: "Execute a project's configured dev or deploy command",
+			InputSchema: schema(map[string]interface{}{
+				"project_name": prop("string", "Project name (case-insensitive)"),
+				"command":      enumProp("Command type to run", "dev", "deploy"),
+			}, "project_name", "command"),
+		},
+		{
+			Name:        "list_commands",
+			Description: "List running commands for a project",
+			InputSchema: schema(map[string]interface{}{
+				"project_name": prop("string", "Project name (case-insensitive)"),
+			}, "project_name"),
+		},
+		{
+			Name:        "kill_command",
+			Description: "Kill a running command by PID",
+			InputSchema: schema(map[string]interface{}{
+				"project_name": prop("string", "Project name (case-insensitive)"),
+				"pid":          prop("integer", "Process ID to kill"),
+			}, "project_name", "pid"),
+		},
+	}
+}
+
+// threadToolDefinitions returns tool definitions for thread and thread source operations.
+func threadToolDefinitions() []toolDef {
+	return []toolDef{
+		{
+			Name:        "list_threads",
+			Description: "List chat threads, optionally filtered by project",
+			InputSchema: schema(map[string]interface{}{
+				"project_name": prop("string", "Filter by project name (case-insensitive)"),
+				"limit":        prop("integer", "Max results (default 20)"),
+				"offset":       prop("integer", "Pagination offset (default 0)"),
+			}),
+		},
+		{
+			Name:        "list_thread_sources",
+			Description: "List URL sources attached to a thread",
+			InputSchema: schema(map[string]interface{}{
+				"thread_id": prop("integer", "Thread ID"),
+			}, "thread_id"),
+		},
+		{
+			Name:        "add_thread_source",
+			Description: "Add a URL source to a thread",
+			InputSchema: schema(map[string]interface{}{
+				"thread_id": prop("integer", "Thread ID"),
+				"url":       prop("string", "URL to add"),
+				"label":     prop("string", "Optional label for the source"),
+			}, "thread_id", "url"),
+		},
+		{
+			Name:        "remove_thread_source",
+			Description: "Remove a URL source from a thread",
+			InputSchema: schema(map[string]interface{}{
+				"thread_id": prop("integer", "Thread ID"),
+				"source_id": prop("integer", "Source ID to remove"),
+			}, "thread_id", "source_id"),
+		},
+		{
+			Name:        "update_thread_source",
+			Description: "Update a thread source's URL or label",
+			InputSchema: schema(map[string]interface{}{
+				"thread_id": prop("integer", "Thread ID"),
+				"source_id": prop("integer", "Source ID to update"),
+				"url":       prop("string", "New URL"),
+				"label":     prop("string", "New label"),
+			}, "thread_id", "source_id"),
 		},
 	}
 }

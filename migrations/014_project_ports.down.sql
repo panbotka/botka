@@ -1,0 +1,2 @@
+ALTER TABLE projects DROP COLUMN IF EXISTS dev_port;
+ALTER TABLE projects DROP COLUMN IF EXISTS deploy_port;

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -38,7 +39,8 @@ func TestCommand_RunNotConfigured(t *testing.T) {
 
 	var resp map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["error"] != "dev command not configured for this project" {
+	errMsg, _ := resp["error"].(string)
+	if !strings.Contains(errMsg, "dev command not configured") {
 		t.Errorf("unexpected error: %v", resp["error"])
 	}
 }
@@ -59,7 +61,8 @@ func TestCommand_RunDeployNotConfigured(t *testing.T) {
 
 	var resp map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["error"] != "deploy command not configured for this project" {
+	errMsg, _ := resp["error"].(string)
+	if !strings.Contains(errMsg, "deploy command not configured") {
 		t.Errorf("unexpected error: %v", resp["error"])
 	}
 }

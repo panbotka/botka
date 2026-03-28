@@ -69,6 +69,8 @@ type projectResponse struct {
 	VerificationCommand *string    `json:"verification_command"`
 	DevCommand          *string    `json:"dev_command"`
 	DeployCommand       *string    `json:"deploy_command"`
+	DevPort             *int       `json:"dev_port"`
+	DeployPort          *int       `json:"deploy_port"`
 	Active              bool       `json:"active"`
 	ClaudeMD            string     `json:"claude_md"`
 	SortOrder           int        `json:"sort_order"`
@@ -125,6 +127,8 @@ type updateProjectRequest struct {
 	VerificationCommand *string `json:"verification_command"`
 	DevCommand          *string `json:"dev_command"`
 	DeployCommand       *string `json:"deploy_command"`
+	DevPort             *int    `json:"dev_port"`
+	DeployPort          *int    `json:"deploy_port"`
 	ClaudeMD            *string `json:"claude_md"`
 	SortOrder           *int    `json:"sort_order"`
 	Active              *bool   `json:"active"`
@@ -190,6 +194,12 @@ func (r *updateProjectRequest) validate() error {
 			return errors.New(msg)
 		}
 	}
+	if r.DevPort != nil && (*r.DevPort < 0 || *r.DevPort > 65535) {
+		return errors.New("dev_port must be between 0 and 65535")
+	}
+	if r.DeployPort != nil && (*r.DeployPort < 0 || *r.DeployPort > 65535) {
+		return errors.New("deploy_port must be between 0 and 65535")
+	}
 	if r.ClaudeMD != nil {
 		if msg := validateMaxLength("claude_md", *r.ClaudeMD, maxClaudeMDLength); msg != "" {
 			return errors.New(msg)
@@ -212,6 +222,20 @@ func (h *ProjectHandler) applyProjectUpdates(proj *models.Project, req updatePro
 	}
 	if req.DeployCommand != nil {
 		updates["deploy_command"] = *req.DeployCommand
+	}
+	if req.DevPort != nil {
+		if *req.DevPort == 0 {
+			updates["dev_port"] = nil
+		} else {
+			updates["dev_port"] = *req.DevPort
+		}
+	}
+	if req.DeployPort != nil {
+		if *req.DeployPort == 0 {
+			updates["deploy_port"] = nil
+		} else {
+			updates["deploy_port"] = *req.DeployPort
+		}
 	}
 	if req.ClaudeMD != nil {
 		updates["claude_md"] = *req.ClaudeMD
@@ -568,6 +592,8 @@ func (h *ProjectHandler) buildProjectResponse(p *models.Project) (projectRespons
 		VerificationCommand: p.VerificationCommand,
 		DevCommand:          p.DevCommand,
 		DeployCommand:       p.DeployCommand,
+		DevPort:             p.DevPort,
+		DeployPort:          p.DeployPort,
 		Active:              p.Active,
 		ClaudeMD:            p.ClaudeMD,
 		SortOrder:           p.SortOrder,

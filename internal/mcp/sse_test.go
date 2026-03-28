@@ -17,7 +17,7 @@ func init() {
 func TestHandleMessage_sessionNotFound(t *testing.T) {
 	t.Parallel()
 
-	srv := NewServer(nil, nil)
+	srv := NewServer(nil, nil, nil)
 	handler := NewSSEHandler(srv, "test-token")
 
 	router := gin.New()
@@ -41,7 +41,7 @@ func TestHandleMessage_sessionNotFound(t *testing.T) {
 func TestNewSSEHandler_notNil(t *testing.T) {
 	t.Parallel()
 
-	srv := NewServer(nil, nil)
+	srv := NewServer(nil, nil, nil)
 	handler := NewSSEHandler(srv, "test-token")
 	if handler == nil {
 		t.Fatal("expected non-nil SSEHandler")
@@ -52,7 +52,7 @@ func TestNewSSEHandler_notNil(t *testing.T) {
 func TestRegisterRoutes_endpoints(t *testing.T) {
 	t.Parallel()
 
-	srv := NewServer(nil, nil)
+	srv := NewServer(nil, nil, nil)
 	handler := NewSSEHandler(srv, "test-token")
 
 	router := gin.New()

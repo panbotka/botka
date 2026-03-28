@@ -9,7 +9,7 @@ import (
 // TestHandleMessage_parseError verifies that malformed JSON returns a parse error.
 func TestHandleMessage_parseError(t *testing.T) {
 	t.Parallel()
-	srv := NewServer(nil, nil)
+	srv := NewServer(nil, nil, nil)
 
 	resp := srv.HandleMessage([]byte("{bad json"))
 	if resp == nil {
@@ -31,7 +31,7 @@ func TestHandleMessage_parseError(t *testing.T) {
 // TestHandleMessage_notification verifies that notifications (no id) return nil.
 func TestHandleMessage_notification(t *testing.T) {
 	t.Parallel()
-	srv := NewServer(nil, nil)
+	srv := NewServer(nil, nil, nil)
 
 	msg := `{"jsonrpc":"2.0","method":"notifications/initialized"}`
 	resp := srv.HandleMessage([]byte(msg))
@@ -43,7 +43,7 @@ func TestHandleMessage_notification(t *testing.T) {
 // TestDispatch_initialize verifies the initialize method returns server info.
 func TestDispatch_initialize(t *testing.T) {
 	t.Parallel()
-	srv := NewServer(nil, nil)
+	srv := NewServer(nil, nil, nil)
 
 	msg := `{"jsonrpc":"2.0","id":1,"method":"initialize"}`
 	resp := srv.HandleMessage([]byte(msg))
@@ -75,7 +75,7 @@ func TestDispatch_initialize(t *testing.T) {
 // TestDispatch_toolsList verifies tools/list returns tool definitions.
 func TestDispatch_toolsList(t *testing.T) {
 	t.Parallel()
-	srv := NewServer(nil, nil)
+	srv := NewServer(nil, nil, nil)
 
 	msg := `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`
 	resp := srv.HandleMessage([]byte(msg))
@@ -105,13 +105,22 @@ func TestDispatch_toolsList(t *testing.T) {
 
 	// Verify expected tool names exist.
 	expectedTools := map[string]bool{
-		"create_task":       false,
-		"list_tasks":        false,
-		"get_task":          false,
-		"update_task":       false,
-		"list_projects":     false,
-		"get_runner_status": false,
-		"start_runner":      false,
+		"create_task":          false,
+		"list_tasks":           false,
+		"get_task":             false,
+		"update_task":          false,
+		"list_projects":        false,
+		"get_runner_status":    false,
+		"start_runner":         false,
+		"update_project":       false,
+		"run_command":          false,
+		"list_commands":        false,
+		"kill_command":         false,
+		"list_threads":         false,
+		"list_thread_sources":  false,
+		"add_thread_source":    false,
+		"remove_thread_source": false,
+		"update_thread_source": false,
 	}
 	for _, tool := range tools {
 		toolMap, ok := tool.(map[string]interface{})
@@ -133,7 +142,7 @@ func TestDispatch_toolsList(t *testing.T) {
 // TestDispatch_methodNotFound verifies unknown methods return an error.
 func TestDispatch_methodNotFound(t *testing.T) {
 	t.Parallel()
-	srv := NewServer(nil, nil)
+	srv := NewServer(nil, nil, nil)
 
 	msg := `{"jsonrpc":"2.0","id":3,"method":"unknown/method"}`
 	resp := srv.HandleMessage([]byte(msg))
@@ -156,7 +165,7 @@ func TestDispatch_methodNotFound(t *testing.T) {
 // TestHandleToolsCall_missingParams verifies tools/call with no params returns an error.
 func TestHandleToolsCall_missingParams(t *testing.T) {
 	t.Parallel()
-	srv := NewServer(nil, nil)
+	srv := NewServer(nil, nil, nil)
 
 	msg := `{"jsonrpc":"2.0","id":4,"method":"tools/call"}`
 	resp := srv.HandleMessage([]byte(msg))
@@ -179,7 +188,7 @@ func TestHandleToolsCall_missingParams(t *testing.T) {
 // TestHandleToolsCall_unknownTool verifies that calling an unknown tool returns a tool error.
 func TestHandleToolsCall_unknownTool(t *testing.T) {
 	t.Parallel()
-	srv := NewServer(nil, nil)
+	srv := NewServer(nil, nil, nil)
 
 	msg := `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"nonexistent","arguments":{}}}`
 	resp := srv.HandleMessage([]byte(msg))
@@ -387,7 +396,7 @@ func TestFormatToolResult_stringResult(t *testing.T) {
 func TestServe_roundTrip(t *testing.T) {
 	t.Parallel()
 
-	srv := NewServer(nil, nil)
+	srv := NewServer(nil, nil, nil)
 	input := `{"jsonrpc":"2.0","id":1,"method":"initialize"}` + "\n"
 
 	r := strings.NewReader(input)

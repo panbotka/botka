@@ -26,7 +26,7 @@ export default function CommandButtons({ project }: { project: Project | undefin
           runningDev ? (
             <button
               onClick={() => handleKill(runningDev.pid)}
-              title={`Stop Dev (PID ${runningDev.pid})`}
+              title={`Stop Dev${runningDev.port ? ` on :${runningDev.port}` : ''} (PID ${runningDev.pid})`}
               className="inline-flex items-center gap-1 rounded-md bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-200 transition-colors cursor-pointer"
             >
               <span className="relative flex h-2 w-2">
@@ -53,7 +53,7 @@ export default function CommandButtons({ project }: { project: Project | undefin
           runningDeploy ? (
             <button
               onClick={() => handleKill(runningDeploy.pid)}
-              title={`Stop Deploy (PID ${runningDeploy.pid})`}
+              title={`Stop Deploy${runningDeploy.port ? ` on :${runningDeploy.port}` : ''} (PID ${runningDeploy.pid})`}
               className="inline-flex items-center gap-1 rounded-md bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-200 transition-colors cursor-pointer"
             >
               <span className="relative flex h-2 w-2">

@@ -10,6 +10,8 @@ export interface Project {
   verification_command?: string
   dev_command?: string
   deploy_command?: string
+  dev_port?: number
+  deploy_port?: number
   active: boolean
   claude_md: string
   sort_order: number
@@ -41,6 +43,7 @@ export interface GitStatus {
 
 export interface RunningCommandStatus {
   pid: number
+  port?: number
   command_type: string
   command: string
   started_at: string

@@ -235,7 +235,7 @@ func TestFormatExecution(t *testing.T) {
 // TestHandleStartRunner_noRunner verifies start_runner fails in stdio mode.
 func TestHandleStartRunner_noRunner(t *testing.T) {
 	t.Parallel()
-	srv := NewServer(nil, nil)
+	srv := NewServer(nil, nil, nil)
 
 	_, err := srv.handleStartRunner(json.RawMessage(`{}`))
 	if err == nil {
@@ -250,7 +250,7 @@ func TestHandleStartRunner_noRunner(t *testing.T) {
 func TestHandleStartRunner_unlimited(t *testing.T) {
 	t.Parallel()
 	runner := &mockRunner{}
-	srv := NewServer(nil, runner)
+	srv := NewServer(nil, runner, nil)
 
 	result, err := srv.handleStartRunner(json.RawMessage(`{}`))
 	if err != nil {
@@ -268,7 +268,7 @@ func TestHandleStartRunner_unlimited(t *testing.T) {
 func TestHandleStartRunner_withCount(t *testing.T) {
 	t.Parallel()
 	runner := &mockRunner{}
-	srv := NewServer(nil, runner)
+	srv := NewServer(nil, runner, nil)
 
 	result, err := srv.handleStartRunner(json.RawMessage(`{"count": 5}`))
 	if err != nil {
