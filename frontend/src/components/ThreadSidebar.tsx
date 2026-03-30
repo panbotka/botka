@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { Persona, Tag, Thread, Project, SearchResult } from '../types'
-import { api, searchMessages } from '../api/client'
+import { api, searchMessages, ApiError } from '../api/client'
 import { downloadExport } from '../utils/exportThread'
 import { clearDraft } from './ChatInput'
 import ModelPicker from './ModelPicker'
@@ -65,6 +65,7 @@ export default function ThreadSidebar({
   const [personaDropdownOpen, setPersonaDropdownOpen] = useState(false)
   const personaDropdownRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const [toast, setToast] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
   const [searchLoading, setSearchLoading] = useState(false)
@@ -164,12 +165,19 @@ export default function ThreadSidebar({
     } catch { /* ignore */ }
   }
 
+  const showToast = useCallback((msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(null), 3000)
+  }, [])
+
   const handlePin = async (id: number, pinned: boolean) => {
     try {
       if (pinned) await api.unpinThread(id)
       else await api.pinThread(id)
       onThreadsChange()
-    } catch { /* ignore */ }
+    } catch (err) {
+      if (err instanceof ApiError) showToast(err.message)
+    }
   }
 
   const handleArchive = async (id: number, archived: boolean) => {
@@ -664,6 +672,13 @@ export default function ThreadSidebar({
           </div>
         </div>
         {modelPickerModal}
+        {toast && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100]
+                          bg-red-600 text-white text-sm px-4 py-2.5 rounded-xl
+                          shadow-lg shadow-red-600/20">
+            {toast}
+          </div>
+        )}
       </>
     )
   }
@@ -774,6 +789,13 @@ export default function ThreadSidebar({
           onClose={() => setCustomContextThread(null)}
           onSaved={onThreadsChange}
         />
+      )}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100]
+                        bg-red-600 text-white text-sm px-4 py-2.5 rounded-xl
+                        shadow-lg shadow-red-600/20 animate-in fade-in slide-in-from-bottom-4">
+          {toast}
+        </div>
       )}
     </>
   )

@@ -139,6 +139,58 @@ func TestBuildPickQuery_ExcludesAllActiveProjects(t *testing.T) {
 	}
 }
 
+func TestBuildPickQuery_ExcludesProjectsWithRunningTask(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	projA := createProject(t, db, "project-a")
+	projB := createProject(t, db, "project-b")
+
+	// Project A has a running task AND a queued task.
+	createTask(t, db, projA.ID, "task-a-running", models.TaskStatusRunning)
+	createTask(t, db, projA.ID, "task-a-queued", models.TaskStatusQueued)
+	// Project B has only a queued task.
+	taskB := createTask(t, db, projB.ID, "task-b-queued", models.TaskStatusQueued)
+
+	r := &Runner{db: db}
+
+	// Even without passing activeProjectIDs, the DB subquery should exclude project A.
+	tx := db.Begin()
+	defer tx.Rollback() //nolint:errcheck
+
+	var task models.Task
+	err := r.buildPickQuery(tx, nil, nil).First(&task).Error
+	if err != nil {
+		t.Fatalf("expected to find a task, got error: %v", err)
+	}
+	if task.ID != taskB.ID {
+		t.Errorf("expected task %v (project-b), got %v", taskB.ID, task.ID)
+	}
+}
+
+func TestBuildPickQuery_DBLevelBlocksAllSameProject(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	proj := createProject(t, db, "project-only")
+
+	// Project has a running task and a queued task.
+	createTask(t, db, proj.ID, "running-task", models.TaskStatusRunning)
+	createTask(t, db, proj.ID, "queued-task", models.TaskStatusQueued)
+
+	r := &Runner{db: db}
+
+	// No in-memory exclusions — DB subquery must block it.
+	tx := db.Begin()
+	defer tx.Rollback() //nolint:errcheck
+
+	var task models.Task
+	err := r.buildPickQuery(tx, nil, nil).First(&task).Error
+	if err == nil {
+		t.Fatalf("expected no task (project has running task), got task %v", task.ID)
+	}
+}
+
 func TestLaunchTask_RefusesDuplicateProject(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)

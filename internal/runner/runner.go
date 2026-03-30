@@ -384,11 +384,14 @@ func (r *Runner) pickNextTask(
 // Uses SELECT FOR UPDATE SKIP LOCKED for safe concurrent access without blocking.
 // Excludes projects that already have a running task (one task per project) to
 // prevent git conflicts when multiple tasks modify the same repository.
+// Uses both in-memory exclusion (activeProjectIDs) and a database-level subquery
+// to guarantee one-task-per-project even if in-memory state is inconsistent.
 func (r *Runner) buildPickQuery(
 	tx *gorm.DB, activeProjectIDs, blockedTaskIDs []uuid.UUID,
 ) *gorm.DB {
 	query := tx.
 		Where("status = ?", models.TaskStatusQueued).
+		Where("NOT EXISTS (SELECT 1 FROM tasks t2 WHERE t2.project_id = tasks.project_id AND t2.status = ?)", models.TaskStatusRunning).
 		Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
 		Order("priority DESC, created_at ASC")
 

@@ -479,6 +479,60 @@ func TestThread_SetTags(t *testing.T) {
 	}
 }
 
+func TestThread_PinIdempotent(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	th := createTestThread(t, db)
+	db.Model(&models.Thread{}).Where("id = ?", th.ID).Update("pinned", true)
+
+	r := threadRouter(db)
+	w := doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/threads/%d/pin", th.ID), "")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for already-pinned thread, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var updated models.Thread
+	db.First(&updated, th.ID)
+	if !updated.Pinned {
+		t.Error("expected thread to remain pinned")
+	}
+}
+
+func TestThread_PinIdempotentAtLimit(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	r := threadRouter(db)
+
+	// Pin 10 threads.
+	var lastPinned models.Thread
+	for i := 0; i < 10; i++ {
+		th := createTestThread(t, db)
+		doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/threads/%d/pin", th.ID), "")
+		lastPinned = th
+	}
+
+	// Re-pinning one that's already pinned should succeed (idempotent).
+	w := doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/threads/%d/pin", lastPinned.ID), "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for re-pin at limit, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestThread_PinNotFound(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	r := threadRouter(db)
+	w := doRequest(r, http.MethodPut, "/api/v1/threads/99999/pin", "")
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for non-existent thread, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestThread_PinLimit(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)

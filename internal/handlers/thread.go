@@ -298,6 +298,17 @@ func (h *ThreadHandler) Pin(c *gin.Context) {
 		return
 	}
 
+	// Check if already pinned (idempotent).
+	var thread models.Thread
+	if err := h.db.Select("pinned").First(&thread, id).Error; err != nil {
+		respondError(c, http.StatusNotFound, "thread not found")
+		return
+	}
+	if thread.Pinned {
+		respondOK(c, gin.H{"status": "ok"})
+		return
+	}
+
 	var count int64
 	h.db.Model(&models.Thread{}).Where("pinned = ?", true).Count(&count)
 	if count >= 10 {
