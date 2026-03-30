@@ -1016,7 +1016,8 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
             })()}
             {(() => {
               const historyCost = messages.reduce((sum, m) => sum + (m.cost_usd || 0), 0);
-              const currentCost = usageInfo.cost_usd || 0;
+              // Only add current stream cost when actively streaming (message not yet persisted to DB)
+              const currentCost = isStreamingThisThread ? (usageInfo.cost_usd || 0) : 0;
               const totalCost = historyCost + currentCost;
               return totalCost > 0 ? <span>${totalCost.toFixed(4)}</span> : null;
             })()}
