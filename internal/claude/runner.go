@@ -117,7 +117,7 @@ func Run(ctx context.Context, cfg RunConfig, prompt string) <-chan StreamEvent {
 			args = append(args, "--append-system-prompt-file", cfg.SystemPromptFile)
 		}
 
-		if cfg.Name != "" && !cfg.Resume {
+		if cfg.Name != "" {
 			args = append(args, "--name", cfg.Name)
 		}
 

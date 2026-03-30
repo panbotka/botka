@@ -345,3 +345,56 @@ func TestTitleFromContent_Truncation(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildStreamArgs_NamePassedOnResume(t *testing.T) {
+	cfg := RunConfig{
+		Resume:    true,
+		SessionID: "sess-123",
+		Name:      "My Thread",
+	}
+	args := buildStreamArgs(cfg)
+
+	foundName := false
+	for i, a := range args {
+		if a == "--name" && i+1 < len(args) && args[i+1] == "My Thread" {
+			foundName = true
+			break
+		}
+	}
+	if !foundName {
+		t.Errorf("expected --name 'My Thread' in args on resume, got %v", args)
+	}
+}
+
+func TestBuildStreamArgs_NamePassedWithoutResume(t *testing.T) {
+	cfg := RunConfig{
+		Name: "Fresh Session",
+	}
+	args := buildStreamArgs(cfg)
+
+	foundName := false
+	for i, a := range args {
+		if a == "--name" && i+1 < len(args) && args[i+1] == "Fresh Session" {
+			foundName = true
+			break
+		}
+	}
+	if !foundName {
+		t.Errorf("expected --name 'Fresh Session' in args, got %v", args)
+	}
+}
+
+func TestBuildStreamArgs_NoNameWhenEmpty(t *testing.T) {
+	cfg := RunConfig{
+		Resume:    true,
+		SessionID: "sess-456",
+	}
+	args := buildStreamArgs(cfg)
+
+	for _, a := range args {
+		if a == "--name" {
+			t.Errorf("expected no --name flag when Name is empty, got %v", args)
+			break
+		}
+	}
+}
