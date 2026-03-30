@@ -1,15 +1,18 @@
 import { useState } from 'react';
+import { EyeOff, Eye } from 'lucide-react';
 
 interface Props {
   role: 'user' | 'assistant' | 'system';
   content: string;
   isLastAssistant: boolean;
+  isHidden?: boolean;
   onEdit?: () => void;
   onRegenerate?: () => void;
   onBranch?: () => void;
+  onHide?: () => void;
 }
 
-export default function MessageActions({ role, content, isLastAssistant, onEdit, onRegenerate, onBranch }: Props) {
+export default function MessageActions({ role, content, isLastAssistant, isHidden, onEdit, onRegenerate, onBranch, onHide }: Props) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -87,6 +90,17 @@ export default function MessageActions({ role, content, isLastAssistant, onEdit,
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
             <path fillRule="evenodd" d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08.932.75.75 0 0 1-1.3-.75 6 6 0 0 1 9.44-1.242l.842.84V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44 1.241l-.84-.84v1.371a.75.75 0 0 1-1.5 0V9.591a.75.75 0 0 1 .75-.75H5.35a.75.75 0 0 1 0 1.5H3.98l.841.841a4.5 4.5 0 0 0 7.08-.932.75.75 0 0 1 1.025-.273Z" clipRule="evenodd" />
           </svg>
+        </button>
+      )}
+
+      {onHide && (
+        <button
+          onClick={onHide}
+          className="p-1 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-all duration-150"
+          title={isHidden ? 'Unhide message' : 'Hide message'}
+          aria-label={isHidden ? 'Unhide message' : 'Hide message'}
+        >
+          {isHidden ? <Eye size={14} /> : <EyeOff size={14} />}
         </button>
       )}
     </div>

@@ -207,6 +207,9 @@ func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gi
 	chatHandler := handlers.NewChatHandler(db, cfg.AIModel, cfg.UploadDir, claudeCfg, contextCfg, cfg.ClaudeDefaultWorkDir)
 	handlers.RegisterChatRoutes(v1, chatHandler)
 
+	messageHandler := handlers.NewMessageHandler(db)
+	handlers.RegisterMessageRoutes(v1, messageHandler)
+
 	fileHandler := handlers.NewFileHandler(db, cfg.UploadDir)
 	handlers.RegisterFileRoutes(v1, fileHandler)
 

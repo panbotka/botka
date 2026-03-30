@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type DragEvent } from 'react';
 import type { Message, Thread, ThreadDetail, Attachment, ForkPoint } from '../types';
-import { api, interruptThread, streamChat, streamRegenerate, streamEdit, streamBranch, streamSubscribe, fetchSessionHealth } from '../api/client';
+import { api, interruptThread, streamChat, streamRegenerate, streamEdit, streamBranch, streamSubscribe, fetchSessionHealth, toggleMessageHidden } from '../api/client';
 import type { SessionHealthData } from '../api/client';
 import type { StreamChunk } from '../api/client';
 import { useSSEManager, useSSESession } from '../context/SSEContext';
@@ -615,6 +615,17 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     }
   }, [threadId, sseManager, reloadThread]);
 
+  // --- Hide/Unhide ---
+
+  const handleHide = useCallback(async (messageId: number) => {
+    try {
+      const updated = await toggleMessageHidden(messageId);
+      setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, hidden: updated.hidden } : m));
+    } catch {
+      // ignore
+    }
+  }, []);
+
   // --- Slash commands ---
 
   const handleSlashCommand = useCallback(async (command: string, args: string) => {
@@ -783,6 +794,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
                 onEdit={msg.role === 'user' && !isStreamingThisThread ? handleEdit : undefined}
                 onRegenerate={msg.id === lastAssistantId && !isStreamingThisThread ? handleRegenerate : undefined}
                 onBranch={msg.role === 'assistant' && !isStreamingThisThread ? () => handleBranch(msg.id) : undefined}
+                onHide={!isStreamingThisThread ? () => handleHide(msg.id) : undefined}
                 onSwitchBranch={fp ? (childId: number) => handleSwitchBranch(forkId, childId) : undefined}
                 onImageClick={(att, allImages) => setLightbox({ attachment: att, allImages })}
                 onRemoveQueued={queuedIds.has(msg.id) ? () => removeQueuedMessage(msg.id) : undefined}

@@ -5,7 +5,7 @@ import ThinkingSection from './ThinkingSection';
 import MessageActions from './MessageActions';
 import BranchIndicator from './BranchIndicator';
 import ToolCallPanel from './ToolCallPanel';
-import { Wrench, ChevronDown } from 'lucide-react';
+import { Wrench, ChevronDown, EyeOff } from 'lucide-react';
 
 interface Props {
   message: Message;
@@ -16,6 +16,7 @@ interface Props {
   onEdit?: (messageId: number, content: string) => void;
   onRegenerate?: () => void;
   onBranch?: () => void;
+  onHide?: () => void;
   onSwitchBranch?: (childId: number) => void;
   onImageClick?: (attachment: Attachment, allImages: Attachment[]) => void;
   onRemoveQueued?: () => void;
@@ -221,13 +222,29 @@ function AttachmentPreviews({ imageAttachments, pdfAttachments, textAttachments,
   );
 }
 
-export default function MessageBubble({ message, isStreaming, isLastAssistant, isPending, forkPoint, onEdit, onRegenerate, onBranch, onSwitchBranch, onImageClick, onRemoveQueued, onOptionSelect }: Props) {
+export default function MessageBubble({ message, isStreaming, isLastAssistant, isPending, forkPoint, onEdit, onRegenerate, onBranch, onHide, onSwitchBranch, onImageClick, onRemoveQueued, onOptionSelect }: Props) {
   const isUser = message.role === 'user';
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
   const [toolCallsExpanded, setToolCallsExpanded] = useState(false);
   const toolCalls = message.tool_calls;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  if (message.hidden) {
+    return (
+      <div className={`group flex ${isUser ? 'justify-end' : 'justify-start'} mb-3`}>
+        <button
+          type="button"
+          onClick={onHide}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs text-zinc-400 hover:text-zinc-600 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 transition-colors cursor-pointer"
+          title="Click to unhide"
+        >
+          <EyeOff size={12} />
+          <span>Message hidden</span>
+        </button>
+      </div>
+    );
+  }
 
   const attachments = message.attachments || [];
   const imageAttachments = attachments.filter((a) => a.mime_type.startsWith('image/'));
@@ -411,9 +428,11 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
                 role={message.role}
                 content={message.content}
                 isLastAssistant={isLastAssistant ?? false}
+                isHidden={message.hidden}
                 onEdit={onEdit ? () => setEditing(true) : undefined}
                 onRegenerate={onRegenerate}
                 onBranch={onBranch}
+                onHide={onHide}
               />
             </div>
             {forkPoint && onSwitchBranch && (

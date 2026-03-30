@@ -1,4 +1,4 @@
-import type { Project, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings } from '../types'
+import type { Project, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -249,6 +249,10 @@ export function unarchiveThread(id: number): Promise<void> {
 
 export function clearMessages(id: number): Promise<void> {
   return request<void>(`/threads/${id}/messages`, { method: 'DELETE' })
+}
+
+export function toggleMessageHidden(messageId: number): Promise<Message> {
+  return requestData<Message>(`/messages/${messageId}/hide`, { method: 'PATCH' })
 }
 
 export function clearSession(id: number): Promise<void> {
@@ -883,6 +887,7 @@ export const api = {
   archiveThread,
   unarchiveThread,
   clearMessages,
+  toggleMessageHidden,
   clearSession,
   interruptThread,
   newSession,

@@ -26,6 +26,7 @@ type Message struct {
 	CompletionTokens   *int            `json:"completion_tokens,omitempty"`
 	CostUSD            *float64        `gorm:"type:numeric(10,6)" json:"cost_usd,omitempty"`
 	ToolCalls          json.RawMessage `gorm:"type:jsonb" json:"tool_calls,omitempty"`
+	Hidden             bool            `gorm:"not null;default:false" json:"hidden"`
 	Attachments        []Attachment    `gorm:"foreignKey:MessageID" json:"attachments,omitempty"`
 	CreatedAt          time.Time       `json:"created_at"`
 }

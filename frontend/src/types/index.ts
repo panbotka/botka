@@ -192,6 +192,7 @@ export interface Message {
   completion_tokens?: number
   cost_usd?: number | null
   tool_calls?: PersistedToolCall[]
+  hidden?: boolean
   attachments?: Attachment[]
   created_at: string
 }
