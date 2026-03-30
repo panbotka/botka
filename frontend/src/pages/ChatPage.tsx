@@ -36,7 +36,6 @@ export default function ChatPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [pendingStarterMessage, setPendingStarterMessage] = useState<string | null>(null)
-  const [streamingThreadId, setStreamingThreadId] = useState<number | null>(null)
   const [threadNotFound, setThreadNotFound] = useState(false)
 
   const showArchivedRef = useRef(showArchived)
@@ -192,7 +191,6 @@ export default function ChatPage() {
     projects,
     selectedProjectId,
     onSelectProject: setSelectedProjectId,
-    streamingThreadId,
     activeProcessThreadIds,
     readOnly: isExternal,
   }
@@ -247,7 +245,6 @@ export default function ChatPage() {
               onOpenSearch={handleMobileBack}
               pendingStarterMessage={pendingStarterMessage}
               onStarterMessageConsumed={() => setPendingStarterMessage(null)}
-              onStreamingChange={setStreamingThreadId}
             />
           </div>
         ) : (
@@ -327,7 +324,6 @@ export default function ChatPage() {
               onOpenSearch={() => {}}
               pendingStarterMessage={pendingStarterMessage}
               onStarterMessageConsumed={() => setPendingStarterMessage(null)}
-              onStreamingChange={setStreamingThreadId}
             />
           </>
         ) : (

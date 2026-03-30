@@ -3,6 +3,7 @@ import type { Persona, Tag, Thread, Project, SearchResult } from '../types'
 import { api, searchMessages, ApiError } from '../api/client'
 import { downloadExport } from '../utils/exportThread'
 import { clearDraft } from './ChatInput'
+import { useStreamingThreadIds } from '../context/SSEContext'
 import ModelPicker from './ModelPicker'
 import ThreadSourcesEditor from './ThreadSourcesEditor'
 import CustomContextEditor from './CustomContextEditor'
@@ -28,7 +29,6 @@ interface Props {
   projects: Project[]
   selectedProjectId: string | null
   onSelectProject: (id: string | null) => void
-  streamingThreadId: number | null
   activeProcessThreadIds: Set<number>
   mobile?: boolean
   readOnly?: boolean
@@ -50,11 +50,11 @@ export default function ThreadSidebar({
   projects,
   selectedProjectId,
   onSelectProject,
-  streamingThreadId,
   activeProcessThreadIds,
   mobile,
   readOnly,
 }: Props) {
+  const streamingThreadIds = useStreamingThreadIds()
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [menuOpenId, setMenuOpenId] = useState<number | null>(null)
@@ -251,17 +251,24 @@ export default function ThreadSidebar({
   const regularThreads = useMemo(() => threads.filter(t => !t.pinned && !t.archived && matchesFilters(t)), [threads, matchesFilters])
   const archivedThreads = useMemo(() => threads.filter(t => t.archived && matchesFilters(t)), [threads, matchesFilters])
 
-  const renderThread = (thread: Thread) => (
+  const renderThread = (thread: Thread) => {
+    const isSelected = activeThreadId === thread.id
+    const isStreaming = streamingThreadIds.has(thread.id)
+    const hasProcess = activeProcessThreadIds.has(thread.id)
+
+    return (
     <div
       key={thread.id}
       className={`group flex items-stretch gap-2 px-3 py-2.5 mb-0.5
                  rounded-xl cursor-pointer transition-all duration-150
                  ${thread.archived ? 'opacity-50' : ''}
-                 ${activeThreadId === thread.id
-                   ? 'bg-zinc-200/70 text-zinc-900' + (activeProcessThreadIds.has(thread.id) ? ' ring-1 ring-emerald-400/50' : '')
-                   : (activeProcessThreadIds.has(thread.id)
+                 ${isSelected
+                   ? 'bg-zinc-200/70 text-zinc-900' + (isStreaming ? ' ring-1 ring-emerald-400/50' : hasProcess ? ' ring-1 ring-emerald-400/30' : '')
+                   : (isStreaming
                      ? 'bg-emerald-50 hover:bg-emerald-100/70'
-                     : 'hover:bg-zinc-100') + ' text-zinc-700 hover:text-zinc-900'}`}
+                     : hasProcess
+                       ? 'bg-emerald-50/50 hover:bg-emerald-50'
+                       : 'hover:bg-zinc-100') + ' text-zinc-700 hover:text-zinc-900'}`}
       onClick={() => onSelectThread(thread.id)}
     >
       {editingId === thread.id ? (
@@ -282,8 +289,8 @@ export default function ThreadSidebar({
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-1.5">
               <span className="font-medium text-sm truncate flex items-center gap-1">
-                {streamingThreadId === thread.id && activeThreadId !== thread.id && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
+                {isStreaming && (
+                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 animate-pulse bg-emerald-500" />
                 )}
                 {thread.pinned && <Pin className="w-3 h-3 text-amber-500 flex-shrink-0" />}
                 {thread.persona_icon && <span className="flex-shrink-0">{thread.persona_icon}</span>}
@@ -484,6 +491,7 @@ export default function ThreadSidebar({
       )}
     </div>
   )
+  }
 
   // Search input component (reused in both layouts)
   const searchInput = (

@@ -83,6 +83,7 @@ function createSessionState(): SSESessionState {
 
 export class SSESessionManager {
   private sessions = new Map<number, Session>();
+  private globalSubscribers = new Set<() => void>();
 
   /** Get the current session state for a thread, or null if no session exists. */
   getSessionState(threadId: number): SSESessionState | null {
@@ -93,6 +94,25 @@ export class SSESessionManager {
   hasActiveSession(threadId: number): boolean {
     const session = this.sessions.get(threadId);
     return !!session && session.state.isStreaming;
+  }
+
+  /** Get all thread IDs that currently have an active streaming session. */
+  getStreamingThreadIds(): Set<number> {
+    const ids = new Set<number>();
+    for (const [threadId, session] of this.sessions) {
+      if (session.state.isStreaming) ids.add(threadId);
+    }
+    return ids;
+  }
+
+  /** Subscribe to global session lifecycle changes (start/stop/abort). */
+  onSessionChange(callback: () => void): () => void {
+    this.globalSubscribers.add(callback);
+    return () => this.globalSubscribers.delete(callback);
+  }
+
+  private notifyGlobal(): void {
+    for (const cb of this.globalSubscribers) cb();
   }
 
   /**
@@ -111,6 +131,7 @@ export class SSESessionManager {
     };
 
     this.sessions.set(threadId, session);
+    this.notifyGlobal();
     return session.controller.signal;
   }
 
@@ -163,6 +184,7 @@ export class SSESessionManager {
     session.controller.abort();
     if (session.cleanupTimer) clearTimeout(session.cleanupTimer);
     this.sessions.delete(threadId);
+    this.notifyGlobal();
   }
 
   /** Remove a completed session from the manager. */
@@ -171,6 +193,7 @@ export class SSESessionManager {
     if (!session) return;
     if (session.cleanupTimer) clearTimeout(session.cleanupTimer);
     this.sessions.delete(threadId);
+    this.notifyGlobal();
   }
 
   /**
@@ -241,6 +264,7 @@ export class SSESessionManager {
         session.state.reconnecting = null;
         session.state.retryInfo = null;
         this.notify(session);
+        this.notifyGlobal();
 
         // Start cleanup timer if no subscribers
         if (session.subscribers.size === 0) {
@@ -418,4 +442,20 @@ export function useSSESession(threadId: number | null): SSESessionState | null {
 
   if (!threadId) return null;
   return manager.getSessionState(threadId);
+}
+
+/**
+ * Subscribe to global session lifecycle changes (start/stop/abort).
+ * Returns the set of thread IDs that currently have active streaming sessions.
+ * Only re-renders on session start/stop/abort — not on every streamed chunk.
+ */
+export function useStreamingThreadIds(): Set<number> {
+  const manager = useSSEManager();
+  const [, forceUpdate] = useReducer((x: number) => x + 1, 0);
+
+  useEffect(() => {
+    return manager.onSessionChange(forceUpdate);
+  }, [manager]);
+
+  return manager.getStreamingThreadIds();
 }
