@@ -4,6 +4,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/driver/postgres"
@@ -46,6 +47,8 @@ func setupTestDB(t *testing.T) *gorm.DB {
 					task_limit INTEGER,
 					updated_at TIMESTAMPTZ
 				)`)
+				sharedDB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_one_running_per_project
+					ON tasks (project_id) WHERE status = 'running'`)
 			}
 		}
 	})
@@ -197,7 +200,9 @@ func TestLaunchTask_RefusesDuplicateProject(t *testing.T) {
 
 	proj := createProject(t, db, "project-dup")
 	task1 := createTask(t, db, proj.ID, "first-task", models.TaskStatusRunning)
-	task2 := createTask(t, db, proj.ID, "second-task", models.TaskStatusRunning)
+	// Create as queued — the unique index prevents two running tasks per project.
+	// This test validates the in-memory guard in launchTask, not the DB constraint.
+	task2 := createTask(t, db, proj.ID, "second-task", models.TaskStatusQueued)
 
 	r := &Runner{
 		db:        db,
@@ -233,5 +238,58 @@ func TestLaunchTask_RefusesDuplicateProject(t *testing.T) {
 	}
 	if reloaded.Status != models.TaskStatusQueued {
 		t.Errorf("expected task2 status %q, got %q", models.TaskStatusQueued, reloaded.Status)
+	}
+}
+
+func TestUniqueIndex_PreventsSecondRunningTask(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	proj := createProject(t, db, "project-unique")
+	createTask(t, db, proj.ID, "first-running", models.TaskStatusRunning)
+
+	// Attempting to create a second running task for the same project must fail.
+	second := models.Task{
+		Title:     "second-running",
+		Spec:      "test spec",
+		ProjectID: proj.ID,
+		Status:    models.TaskStatusRunning,
+		Priority:  5,
+	}
+	err := db.Create(&second).Error
+	if err == nil {
+		t.Fatal("expected unique violation error, got nil")
+	}
+	if !isUniqueViolation(err) {
+		t.Fatalf("expected unique violation, got: %v", err)
+	}
+}
+
+func TestPickNextTask_UniqueViolationSkips(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	proj := createProject(t, db, "project-race")
+	// Simulate another process already claimed a running task.
+	createTask(t, db, proj.ID, "already-running", models.TaskStatusRunning)
+	// A queued task exists for the same project.
+	createTask(t, db, proj.ID, "wants-to-run", models.TaskStatusQueued)
+
+	r := &Runner{
+		db:             db,
+		executors:      make(map[uuid.UUID]*activeTask),
+		retryNotBefore: make(map[uuid.UUID]time.Time),
+	}
+
+	// The NOT EXISTS subquery should filter it out, so pickNextTask returns nil.
+	task, exec, err := r.pickNextTask(nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if task != nil {
+		t.Errorf("expected no task (project already has running task), got task %v", task.ID)
+	}
+	if exec != nil {
+		t.Errorf("expected no execution, got %v", exec.ID)
 	}
 }

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -377,7 +378,16 @@ func (r *Runner) pickNextTask(
 	slog.Info("scheduler: picked task",
 		"task_id", task.ID, "project_id", task.ProjectID, "title", task.Title)
 
-	return r.claimTask(tx, &task)
+	t, exec, err := r.claimTask(tx, &task)
+	if err != nil {
+		if isUniqueViolation(err) {
+			slog.Info("scheduler: another process already claimed a task for this project, skipping",
+				"task_id", task.ID, "project_id", task.ProjectID)
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	return t, exec, nil
 }
 
 // buildPickQuery constructs the GORM query for finding the next eligible task.
@@ -577,6 +587,12 @@ func nilString(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// isUniqueViolation reports whether err is a PostgreSQL unique_violation (SQLSTATE 23505).
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 // persistState writes the runner state to the database. Called with r.mu held.

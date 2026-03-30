@@ -82,6 +82,9 @@ func setupTestDB(t *testing.T) *gorm.DB {
 					value TEXT NOT NULL,
 					updated_at TIMESTAMPTZ
 				)`)
+				// One running task per project constraint.
+				sharedDB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_one_running_per_project
+					ON tasks (project_id) WHERE status = 'running'`)
 			}
 		}
 	})

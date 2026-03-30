@@ -76,7 +76,7 @@ make clean          # Remove build artifacts
 
 ## Testing
 
-**~615 tests** across 57 test files covering all packages. Go tests use stdlib `testing`; frontend tests use Vitest.
+**~628 tests** across 58 test files covering all packages. Go tests use stdlib `testing`; frontend tests use Vitest.
 
 ```bash
 make test           # Run all tests with race detector
@@ -210,13 +210,15 @@ Task agents run inside Botka — deploying or restarting would kill the agent's 
 
 If your task requires deploying changes, mark the task as done and note that deployment is needed — the user will deploy manually.
 
+**CRITICAL: Never run a second botka process (e.g. `make run`, `go run ./cmd/server`) while the systemd service is running.** Two processes sharing the same database will both run scheduler loops independently, causing concurrent task execution on the same project. The unique partial index `idx_one_running_per_project` (migration 016) prevents data corruption, but the duplicate work and git conflicts are still harmful. Always stop the service first: `sudo systemctl stop botka`.
+
 ## Important Patterns
 
 - **Frontend embeds in binary:** `frontend/dist` is embedded via `go:embed` in the root `embed.go`. The `ensure-dist` Makefile target creates a placeholder so `go build` works without building frontend first.
 - **GORM models** use `uuid.UUID` primary keys for tasks/projects and `int64` (bigserial) for chat entities (threads, messages, personas, tags).
 - **Full-text search** on messages uses a PostgreSQL GIN index on a `tsvector` column.
 - **Task scheduling** uses `SELECT ... FOR UPDATE SKIP LOCKED` for safe concurrent task picking.
-- **One task per project:** The scheduler ensures only one task runs per project at a time (keyed by `project_id` in the executors map).
+- **One task per project:** Enforced at **three levels** — (1) in-memory executors map keyed by `project_id`, (2) `NOT EXISTS` subquery in the pick query, and (3) a **unique partial index** `idx_one_running_per_project ON tasks (project_id) WHERE status = 'running'` (migration 016). The DB-level index is critical: the in-memory guard only protects within a single process, and the `NOT EXISTS` subquery has a TOCTOU race under concurrent transactions. If two processes share the database, only the unique index prevents them from both claiming tasks for the same project. The runner handles the resulting unique violation gracefully in `pickNextTask()` (skips and retries next tick). **Never remove this index.**
 - **Session pool:** After each chat response, a pre-warmed Claude process is spawned with `--resume` and kept alive for 5 minutes via a stdin keepalive byte. The next message pipes its prompt to the waiting process, skipping startup. Sessions are evicted on model/project changes, session clears, or thread deletion.
 - **Session validation:** Claude Code stores sessions per working directory at `~/.claude/projects/<encoded-dir>/<id>.jsonl`. Before resuming, `SessionExists()` checks the file exists for the current directory. Changing a thread's project clears the session ID. Stale session errors ("No conversation found") auto-clear the session for the next attempt.
 
