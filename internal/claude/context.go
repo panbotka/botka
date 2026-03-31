@@ -28,12 +28,13 @@ type MemoryFunc func(ctx context.Context) (string, error)
 // The layers (in order) provide progressively narrower context:
 //  1. SOUL.md     — AI identity/personality (from OpenClaw workspace)
 //  2. USER.md     — information about the user
-//  3. MEMORY.md   — long-term operational memory
-//  4. Daily notes — recent entries (last 3 days) for temporal context
-//  5. App memories — user-created memories from the database
-//  6. System prompt — thread-specific instructions (from persona or custom)
-//  7. Project CLAUDE.md — project-specific coding context
-//  8. Conversation history — prior messages so resumed sessions have context
+//  3. TOOLS.md    — available tools and commands
+//  4. MEMORY.md   — long-term operational memory
+//  5. Daily notes — recent entries (last 3 days) for temporal context
+//  6. App memories — user-created memories from the database
+//  7. System prompt — thread-specific instructions (from persona or custom)
+//  8. Project CLAUDE.md — project-specific coding context
+//  9. Conversation history — prior messages so resumed sessions have context
 //
 // This layering ensures Claude has full context even when starting a new session
 // (e.g., after a session reset or server restart).
@@ -50,52 +51,57 @@ func AssembleContext(ctx context.Context, cfg ContextConfig, threadID int64, get
 		parts = append(parts, "# About the User\n\n"+content)
 	}
 
-	// Layer 3: MEMORY.md (operational memory)
+	// Layer 3: TOOLS.md (available tools and commands)
+	if content, err := readFileIfExists(filepath.Join(cfg.OpenClawWorkspace, "TOOLS.md")); err == nil && content != "" {
+		parts = append(parts, "# Available Tools\n\n"+content)
+	}
+
+	// Layer 4: MEMORY.md (operational memory)
 	if content, err := readFileIfExists(filepath.Join(cfg.OpenClawWorkspace, "MEMORY.md")); err == nil && content != "" {
 		parts = append(parts, "# Operational Memory\n\n"+content)
 	}
 
-	// Layer 4: Recent daily notes (last 3 days)
+	// Layer 5: Recent daily notes (last 3 days)
 	if notes := recentDailyNotes(cfg.OpenClawWorkspace, 3); notes != "" {
 		parts = append(parts, "# Recent Notes\n\n"+notes)
 	}
 
-	// Layer 5: App memories from database
+	// Layer 6: App memories from database
 	if getMemories != nil {
 		if memBlock, err := getMemories(ctx); err == nil && memBlock != "" {
 			parts = append(parts, "# User Preferences\n\n"+memBlock)
 		}
 	}
 
-	// Layer 6: Thread system prompt (from persona or custom)
+	// Layer 7: Thread system prompt (from persona or custom)
 	if systemPrompt != "" {
 		parts = append(parts, "# Thread Instructions\n\n"+systemPrompt)
 	}
 
-	// Layer 6a: Custom reference context
+	// Layer 7a: Custom reference context
 	if customContext != "" {
 		parts = append(parts, "# Reference Context\n\n"+customContext)
 	}
 
-	// Layer 6b: Thread URL sources (fetched fresh)
+	// Layer 7b: Thread URL sources (fetched fresh)
 	if len(sources) > 0 {
 		if sourceContent := FetchSources(ctx, sources); sourceContent != "" {
 			parts = append(parts, "# Reference Sources\n\n"+sourceContent)
 		}
 	}
 
-	// Layer 7: Folder/project CLAUDE.md
+	// Layer 8: Folder/project CLAUDE.md
 	if folderClaudeMD != "" {
 		parts = append(parts, "# Project Context\n\n"+folderClaudeMD)
 	}
 
-	// Layer 7b: Project assignment note
+	// Layer 8b: Project assignment note
 	if projectName != "" {
 		note := fmt.Sprintf("# Active Project\n\nThis chat is associated with project %q (%s).\nWhen creating tasks or discussing code, default to this project unless the user specifies otherwise.", projectName, projectPath)
 		parts = append(parts, note)
 	}
 
-	// Layer 8: Conversation history (so Claude knows what was discussed before a session reset)
+	// Layer 9: Conversation history (so Claude knows what was discussed before a session reset)
 	if len(messages) > 0 {
 		var historyLines []string
 		// Include last 200 messages

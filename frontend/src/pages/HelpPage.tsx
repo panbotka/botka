@@ -37,6 +37,14 @@ const contextLayers = [
   },
   {
     num: 3,
+    name: 'TOOLS.md',
+    heading: '# Available Tools',
+    description: 'Available tools and commands',
+    source: '$OPENCLAW_WORKSPACE/TOOLS.md',
+    condition: 'Included if file exists',
+  },
+  {
+    num: 4,
     name: 'MEMORY.md',
     heading: '# Operational Memory',
     description: 'Long-term operational memory',
@@ -44,7 +52,7 @@ const contextLayers = [
     condition: 'Included if file exists',
   },
   {
-    num: 4,
+    num: 5,
     name: 'Daily Notes',
     heading: '# Recent Notes',
     description: 'Last 3 days of daily memory files, most recent first',
@@ -52,7 +60,7 @@ const contextLayers = [
     condition: 'Included if files exist',
   },
   {
-    num: 5,
+    num: 6,
     name: 'App Memories',
     heading: '# User Preferences',
     description: 'User-created memories from the Botka database',
@@ -60,7 +68,7 @@ const contextLayers = [
     condition: 'All active memories concatenated',
   },
   {
-    num: 6,
+    num: 7,
     name: 'System Prompt',
     heading: '# Thread Instructions',
     description: "Thread's persona or custom system prompt",
@@ -68,7 +76,7 @@ const contextLayers = [
     condition: 'Included if set on the thread',
   },
   {
-    num: 7,
+    num: 8,
     name: 'Project CLAUDE.md',
     heading: '# Project Context',
     description: 'CLAUDE.md content from the assigned project',
@@ -76,7 +84,7 @@ const contextLayers = [
     condition: 'Only if a project is assigned',
   },
   {
-    num: 8,
+    num: 9,
     name: 'Conversation History',
     heading: '# Previous Conversation',
     description: 'Last 200 messages, each truncated to 500 chars',
@@ -343,7 +351,7 @@ export default function HelpPage() {
 
       <Section icon={Layers} title="Context Assembly">
         <p className="mb-3">
-          When a new Claude session starts, Botka assembles an 8-layer hierarchical context and
+          When a new Claude session starts, Botka assembles a 9-layer hierarchical context and
           passes it via{' '}
           <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">
             --append-system-prompt-file
@@ -401,7 +409,7 @@ export default function HelpPage() {
             context.
           </p>
           <p>
-            <strong className="text-zinc-700">App memories</strong> (layer 5) are managed in
+            <strong className="text-zinc-700">App memories</strong> (layer 6) are managed in
             Settings &gt; Memories and persist across all threads.
           </p>
         </div>

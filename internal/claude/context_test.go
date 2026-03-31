@@ -24,7 +24,10 @@ func TestAssembleContext_AllLayers(t *testing.T) {
 	// Layer 2: USER.md
 	os.WriteFile(filepath.Join(workspace, "USER.md"), []byte("User is a developer."), 0644)
 
-	// Layer 3: MEMORY.md
+	// Layer 3: TOOLS.md
+	os.WriteFile(filepath.Join(workspace, "TOOLS.md"), []byte("claude-usage — check API rate limits."), 0644)
+
+	// Layer 4: MEMORY.md
 	os.WriteFile(filepath.Join(workspace, "MEMORY.md"), []byte("Remember to be concise."), 0644)
 
 	// Layer 4: Daily notes
@@ -72,6 +75,7 @@ func TestAssembleContext_AllLayers(t *testing.T) {
 	}{
 		{"identity", "I am a helpful assistant."},
 		{"user info", "User is a developer."},
+		{"tools", "claude-usage — check API rate limits."},
 		{"memory", "Remember to be concise."},
 		{"daily notes", "Worked on tests today."},
 		{"app memories", "User prefers dark mode."},
@@ -81,6 +85,7 @@ func TestAssembleContext_AllLayers(t *testing.T) {
 		{"conversation history", "**Assistant:** Hi there!"},
 		{"section header identity", "# Identity"},
 		{"section header user", "# About the User"},
+		{"section header tools", "# Available Tools"},
 		{"section header memory", "# Operational Memory"},
 		{"section header notes", "# Recent Notes"},
 		{"section header prefs", "# User Preferences"},
