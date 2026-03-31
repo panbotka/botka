@@ -12,11 +12,12 @@ import (
 	"gorm.io/gorm"
 
 	"botka/internal/models"
+	"botka/internal/runner"
 )
 
 func taskRouter(db *gorm.DB) *gin.Engine {
 	r := gin.New()
-	h := NewTaskHandler(db)
+	h := NewTaskHandler(db, runner.NewTaskEventHub())
 	v1 := r.Group("/api/v1")
 	RegisterTaskRoutes(v1, h)
 	return r

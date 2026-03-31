@@ -13,16 +13,18 @@ import (
 	"gorm.io/gorm"
 
 	"botka/internal/models"
+	"botka/internal/runner"
 )
 
 // TaskHandler handles HTTP requests for task resources.
 type TaskHandler struct {
-	db *gorm.DB
+	db         *gorm.DB
+	taskEvents *runner.TaskEventHub
 }
 
-// NewTaskHandler creates a new TaskHandler with the given database connection.
-func NewTaskHandler(db *gorm.DB) *TaskHandler {
-	return &TaskHandler{db: db}
+// NewTaskHandler creates a new TaskHandler with the given database connection and event hub.
+func NewTaskHandler(db *gorm.DB, taskEvents *runner.TaskEventHub) *TaskHandler {
+	return &TaskHandler{db: db, taskEvents: taskEvents}
 }
 
 // RegisterTaskRoutes attaches task endpoints to the given router group.
@@ -222,11 +224,19 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		respondOK(c, task)
 		return
 	}
+	oldStatus := task.Status
 	if err := h.db.Model(&task).Updates(updates).Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "failed to update task")
 		return
 	}
 	h.db.Preload("Project").First(&task, "id = ?", task.ID)
+	if task.Status != oldStatus {
+		h.taskEvents.Publish(runner.TaskEvent{
+			TaskID:    task.ID,
+			Status:    task.Status,
+			ProjectID: task.ProjectID,
+		})
+	}
 	respondOK(c, task)
 }
 
@@ -254,6 +264,11 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "failed to delete task")
 		return
 	}
+	h.taskEvents.Publish(runner.TaskEvent{
+		TaskID:    task.ID,
+		Status:    models.TaskStatusDeleted,
+		ProjectID: task.ProjectID,
+	})
 	c.Status(http.StatusNoContent)
 }
 
@@ -299,6 +314,13 @@ func (h *TaskHandler) BatchUpdateStatus(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "failed to update tasks")
 		return
 	}
+
+	// Publish a single event to notify subscribers of the batch change.
+	// Using uuid.Nil since this is a batch operation affecting multiple tasks.
+	h.taskEvents.Publish(runner.TaskEvent{
+		TaskID: uuid.Nil,
+		Status: req.Status,
+	})
 
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"updated": len(req.IDs)}})
 }
@@ -416,6 +438,11 @@ func (h *TaskHandler) Retry(c *gin.Context) {
 		return
 	}
 	h.db.Preload("Project").First(&task, "id = ?", task.ID)
+	h.taskEvents.Publish(runner.TaskEvent{
+		TaskID:    task.ID,
+		Status:    models.TaskStatusQueued,
+		ProjectID: task.ProjectID,
+	})
 	respondOK(c, task)
 }
 

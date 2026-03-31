@@ -77,6 +77,7 @@ type Runner struct {
 	stopCh         chan struct{}
 	wg             sync.WaitGroup
 	retryNotBefore map[uuid.UUID]time.Time // key: task ID
+	TaskEvents     *TaskEventHub
 }
 
 // NewRunner creates a new Runner instance and loads persisted state from the database.
@@ -94,6 +95,7 @@ func NewRunner(db *gorm.DB, cfg *config.Config, usageMon *UsageMonitor) (*Runner
 		usageMon:       usageMon,
 		executor:       exec,
 		retryNotBefore: make(map[uuid.UUID]time.Time),
+		TaskEvents:     NewTaskEventHub(),
 	}
 	r.state = r.loadState()
 	r.maxWorkers = cfg.MaxWorkers // default from env
@@ -470,6 +472,12 @@ func (r *Runner) claimTask(
 		return nil, nil, fmt.Errorf("commit: %w", err)
 	}
 
+	r.TaskEvents.Publish(TaskEvent{
+		TaskID:    task.ID,
+		Status:    models.TaskStatusRunning,
+		ProjectID: task.ProjectID,
+	})
+
 	return task, &execution, nil
 }
 
@@ -603,6 +611,11 @@ func (r *Runner) requeueTask(task *models.Task, errMsg string) {
 		"retry_count":    gorm.Expr("retry_count + 1"),
 		"failure_reason": errMsg,
 	})
+	r.TaskEvents.Publish(TaskEvent{
+		TaskID:    task.ID,
+		Status:    models.TaskStatusQueued,
+		ProjectID: task.ProjectID,
+	})
 }
 
 func (r *Runner) finalizeTask(task *models.Task, result *ExecutionResult) {
@@ -616,6 +629,12 @@ func (r *Runner) finalizeTask(task *models.Task, result *ExecutionResult) {
 	}
 	r.db.Model(task).Updates(updates)
 	slog.Info("task finished", "task_id", task.ID, "status", result.Status)
+
+	r.TaskEvents.Publish(TaskEvent{
+		TaskID:    task.ID,
+		Status:    result.Status,
+		ProjectID: task.ProjectID,
+	})
 
 	r.mu.Lock()
 	if r.taskLimit > 0 {

@@ -9,6 +9,7 @@ import { useTasks } from '../hooks/useTasks'
 import { useTaskCounts } from '../hooks/useTaskCounts'
 import { useProjects } from '../hooks/useProjects'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
+import { useTaskEvents } from '../hooks/useTaskEvents'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import type { TaskStatus } from '../types'
 
@@ -97,8 +98,9 @@ export default function TasksPage() {
   }, [refetch, refetchCounts])
 
   useRefreshOnFocus(refetchAll)
+  useTaskEvents(refetchAll)
 
-  // Poll every 10s while the page is visible
+  // Poll every 10s while the page is visible (fallback)
   useEffect(() => {
     const id = setInterval(() => {
       if (document.visibilityState === 'visible') {

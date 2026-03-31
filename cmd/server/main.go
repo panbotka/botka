@@ -184,13 +184,14 @@ func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gi
 	commandHandler := handlers.NewCommandHandler(db, commandTracker)
 	handlers.RegisterCommandRoutes(v1, commandHandler)
 
-	taskHandler := handlers.NewTaskHandler(db)
+	taskHandler := handlers.NewTaskHandler(db, taskRunner.TaskEvents)
 	handlers.RegisterTaskRoutes(v1, taskHandler)
 
 	runnerHandler := handlers.NewRunnerHandler(taskRunner)
 	handlers.RegisterRunnerRoutes(v1, runnerHandler)
 
 	handlers.RegisterOutputRoute(v1, taskRunner, db)
+	handlers.RegisterTaskEventsRoute(v1, taskRunner.TaskEvents)
 
 	// Thread, chat, and file handlers.
 	threadHandler := handlers.NewThreadHandler(db, cfg.AIModel, cfg.AvailableModels)
