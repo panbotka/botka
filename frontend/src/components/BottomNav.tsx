@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, MessageSquare, ListTodo, DollarSign, Settings, HelpCircle } from 'lucide-react'
+import { LayoutDashboard, MessageSquare, ListTodo, DollarSign, Server, Settings, HelpCircle } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useAuth } from '../context/AuthContext'
 
@@ -8,6 +8,7 @@ const allTabs = [
   { path: '/chat', icon: MessageSquare, label: 'Chat', adminOnly: false },
   { path: '/tasks', icon: ListTodo, label: 'Tasks', adminOnly: true },
   { path: '/cost', icon: DollarSign, label: 'Cost', adminOnly: true },
+  { path: '/box', icon: Server, label: 'Box', adminOnly: true },
   { path: '/settings', icon: Settings, label: 'Settings', adminOnly: true },
   { path: '/help', icon: HelpCircle, label: 'Help', adminOnly: false },
 ] as const

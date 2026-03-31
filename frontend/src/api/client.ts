@@ -1,4 +1,4 @@
-import type { Project, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message } from '../types'
+import type { Project, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -863,6 +863,28 @@ export function revokeUserThread(userId: number, threadId: number): Promise<void
   return request<void>(`/users/${userId}/threads/${threadId}`, { method: 'DELETE' })
 }
 
+// Box server
+
+export function fetchBoxStatus(): Promise<BoxStatus> {
+  return requestData<BoxStatus>('/box/status')
+}
+
+export function wakeBox(): Promise<{ message: string }> {
+  return requestData<{ message: string }>('/box/wake', { method: 'POST' })
+}
+
+export function shutdownBox(): Promise<{ message: string }> {
+  return requestData<{ message: string }>('/box/shutdown', { method: 'POST' })
+}
+
+export function startBoxService(name: string): Promise<{ message: string }> {
+  return requestData<{ message: string }>(`/box/services/${encodeURIComponent(name)}/start`, { method: 'POST' })
+}
+
+export function stopBoxService(name: string): Promise<{ message: string }> {
+  return requestData<{ message: string }>(`/box/services/${encodeURIComponent(name)}/stop`, { method: 'POST' })
+}
+
 // Convenience object for use in hooks that call api.methodName()
 export const api = {
   // Projects
@@ -947,4 +969,10 @@ export const api = {
   fetchUserThreads,
   grantUserThread,
   revokeUserThread,
+  // Box
+  fetchBoxStatus,
+  wakeBox,
+  shutdownBox,
+  startBoxService,
+  stopBoxService,
 }

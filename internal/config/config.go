@@ -35,6 +35,9 @@ type Config struct {
 	WebAuthnRPID         string
 	SessionMaxAge        time.Duration
 	MCPToken             string
+	BoxHost              string
+	BoxSSHUser           string
+	BoxWOLCommand        string
 }
 
 // Load reads configuration from the .env file and environment variables.
@@ -109,6 +112,9 @@ func Load() (*Config, error) {
 		WebAuthnRPID:         webAuthnRPID,
 		SessionMaxAge:        sessionMaxAge,
 		MCPToken:             getEnv("MCP_TOKEN", ""),
+		BoxHost:              getEnv("BOX_HOST", "100.127.79.1"),
+		BoxSSHUser:           getEnv("BOX_SSH_USER", "box"),
+		BoxWOLCommand:        getEnv("BOX_WOL_COMMAND", "/home/pi/bin/boxon"),
 	}, nil
 }
 

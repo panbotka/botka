@@ -9,6 +9,7 @@ import {
   Settings,
   HelpCircle,
   Loader2,
+  Server,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useIsMobile } from './hooks/useIsMobile'
@@ -28,6 +29,7 @@ const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage'))
 const CostDashboardPage = lazy(() => import('./pages/CostDashboardPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const HelpPage = lazy(() => import('./pages/HelpPage'))
+const BoxPage = lazy(() => import('./pages/BoxPage'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 
 const allNavItems = [
@@ -36,6 +38,7 @@ const allNavItems = [
   { to: '/tasks', icon: ListTodo, label: 'Tasks', adminOnly: true },
   { to: '/projects', icon: FolderGit2, label: 'Projects', adminOnly: true },
   { to: '/cost', icon: DollarSign, label: 'Cost', adminOnly: true },
+  { to: '/box', icon: Server, label: 'Box', adminOnly: true },
   { to: '/settings', icon: Settings, label: 'Settings', adminOnly: true },
   { to: '/help', icon: HelpCircle, label: 'Help', adminOnly: false },
 ] as const
@@ -152,6 +155,7 @@ function AuthenticatedApp() {
               <Route path="/projects" element={<ProjectsPage />} />
               <Route path="/projects/:id" element={<ProjectDetailPage />} />
               <Route path="/cost" element={<CostDashboardPage />} />
+              <Route path="/box" element={<BoxPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/help" element={<HelpPage />} />
             </Routes>

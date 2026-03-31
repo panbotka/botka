@@ -311,6 +311,24 @@ export interface GlobalSearchResults {
   messages: GlobalSearchMessageResult[]
 }
 
+// ── Box server dashboard ──
+
+export interface BoxServiceStatus {
+  name: string
+  port: number
+  description: string
+  type: 'systemd' | 'manual'
+  vram_usage_mb: number
+  status: 'running' | 'stopped'
+  url: string
+}
+
+export interface BoxStatus {
+  online: boolean
+  host: string
+  services: BoxServiceStatus[]
+}
+
 // Cost analytics types
 
 export interface ModelTokens {

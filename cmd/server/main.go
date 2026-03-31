@@ -238,6 +238,9 @@ func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gi
 	statusHandler := handlers.NewStatusHandler(cfg.AIModel, cfg.AvailableModels, cfg.WhisperEnabled)
 	handlers.RegisterStatusRoutes(v1, statusHandler)
 
+	boxHandler := handlers.NewBoxHandler(cfg.BoxHost, cfg.BoxSSHUser, cfg.BoxWOLCommand)
+	handlers.RegisterBoxRoutes(v1, boxHandler)
+
 	settingsHandler := handlers.NewSettingsHandler(db)
 	settingsHandler.SetOnChange(func(key, value string) {
 		if key == "max_workers" {
