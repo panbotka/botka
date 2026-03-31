@@ -22,6 +22,7 @@ import {
   Play,
   Rocket,
   Square,
+  ArrowUp,
 } from 'lucide-react'
 import {
   fetchProject,
@@ -239,6 +240,22 @@ function GitStatusTab({ projectId }: { projectId: string }) {
         >
           {status.clean ? 'Clean' : 'Dirty'}
         </span>
+        {status.ahead_remote ? (
+          status.ahead > 0 ? (
+            <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+              <ArrowUp className="h-3 w-3" />
+              {status.ahead} unpushed
+            </span>
+          ) : (
+            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
+              Up to date
+            </span>
+          )
+        ) : (
+          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500">
+            No remote
+          </span>
+        )}
       </div>
 
       {/* Changed files */}

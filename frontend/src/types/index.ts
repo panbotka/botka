@@ -39,6 +39,8 @@ export interface GitStatus {
   clean: boolean
   changed_files: ChangedFile[]
   diff_stat: string
+  ahead: number
+  ahead_remote: string
 }
 
 export interface RunningCommandStatus {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -440,6 +441,8 @@ type gitStatusResponse struct {
 	Clean        bool          `json:"clean"`
 	ChangedFiles []changedFile `json:"changed_files"`
 	DiffStat     string        `json:"diff_stat"`
+	Ahead        int           `json:"ahead"`
+	AheadRemote  string        `json:"ahead_remote"`
 }
 
 // changedFile represents a single file in the git status output.
@@ -501,6 +504,22 @@ func (h *ProjectHandler) GetGitStatus(c *gin.Context) {
 	diffCmd.Dir = proj.Path
 	diffOut, _ := diffCmd.Output()
 	resp.DiffStat = strings.TrimSpace(string(diffOut))
+
+	// Get ahead count (unpushed commits)
+	aheadCmd := exec.Command("git", "rev-list", "--count", "@{upstream}..HEAD")
+	aheadCmd.Dir = proj.Path
+	if aheadOut, aheadErr := aheadCmd.Output(); aheadErr == nil {
+		countStr := strings.TrimSpace(string(aheadOut))
+		if n, parseErr := strconv.Atoi(countStr); parseErr == nil {
+			resp.Ahead = n
+		}
+		// Get the upstream ref name for display
+		upstreamCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "@{upstream}")
+		upstreamCmd.Dir = proj.Path
+		if upstreamOut, upErr := upstreamCmd.Output(); upErr == nil {
+			resp.AheadRemote = strings.TrimSpace(string(upstreamOut))
+		}
+	}
 
 	respondOK(c, resp)
 }
