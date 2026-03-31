@@ -200,6 +200,8 @@ Exposes task management tools: create_task, list_tasks, get_task, update_task, l
 | `WEBAUTHN_RPID` | *(derived from origin)* | WebAuthn relying party ID (hostname) |
 | `SESSION_MAX_AGE` | `720h` | Authentication session cookie max age |
 | `MCP_TOKEN` | *(empty)* | Bearer token for MCP SSE transport (empty = SSE disabled) |
+| `KEEPALIVE_ENABLED` | `true` | Enable periodic Claude Code ping to keep 5h rate limit window active |
+| `KEEPALIVE_INTERVAL` | `60m` | Interval between keepalive pings (Go duration) |
 
 ## Task Agent Safety
 

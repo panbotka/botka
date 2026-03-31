@@ -37,6 +37,8 @@ type Config struct {
 	BoxHost              string
 	BoxSSHUser           string
 	BoxWOLCommand        string
+	KeepaliveEnabled     bool
+	KeepaliveInterval    time.Duration
 }
 
 // Load reads configuration from the .env file and environment variables.
@@ -63,6 +65,16 @@ func Load() (*Config, error) {
 	whisperEnabled, err := getEnvBool("WHISPER_ENABLED", true)
 	if err != nil {
 		return nil, fmt.Errorf("parsing WHISPER_ENABLED: %w", err)
+	}
+
+	keepaliveEnabled, err := getEnvBool("KEEPALIVE_ENABLED", true)
+	if err != nil {
+		return nil, fmt.Errorf("parsing KEEPALIVE_ENABLED: %w", err)
+	}
+
+	keepaliveInterval, err := time.ParseDuration(getEnv("KEEPALIVE_INTERVAL", "60m"))
+	if err != nil {
+		return nil, fmt.Errorf("parsing KEEPALIVE_INTERVAL: %w", err)
 	}
 
 	availableModels := getEnvCSV("AVAILABLE_MODELS", []string{"sonnet", "opus", "haiku"})
@@ -108,6 +120,8 @@ func Load() (*Config, error) {
 		BoxHost:              getEnv("BOX_HOST", "100.127.79.1"),
 		BoxSSHUser:           getEnv("BOX_SSH_USER", "box"),
 		BoxWOLCommand:        getEnv("BOX_WOL_COMMAND", "/home/pi/bin/boxon"),
+		KeepaliveEnabled:     keepaliveEnabled,
+		KeepaliveInterval:    keepaliveInterval,
 	}, nil
 }
 

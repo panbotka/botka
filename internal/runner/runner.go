@@ -78,6 +78,7 @@ type Runner struct {
 	wg             sync.WaitGroup
 	retryNotBefore map[uuid.UUID]time.Time // key: task ID
 	TaskEvents     *TaskEventHub
+	pingFn         func() error // overridable for testing; nil uses defaultPing
 }
 
 // NewRunner creates a new Runner instance and loads persisted state from the database.
@@ -175,6 +176,10 @@ func (r *Runner) startLocked() {
 		r.stopCh = make(chan struct{})
 		r.wg.Add(1)
 		go r.loop(r.stopCh)
+		if r.config != nil && r.config.KeepaliveEnabled {
+			r.wg.Add(1)
+			go r.keepaliveLoop(r.stopCh)
+		}
 	}
 }
 
