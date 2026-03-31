@@ -391,6 +391,95 @@ func TestKillTask_NotRunning(t *testing.T) {
 	}
 }
 
+func TestRestoreState_RecoversOrphanedTasksWhenStopped(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	// Simulate a previous process that crashed: runner_state is "stopped"
+	// but some tasks are stuck in "running" status (orphaned).
+	db.Exec(`INSERT INTO runner_state (id, state, completed_count, task_limit, updated_at)
+		VALUES (1, 'stopped', 0, 0, NOW())`)
+
+	proj := createProject(t, db, "project-orphan")
+	orphan := createTask(t, db, proj.ID, "orphaned-running-task", models.TaskStatusRunning)
+	queued := createTask(t, db, proj.ID, "queued-task", models.TaskStatusQueued)
+
+	usageMon := &UsageMonitor{done: make(chan struct{})}
+	r := &Runner{
+		db:             db,
+		state:          models.StateStopped,
+		executors:      make(map[uuid.UUID]*activeTask),
+		buffers:        make(map[uuid.UUID]*Buffer),
+		usageMon:       usageMon,
+		retryNotBefore: make(map[uuid.UUID]time.Time),
+	}
+	r.state = r.loadState()
+
+	// RestoreState should recover orphaned tasks even when state is "stopped".
+	r.RestoreState()
+
+	// The orphaned task should be requeued.
+	var reloaded models.Task
+	if err := db.First(&reloaded, orphan.ID).Error; err != nil {
+		t.Fatalf("reload orphaned task: %v", err)
+	}
+	if reloaded.Status != models.TaskStatusQueued {
+		t.Errorf("expected orphaned task status %q, got %q", models.TaskStatusQueued, reloaded.Status)
+	}
+
+	// The already-queued task should be unaffected.
+	var qReloaded models.Task
+	if err := db.First(&qReloaded, queued.ID).Error; err != nil {
+		t.Fatalf("reload queued task: %v", err)
+	}
+	if qReloaded.Status != models.TaskStatusQueued {
+		t.Errorf("expected queued task status %q, got %q", models.TaskStatusQueued, qReloaded.Status)
+	}
+
+	// Runner state should remain stopped (scheduler loop not started).
+	if r.state != models.StateStopped {
+		t.Errorf("expected runner state %q, got %q", models.StateStopped, r.state)
+	}
+}
+
+func TestRestoreState_RecoversOrphanedTasksWhenPaused(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	// Runner state is "paused" with orphaned running tasks.
+	db.Exec(`INSERT INTO runner_state (id, state, completed_count, task_limit, updated_at)
+		VALUES (1, 'paused', 0, 0, NOW())`)
+
+	proj := createProject(t, db, "project-paused")
+	orphan := createTask(t, db, proj.ID, "orphaned-task", models.TaskStatusRunning)
+
+	usageMon := &UsageMonitor{done: make(chan struct{})}
+	r := &Runner{
+		db:             db,
+		state:          models.StatePaused,
+		executors:      make(map[uuid.UUID]*activeTask),
+		buffers:        make(map[uuid.UUID]*Buffer),
+		usageMon:       usageMon,
+		retryNotBefore: make(map[uuid.UUID]time.Time),
+	}
+	r.state = r.loadState()
+
+	r.RestoreState()
+
+	var reloaded models.Task
+	if err := db.First(&reloaded, orphan.ID).Error; err != nil {
+		t.Fatalf("reload orphaned task: %v", err)
+	}
+	if reloaded.Status != models.TaskStatusQueued {
+		t.Errorf("expected orphaned task status %q, got %q", models.TaskStatusQueued, reloaded.Status)
+	}
+
+	// Runner state should remain paused.
+	if r.state != models.StatePaused {
+		t.Errorf("expected runner state %q, got %q", models.StatePaused, r.state)
+	}
+}
+
 func TestKillTask_IdempotentAfterCompletion(t *testing.T) {
 	// After a task finishes, its executor is removed. A second kill should return an error.
 	r := &Runner{

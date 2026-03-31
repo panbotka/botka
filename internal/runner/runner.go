@@ -127,11 +127,17 @@ func (r *Runner) SetMaxWorkers(n int) {
 	slog.Info("max workers updated", "max_workers", n)
 }
 
-// RestoreState checks the persisted state and starts the scheduler loop
-// if it was previously running. Call this once after NewRunner on server startup.
+// RestoreState recovers orphaned tasks from a previous crashed process and
+// starts the scheduler loop if it was previously running.
+// Call this once after NewRunner on server startup.
 func (r *Runner) RestoreState() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// Always recover orphaned tasks on startup, regardless of runner state.
+	// Without this, tasks stuck in "running" from a crashed process are never
+	// cleaned up when the runner state is "stopped" or "paused", causing the
+	// dashboard to show running tasks while the runner shows as stopped.
+	r.recoverOrphanedTasks()
 	if r.state == models.StateRunning {
 		r.startLocked()
 	}
