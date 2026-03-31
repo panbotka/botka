@@ -48,7 +48,7 @@ const statusBadge: Record<TaskStatus, { icon: typeof CheckCircle2; bg: string; t
 const statusTransitions: Partial<Record<TaskStatus, { label: string; target: TaskStatus }[]>> = {
   pending:      [{ label: 'Queue', target: 'queued' }, { label: 'Cancel', target: 'cancelled' }],
   queued:       [{ label: 'Unqueue', target: 'pending' }, { label: 'Cancel', target: 'cancelled' }],
-  failed:       [{ label: 'Requeue', target: 'queued' }],
+  failed:       [{ label: 'Requeue', target: 'queued' }, { label: 'Cancel', target: 'cancelled' }],
   needs_review: [{ label: 'Requeue', target: 'queued' }, { label: 'Mark Done', target: 'done' }],
   deleted:      [{ label: 'Restore', target: 'pending' }],
 }

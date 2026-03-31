@@ -301,6 +301,7 @@ func TestAllowedTransitions(t *testing.T) {
 		{"queued to pending", models.TaskStatusQueued, models.TaskStatusPending, true},
 		{"queued to cancelled", models.TaskStatusQueued, models.TaskStatusCancelled, true},
 		{"failed to queued", models.TaskStatusFailed, models.TaskStatusQueued, true},
+		{"failed to cancelled", models.TaskStatusFailed, models.TaskStatusCancelled, true},
 		{"failed to done", models.TaskStatusFailed, models.TaskStatusDone, false},
 		{"needs_review to queued", models.TaskStatusNeedsReview, models.TaskStatusQueued, true},
 		{"needs_review to done", models.TaskStatusNeedsReview, models.TaskStatusDone, true},

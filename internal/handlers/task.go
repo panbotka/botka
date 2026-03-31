@@ -42,7 +42,7 @@ func RegisterTaskRoutes(rg *gin.RouterGroup, h *TaskHandler) {
 var allowedTransitions = map[models.TaskStatus]map[models.TaskStatus]bool{
 	models.TaskStatusPending:     {models.TaskStatusQueued: true, models.TaskStatusCancelled: true},
 	models.TaskStatusQueued:      {models.TaskStatusPending: true, models.TaskStatusCancelled: true},
-	models.TaskStatusFailed:      {models.TaskStatusQueued: true},
+	models.TaskStatusFailed:      {models.TaskStatusQueued: true, models.TaskStatusCancelled: true},
 	models.TaskStatusNeedsReview: {models.TaskStatusQueued: true, models.TaskStatusDone: true},
 	models.TaskStatusDeleted:     {models.TaskStatusPending: true},
 }
