@@ -29,8 +29,9 @@ type UsageMonitor struct {
 	threshold5h float64
 	threshold7d float64
 
-	mu   sync.RWMutex
-	info UsageInfo
+	mu         sync.RWMutex
+	info       UsageInfo
+	lastPollOK bool
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -46,9 +47,8 @@ func NewUsageMonitor(cmdPath string, threshold5h, threshold7d float64) *UsageMon
 	}
 }
 
-// Start begins polling in a background goroutine. It performs an immediate
-// poll, then polls every 30 seconds. The claude-usage command reads from a
-// cron-refreshed local cache, so frequent polling is cheap.
+// Start begins polling in a background goroutine every 30 seconds.
+// Call Poll() before Start() to ensure the first poll is synchronous.
 // Cancelling ctx or calling Stop will terminate the goroutine.
 func (m *UsageMonitor) Start(ctx context.Context) {
 	ctx, m.cancel = context.WithCancel(ctx)
@@ -56,8 +56,6 @@ func (m *UsageMonitor) Start(ctx context.Context) {
 
 	go func() {
 		defer close(m.done)
-
-		m.Poll()
 
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
@@ -84,11 +82,17 @@ func (m *UsageMonitor) Stop() {
 }
 
 // IsRateLimited returns whether usage exceeds either threshold, and a reason string.
-// The reason is empty when not rate limited. If the cached data is stale
-// (past the known reset time), it is treated as expired and tasks are allowed.
+// The reason is empty when not rate limited. If no successful poll has occurred,
+// tasks are blocked to prevent bypassing rate limits with zero-valued data.
+// If the cached data is stale (past the known reset time), it is treated as
+// expired and tasks are allowed.
 func (m *UsageMonitor) IsRateLimited() (bool, string) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
+	if !m.lastPollOK {
+		return true, "no usage data available yet"
+	}
 
 	// If the 5-hour window has reset since our last successful poll,
 	// assume usage has dropped — don't block on stale data.
@@ -136,17 +140,23 @@ type claudeUsageResponse struct {
 }
 
 // Poll executes the claude-usage command and updates the stored state.
-// It is called automatically by the background goroutine.
+// It is called automatically by the background goroutine, and should also
+// be called once synchronously before Start() to ensure data is available
+// before the scheduler begins.
 func (m *UsageMonitor) Poll() {
 	info, err := m.fetchUsage()
 	if err != nil {
 		slog.Error("usage monitor: fetch failed", "error", err)
+		m.mu.Lock()
+		m.lastPollOK = false
+		m.mu.Unlock()
 		return
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.info = *info
+	m.lastPollOK = true
+	m.mu.Unlock()
 }
 
 // fetchUsage runs the claude-usage command and parses its JSON output.

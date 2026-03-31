@@ -98,6 +98,7 @@ func run() error {
 		cfg.UsageThreshold5h,
 		cfg.UsageThreshold7d,
 	)
+	usageMon.Poll() // Synchronous first poll — blocks until usage data is available.
 	usageMon.Start(context.Background())
 	defer usageMon.Stop()
 

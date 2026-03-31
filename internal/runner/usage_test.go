@@ -14,6 +14,7 @@ func TestNewUsageMonitor(t *testing.T) {
 
 func TestIsRateLimited_BelowBothThresholds(t *testing.T) {
 	m := NewUsageMonitor("", 0.90, 0.95)
+	m.lastPollOK = true
 	m.info = UsageInfo{
 		FiveHourPct: 0.50,
 		SevenDayPct: 0.60,
@@ -30,6 +31,7 @@ func TestIsRateLimited_BelowBothThresholds(t *testing.T) {
 
 func TestIsRateLimited_FiveHourExceedsThreshold(t *testing.T) {
 	m := NewUsageMonitor("", 0.90, 0.95)
+	m.lastPollOK = true
 	m.info = UsageInfo{
 		FiveHourPct: 0.95,
 		SevenDayPct: 0.50,
@@ -46,6 +48,7 @@ func TestIsRateLimited_FiveHourExceedsThreshold(t *testing.T) {
 
 func TestIsRateLimited_SevenDayExceedsThreshold(t *testing.T) {
 	m := NewUsageMonitor("", 0.90, 0.95)
+	m.lastPollOK = true
 	m.info = UsageInfo{
 		FiveHourPct: 0.50,
 		SevenDayPct: 0.98,
@@ -62,6 +65,7 @@ func TestIsRateLimited_SevenDayExceedsThreshold(t *testing.T) {
 
 func TestIsRateLimited_StaleDataPastResetTime(t *testing.T) {
 	m := NewUsageMonitor("", 0.90, 0.95)
+	m.lastPollOK = true
 	m.info = UsageInfo{
 		FiveHourPct: 0.99,
 		SevenDayPct: 0.99,
@@ -290,15 +294,50 @@ func TestParseUsageJSON_HighUtilization(t *testing.T) {
 
 func TestIsRateLimited_NoData(t *testing.T) {
 	m := NewUsageMonitor("", 0.90, 0.95)
-	// Zero-value info: no usage data yet
+	// Zero-value info: no successful poll yet — must block tasks.
+	limited, reason := m.IsRateLimited()
+	if !limited {
+		t.Error("expected rate limited with no data (no successful poll)")
+	}
+	if reason == "" {
+		t.Error("expected non-empty reason")
+	}
+}
+
+func TestIsRateLimited_AfterPollFailure(t *testing.T) {
+	m := NewUsageMonitor("/nonexistent/command", 0.90, 0.95)
+	// Poll with a bad command — should fail and leave lastPollOK false.
+	m.Poll()
+
+	limited, reason := m.IsRateLimited()
+	if !limited {
+		t.Error("expected rate limited after failed poll")
+	}
+	if reason == "" {
+		t.Error("expected non-empty reason after failed poll")
+	}
+}
+
+func TestIsRateLimited_AfterSuccessfulPoll(t *testing.T) {
+	m := NewUsageMonitor("", 0.90, 0.95)
+	// Simulate a successful poll by setting fields directly.
+	m.mu.Lock()
+	m.info = UsageInfo{
+		FiveHourPct: 0.50,
+		SevenDayPct: 0.60,
+	}
+	m.lastPollOK = true
+	m.mu.Unlock()
+
 	limited, reason := m.IsRateLimited()
 	if limited {
-		t.Errorf("should not be rate limited with no data, got reason: %s", reason)
+		t.Errorf("expected not rate limited after successful poll with low usage, got reason: %s", reason)
 	}
 }
 
 func TestIsRateLimited_BothThresholdsExceeded(t *testing.T) {
 	m := NewUsageMonitor("", 0.90, 0.95)
+	m.lastPollOK = true
 	m.info = UsageInfo{
 		FiveHourPct: 0.95,
 		SevenDayPct: 0.99,
@@ -316,6 +355,7 @@ func TestIsRateLimited_BothThresholdsExceeded(t *testing.T) {
 
 func TestIsRateLimited_ExactlyAtThreshold(t *testing.T) {
 	m := NewUsageMonitor("", 0.90, 0.95)
+	m.lastPollOK = true
 	// At the threshold but not exceeding (uses > not >=)
 	m.info = UsageInfo{
 		FiveHourPct: 0.90,
@@ -330,6 +370,7 @@ func TestIsRateLimited_ExactlyAtThreshold(t *testing.T) {
 
 func TestIsRateLimited_JustAboveThreshold(t *testing.T) {
 	m := NewUsageMonitor("", 0.90, 0.95)
+	m.lastPollOK = true
 	m.info = UsageInfo{
 		FiveHourPct: 0.901,
 		SevenDayPct: 0.50,
@@ -343,6 +384,7 @@ func TestIsRateLimited_JustAboveThreshold(t *testing.T) {
 
 func TestIsRateLimited_FutureResetTimeNotIgnored(t *testing.T) {
 	m := NewUsageMonitor("", 0.90, 0.95)
+	m.lastPollOK = true
 	m.info = UsageInfo{
 		FiveHourPct: 0.95,
 		SevenDayPct: 0.50,
