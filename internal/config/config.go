@@ -19,7 +19,6 @@ type Config struct {
 	ClaudePath           string
 	ClaudeUsageCmd       string
 	MaxWorkers           int
-	UsagePollInterval    time.Duration
 	UsageThreshold5h     float64
 	UsageThreshold7d     float64
 	OpenClawURL          string
@@ -45,11 +44,6 @@ type Config struct {
 // Returns an error if any numeric or duration value cannot be parsed.
 func Load() (*Config, error) {
 	loadDotEnv()
-
-	pollInterval, err := time.ParseDuration(getEnv("USAGE_POLL_INTERVAL", "15m"))
-	if err != nil {
-		return nil, fmt.Errorf("parsing USAGE_POLL_INTERVAL: %w", err)
-	}
 
 	threshold5h, err := getEnvFloat("USAGE_THRESHOLD_5H", 0.90)
 	if err != nil {
@@ -96,7 +90,6 @@ func Load() (*Config, error) {
 		ClaudePath:           getEnv("CLAUDE_PATH", "claude"),
 		ClaudeUsageCmd:       getEnv("CLAUDE_USAGE_CMD", "/home/pi/bin/claude-usage"),
 		MaxWorkers:           maxWorkers,
-		UsagePollInterval:    pollInterval,
 		UsageThreshold5h:     threshold5h,
 		UsageThreshold7d:     threshold7d,
 		OpenClawURL:          getEnv("OPENCLAW_URL", "http://localhost:18789"),

@@ -6,14 +6,14 @@ import (
 )
 
 func TestNewUsageMonitor(t *testing.T) {
-	m := NewUsageMonitor("/usr/bin/test-cmd", 0.90, 0.95, 15*time.Minute)
+	m := NewUsageMonitor("/usr/bin/test-cmd", 0.90, 0.95)
 	if m.cmdPath != "/usr/bin/test-cmd" {
 		t.Errorf("expected cmdPath %q, got %q", "/usr/bin/test-cmd", m.cmdPath)
 	}
 }
 
 func TestIsRateLimited_BelowBothThresholds(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	m := NewUsageMonitor("", 0.90, 0.95)
 	m.info = UsageInfo{
 		FiveHourPct: 0.50,
 		SevenDayPct: 0.60,
@@ -29,7 +29,7 @@ func TestIsRateLimited_BelowBothThresholds(t *testing.T) {
 }
 
 func TestIsRateLimited_FiveHourExceedsThreshold(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	m := NewUsageMonitor("", 0.90, 0.95)
 	m.info = UsageInfo{
 		FiveHourPct: 0.95,
 		SevenDayPct: 0.50,
@@ -45,7 +45,7 @@ func TestIsRateLimited_FiveHourExceedsThreshold(t *testing.T) {
 }
 
 func TestIsRateLimited_SevenDayExceedsThreshold(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	m := NewUsageMonitor("", 0.90, 0.95)
 	m.info = UsageInfo{
 		FiveHourPct: 0.50,
 		SevenDayPct: 0.98,
@@ -61,7 +61,7 @@ func TestIsRateLimited_SevenDayExceedsThreshold(t *testing.T) {
 }
 
 func TestIsRateLimited_StaleDataPastResetTime(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	m := NewUsageMonitor("", 0.90, 0.95)
 	m.info = UsageInfo{
 		FiveHourPct: 0.99,
 		SevenDayPct: 0.99,
@@ -75,7 +75,7 @@ func TestIsRateLimited_StaleDataPastResetTime(t *testing.T) {
 }
 
 func TestCurrentUsage_ReturnsStoredSnapshot(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	m := NewUsageMonitor("", 0.90, 0.95)
 	now := time.Now()
 	resetTime := now.Add(2 * time.Hour)
 	m.info = UsageInfo{
@@ -101,7 +101,7 @@ func TestCurrentUsage_ReturnsStoredSnapshot(t *testing.T) {
 }
 
 func TestResetsAt_ReturnsStoredResetTime(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	m := NewUsageMonitor("", 0.90, 0.95)
 	resetTime := time.Date(2026, 3, 25, 14, 0, 0, 0, time.UTC)
 	m.info = UsageInfo{
 		ResetsAt: resetTime,
@@ -110,48 +110,6 @@ func TestResetsAt_ReturnsStoredResetTime(t *testing.T) {
 	got := m.ResetsAt()
 	if !got.Equal(resetTime) {
 		t.Errorf("expected ResetsAt %v, got %v", resetTime, got)
-	}
-}
-
-func TestAdaptiveInterval_LowUsage(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
-	m.info = UsageInfo{
-		FiveHourPct: 0.20,
-		SevenDayPct: 0.30,
-	}
-
-	got := m.adaptiveInterval()
-	want := 60 * time.Minute
-	if got != want {
-		t.Errorf("expected %v for low usage (<50%%), got %v", want, got)
-	}
-}
-
-func TestAdaptiveInterval_MediumUsage(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
-	m.info = UsageInfo{
-		FiveHourPct: 0.55,
-		SevenDayPct: 0.60,
-	}
-
-	got := m.adaptiveInterval()
-	want := 30 * time.Minute
-	if got != want {
-		t.Errorf("expected %v for medium usage (50-70%%), got %v", want, got)
-	}
-}
-
-func TestAdaptiveInterval_HighUsage(t *testing.T) {
-	configured := 10 * time.Minute
-	m := NewUsageMonitor("", 0.90, 0.95, configured)
-	m.info = UsageInfo{
-		FiveHourPct: 0.85,
-		SevenDayPct: 0.40,
-	}
-
-	got := m.adaptiveInterval()
-	if got != configured {
-		t.Errorf("expected configured interval %v for high usage (>=70%%), got %v", configured, got)
 	}
 }
 
@@ -331,7 +289,7 @@ func TestParseUsageJSON_HighUtilization(t *testing.T) {
 }
 
 func TestIsRateLimited_NoData(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	m := NewUsageMonitor("", 0.90, 0.95)
 	// Zero-value info: no usage data yet
 	limited, reason := m.IsRateLimited()
 	if limited {
@@ -340,7 +298,7 @@ func TestIsRateLimited_NoData(t *testing.T) {
 }
 
 func TestIsRateLimited_BothThresholdsExceeded(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	m := NewUsageMonitor("", 0.90, 0.95)
 	m.info = UsageInfo{
 		FiveHourPct: 0.95,
 		SevenDayPct: 0.99,
@@ -357,7 +315,7 @@ func TestIsRateLimited_BothThresholdsExceeded(t *testing.T) {
 }
 
 func TestIsRateLimited_ExactlyAtThreshold(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	m := NewUsageMonitor("", 0.90, 0.95)
 	// At the threshold but not exceeding (uses > not >=)
 	m.info = UsageInfo{
 		FiveHourPct: 0.90,
@@ -371,7 +329,7 @@ func TestIsRateLimited_ExactlyAtThreshold(t *testing.T) {
 }
 
 func TestIsRateLimited_JustAboveThreshold(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	m := NewUsageMonitor("", 0.90, 0.95)
 	m.info = UsageInfo{
 		FiveHourPct: 0.901,
 		SevenDayPct: 0.50,
@@ -384,7 +342,7 @@ func TestIsRateLimited_JustAboveThreshold(t *testing.T) {
 }
 
 func TestIsRateLimited_FutureResetTimeNotIgnored(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	m := NewUsageMonitor("", 0.90, 0.95)
 	m.info = UsageInfo{
 		FiveHourPct: 0.95,
 		SevenDayPct: 0.50,
@@ -394,51 +352,6 @@ func TestIsRateLimited_FutureResetTimeNotIgnored(t *testing.T) {
 	limited, _ := m.IsRateLimited()
 	if !limited {
 		t.Error("expected rate limited when reset time is in the future")
-	}
-}
-
-func TestAdaptiveInterval_BoundaryAt50Percent(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
-	m.info = UsageInfo{
-		FiveHourPct: 0.50,
-		SevenDayPct: 0.00,
-	}
-
-	got := m.adaptiveInterval()
-	// 0.50 is >= 0.50, so should be medium (30m)
-	want := 30 * time.Minute
-	if got != want {
-		t.Errorf("at 50%%: got %v, want %v", got, want)
-	}
-}
-
-func TestAdaptiveInterval_BoundaryAt70Percent(t *testing.T) {
-	configured := 10 * time.Minute
-	m := NewUsageMonitor("", 0.90, 0.95, configured)
-	m.info = UsageInfo{
-		FiveHourPct: 0.70,
-		SevenDayPct: 0.00,
-	}
-
-	got := m.adaptiveInterval()
-	// 0.70 is >= 0.70, so should use configured interval
-	if got != configured {
-		t.Errorf("at 70%%: got %v, want %v", got, configured)
-	}
-}
-
-func TestAdaptiveInterval_UsesMaxOfBothPcts(t *testing.T) {
-	configured := 10 * time.Minute
-	m := NewUsageMonitor("", 0.90, 0.95, configured)
-	// FiveHour is low but SevenDay is high -- should use the max
-	m.info = UsageInfo{
-		FiveHourPct: 0.10,
-		SevenDayPct: 0.80,
-	}
-
-	got := m.adaptiveInterval()
-	if got != configured {
-		t.Errorf("max pct is 0.80 (>=0.70): got %v, want configured %v", got, configured)
 	}
 }
 
@@ -491,7 +404,7 @@ func TestParseUsageJSON_EmptyBytes(t *testing.T) {
 }
 
 func TestCurrentUsage_ZeroValue(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	m := NewUsageMonitor("", 0.90, 0.95)
 	usage := m.CurrentUsage()
 	if usage.FiveHourPct != 0 || usage.SevenDayPct != 0 {
 		t.Errorf("expected zero usage, got five_hour=%f seven_day=%f", usage.FiveHourPct, usage.SevenDayPct)
@@ -502,7 +415,7 @@ func TestCurrentUsage_ZeroValue(t *testing.T) {
 }
 
 func TestResetsAt_ZeroValue(t *testing.T) {
-	m := NewUsageMonitor("", 0.90, 0.95, 15*time.Minute)
+	m := NewUsageMonitor("", 0.90, 0.95)
 	got := m.ResetsAt()
 	if !got.IsZero() {
 		t.Errorf("expected zero ResetsAt, got %v", got)

@@ -22,12 +22,12 @@ type UsageInfo struct {
 }
 
 // UsageMonitor polls the claude-usage command to track rate limits.
-// It is safe for concurrent use.
+// It is safe for concurrent use. Polls every 30 seconds unconditionally
+// since claude-usage reads from a cron-refreshed local cache.
 type UsageMonitor struct {
 	cmdPath     string
 	threshold5h float64
 	threshold7d float64
-	interval    time.Duration
 
 	mu   sync.RWMutex
 	info UsageInfo
@@ -38,20 +38,17 @@ type UsageMonitor struct {
 
 // NewUsageMonitor creates a new usage monitor that shells out to cmdPath
 // to fetch usage data.
-func NewUsageMonitor(
-	cmdPath string, threshold5h, threshold7d float64,
-	pollInterval time.Duration,
-) *UsageMonitor {
+func NewUsageMonitor(cmdPath string, threshold5h, threshold7d float64) *UsageMonitor {
 	return &UsageMonitor{
 		cmdPath:     cmdPath,
 		threshold5h: threshold5h,
 		threshold7d: threshold7d,
-		interval:    pollInterval,
 	}
 }
 
 // Start begins polling in a background goroutine. It performs an immediate
-// poll, then polls at an adaptive interval based on current usage levels.
+// poll, then polls every 30 seconds. The claude-usage command reads from a
+// cron-refreshed local cache, so frequent polling is cheap.
 // Cancelling ctx or calling Stop will terminate the goroutine.
 func (m *UsageMonitor) Start(ctx context.Context) {
 	ctx, m.cancel = context.WithCancel(ctx)
@@ -62,37 +59,18 @@ func (m *UsageMonitor) Start(ctx context.Context) {
 
 		m.Poll()
 
-		for {
-			delay := m.adaptiveInterval()
-			slog.Debug("usage monitor: next poll", "delay", delay)
-			timer := time.NewTimer(delay)
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
 
+		for {
 			select {
 			case <-ctx.Done():
-				timer.Stop()
 				return
-			case <-timer.C:
+			case <-ticker.C:
 				m.Poll()
 			}
 		}
 	}()
-}
-
-// adaptiveInterval returns the next poll delay based on current usage levels.
-// Lower usage means longer intervals since the data changes slowly.
-func (m *UsageMonitor) adaptiveInterval() time.Duration {
-	m.mu.RLock()
-	maxPct := max(m.info.FiveHourPct, m.info.SevenDayPct)
-	m.mu.RUnlock()
-
-	switch {
-	case maxPct < 0.50:
-		return 60 * time.Minute
-	case maxPct < 0.70:
-		return 30 * time.Minute
-	default:
-		return m.interval
-	}
 }
 
 // Stop stops the polling goroutine and waits for it to finish.

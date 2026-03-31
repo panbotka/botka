@@ -97,7 +97,6 @@ func run() error {
 		cfg.ClaudeUsageCmd,
 		cfg.UsageThreshold5h,
 		cfg.UsageThreshold7d,
-		cfg.UsagePollInterval,
 	)
 	usageMon.Start(context.Background())
 	defer usageMon.Stop()

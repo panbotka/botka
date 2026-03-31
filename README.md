@@ -111,7 +111,6 @@ All settings are loaded from `.env` file and environment variables (env vars tak
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MAX_WORKERS` | `2` | Concurrent task execution slots |
-| `USAGE_POLL_INTERVAL` | `15m` | How often to poll API usage stats |
 | `USAGE_THRESHOLD_5H` | `0.90` | 5-hour rate limit threshold (0.0–1.0) |
 | `USAGE_THRESHOLD_7D` | `0.95` | 7-day rate limit threshold (0.0–1.0) |
 

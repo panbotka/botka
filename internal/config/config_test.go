@@ -2,7 +2,6 @@ package config
 
 import (
 	"testing"
-	"time"
 )
 
 // --- getEnv tests ---
@@ -215,7 +214,7 @@ func TestLoad_Defaults(t *testing.T) {
 	// Clear all config-relevant env vars to ensure defaults are used.
 	envVars := []string{
 		"PORT", "DATABASE_URL", "PROJECTS_DIR", "CLAUDE_PATH",
-		"CLAUDE_USAGE_CMD", "MAX_WORKERS", "USAGE_POLL_INTERVAL",
+		"CLAUDE_USAGE_CMD", "MAX_WORKERS",
 		"USAGE_THRESHOLD_5H", "USAGE_THRESHOLD_7D", "OPENCLAW_URL",
 		"OPENCLAW_TOKEN", "OPENCLAW_WORKSPACE", "CLAUDE_CONTEXT_DIR",
 		"CLAUDE_DEFAULT_WORK_DIR", "WHISPER_ENABLED", "UPLOAD_DIR",
@@ -245,9 +244,6 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.MaxWorkers != 2 {
 		t.Errorf("MaxWorkers = %d, want %d", cfg.MaxWorkers, 2)
 	}
-	if cfg.UsagePollInterval != 15*time.Minute {
-		t.Errorf("UsagePollInterval = %v, want %v", cfg.UsagePollInterval, 15*time.Minute)
-	}
 	if cfg.UsageThreshold5h != 0.90 {
 		t.Errorf("UsageThreshold5h = %f, want %f", cfg.UsageThreshold5h, 0.90)
 	}
@@ -263,14 +259,6 @@ func TestLoad_Defaults(t *testing.T) {
 	want := []string{"sonnet", "opus", "haiku"}
 	if !sliceEqual(cfg.AvailableModels, want) {
 		t.Errorf("AvailableModels = %v, want %v", cfg.AvailableModels, want)
-	}
-}
-
-func TestLoad_InvalidPollInterval(t *testing.T) {
-	t.Setenv("USAGE_POLL_INTERVAL", "not_a_duration")
-	_, err := Load()
-	if err == nil {
-		t.Fatal("Load() expected error for invalid USAGE_POLL_INTERVAL, got nil")
 	}
 }
 

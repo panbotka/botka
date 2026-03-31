@@ -187,7 +187,6 @@ Exposes task management tools: create_task, list_tasks, get_task, update_task, l
 | `CLAUDE_CONTEXT_DIR` | `./data/context` | Directory for assembled context files |
 | `CLAUDE_DEFAULT_WORK_DIR` | `/home/pi` | Default working directory for Claude chat sessions |
 | `MAX_WORKERS` | `2` | Concurrent task execution slots |
-| `USAGE_POLL_INTERVAL` | `15m` | How often to poll API usage stats |
 | `USAGE_THRESHOLD_5H` | `0.90` | 5-hour rate limit threshold (fraction) |
 | `USAGE_THRESHOLD_7D` | `0.95` | 7-day rate limit threshold (fraction) |
 | `OPENCLAW_URL` | `http://localhost:18789` | OpenClaw Whisper transcription endpoint |
