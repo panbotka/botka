@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"botka/internal/claude"
 	"botka/internal/models"
 )
 
@@ -161,7 +162,7 @@ func (e *Executor) spawnClaude(
 
 	cmd := exec.CommandContext(ctx, claudePath, args...) //nolint:gosec // args are controlled
 	cmd.Dir = project.Path
-	cmd.Env = append(os.Environ(), "BOTKA_TASK_AGENT=1")
+	cmd.Env = append(claude.SanitizedEnv(), "BOTKA_TASK_AGENT=1")
 	// Use a process group so we can kill the entire tree (claude + child processes)
 	// on timeout or cancellation, not just the top-level process.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

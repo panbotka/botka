@@ -125,6 +125,7 @@ func Run(ctx context.Context, cfg RunConfig, prompt string) <-chan StreamEvent {
 		args = append(args, prompt)
 
 		cmd := exec.CommandContext(ctx, cfg.ClaudePath, args...)
+		cmd.Env = SanitizedEnv()
 		if cfg.WorkDir != "" {
 			cmd.Dir = cfg.WorkDir
 		}

@@ -146,6 +146,7 @@ func (m *SessionManager) startSession(cfg RunConfig, threadID int64, threadTitle
 
 	args := buildStreamArgs(cfg)
 	cmd := exec.CommandContext(ctx, cfg.ClaudePath, args...)
+	cmd.Env = SanitizedEnv()
 	if cfg.WorkDir != "" {
 		cmd.Dir = cfg.WorkDir
 	}
