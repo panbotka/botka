@@ -14,6 +14,7 @@ import {
   Settings,
   Globe,
   FileText,
+  Gauge,
 } from 'lucide-react'
 
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
@@ -459,6 +460,35 @@ export default function HelpPage() {
           <li>
             The <strong>task runner</strong> is controlled from Settings &gt; Task Runner (start,
             pause, stop, set worker count).
+          </li>
+        </ul>
+      </Section>
+
+      <Section icon={Gauge} title="Scheduler & Rate Limits">
+        <ul className="space-y-2 list-disc pl-5">
+          <li>
+            The task scheduler automatically pauses when Anthropic API usage approaches rate limits.
+            Chat sessions are <strong>not affected</strong> — only autonomous task execution is paused.
+          </li>
+          <li>
+            <strong>5-hour window</strong> — the scheduler stops picking new tasks when utilization
+            exceeds <strong>90%</strong> (
+            <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">USAGE_THRESHOLD_5H = 0.90</code>
+            ).
+          </li>
+          <li>
+            <strong>7-day window</strong> — the scheduler stops picking new tasks when utilization
+            exceeds <strong>95%</strong> (
+            <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">USAGE_THRESHOLD_7D = 0.95</code>
+            ).
+          </li>
+          <li>
+            Usage is checked every 30 seconds via the{' '}
+            <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">claude-usage</code> command.
+          </li>
+          <li>
+            When the rate limit window resets or utilization drops below the threshold, the scheduler
+            automatically resumes picking tasks.
           </li>
         </ul>
       </Section>
