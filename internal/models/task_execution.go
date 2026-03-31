@@ -22,6 +22,7 @@ type TaskExecution struct {
 	Summary      *string    `gorm:"type:text" json:"summary"`
 	ErrorMessage *string    `gorm:"type:text" json:"error_message"`
 	RawOutput    *string    `gorm:"type:text" json:"raw_output,omitempty"`
+	GitHeadSHA   *string    `gorm:"type:text" json:"git_head_sha,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 }
 

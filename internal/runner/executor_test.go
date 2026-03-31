@@ -598,6 +598,53 @@ func TestBotkaSafetyPromptNotEmpty(t *testing.T) {
 	}
 }
 
+func TestClassifyOutcome_Killed(t *testing.T) {
+	out := &spawnOutput{killed: true}
+	task := &models.Task{RetryCount: 0}
+
+	r := classifyOutcome(out, task)
+
+	if r.Status != models.TaskStatusFailed {
+		t.Errorf("status = %v, want %v", r.Status, models.TaskStatusFailed)
+	}
+	if r.ErrorMessage != "Killed by user" {
+		t.Errorf("ErrorMessage = %q, want %q", r.ErrorMessage, "Killed by user")
+	}
+	if r.ShouldRetry {
+		t.Error("ShouldRetry = true, want false (killed tasks should not retry)")
+	}
+}
+
+func TestClassifyOutcome_KilledOverridesTimeout(t *testing.T) {
+	// If both killed and timedOut are set, killed should take precedence.
+	out := &spawnOutput{killed: true, timedOut: true}
+	task := &models.Task{RetryCount: 0}
+
+	r := classifyOutcome(out, task)
+
+	if r.ErrorMessage != "Killed by user" {
+		t.Errorf("ErrorMessage = %q, want %q", r.ErrorMessage, "Killed by user")
+	}
+}
+
+func TestCaptureGitHEAD_ValidRepo(t *testing.T) {
+	// Use the botka repo itself to test HEAD capture.
+	sha := CaptureGitHEAD("/home/pi/projects/botka")
+	if sha == "" {
+		t.Skip("could not capture git HEAD (not in a git repo)")
+	}
+	if len(sha) != 40 {
+		t.Errorf("expected 40-char SHA, got %d chars: %q", len(sha), sha)
+	}
+}
+
+func TestCaptureGitHEAD_InvalidPath(t *testing.T) {
+	sha := CaptureGitHEAD("/nonexistent/path")
+	if sha != "" {
+		t.Errorf("expected empty string for invalid path, got %q", sha)
+	}
+}
+
 // parseUUID is a test helper to create a uuid.UUID from a string.
 func parseUUID(s string) uuid.UUID {
 	id, err := uuid.Parse(s)

@@ -14,13 +14,14 @@ import {
   Clock,
   Loader2,
   Undo2,
+  StopCircle,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react'
 import { TaskForm } from '../components/TaskForm'
 import { LiveOutputInline } from '../components/LiveOutput'
 import TaskOutputView from '../components/TaskOutputView'
-import { fetchTask, retryTask, deleteTask, updateTask, fetchTaskRawOutput } from '../api/client'
+import { fetchTask, retryTask, deleteTask, updateTask, killTask, fetchTaskRawOutput } from '../api/client'
 import { parseNDJSON, type TaskOutputEvent } from '../utils/parseNDJSON'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
@@ -157,6 +158,19 @@ function TaskDetail({ taskId }: { taskId: string }) {
     }
   }
 
+  async function handleKill() {
+    if (!confirm('This will terminate the running task and revert all changes. Continue?')) return
+    setActing(true)
+    try {
+      await killTask(taskId)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Kill failed')
+    } finally {
+      setActing(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex h-48 items-center justify-center">
@@ -284,6 +298,20 @@ function TaskDetail({ taskId }: { taskId: string }) {
       {/* Historical Output */}
       {hasCompletedOutput && task.status !== 'running' && (
         <HistoricalOutput taskId={taskId} />
+      )}
+
+      {/* Kill button for running tasks */}
+      {task.status === 'running' && (
+        <div className="flex gap-3">
+          <button
+            onClick={handleKill}
+            disabled={acting}
+            className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+          >
+            <StopCircle className="h-3.5 w-3.5" />
+            Kill Task
+          </button>
+        </div>
       )}
 
       {/* Actions */}

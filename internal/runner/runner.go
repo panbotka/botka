@@ -229,6 +229,23 @@ func (r *Runner) HardStop() {
 	r.mu.Unlock()
 }
 
+// KillTask terminates a single running task by its task ID.
+// It cancels the task's context, which sends SIGTERM to the process group.
+// The existing finalization flow handles git revert and status updates.
+func (r *Runner) KillTask(taskID uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, at := range r.executors {
+		if at.task.ID == taskID {
+			slog.Info("killing task", "task_id", taskID)
+			at.cancel()
+			return nil
+		}
+	}
+	return fmt.Errorf("task %s is not currently running", taskID)
+}
+
 // Resume resumes picking tasks. Alias for Start.
 func (r *Runner) Resume() {
 	r.Start()
@@ -502,6 +519,13 @@ func (r *Runner) executeTask(
 		}
 	}()
 
+	// Capture git HEAD SHA before execution for potential revert.
+	headSHA := CaptureGitHEAD(task.Project.Path)
+	if headSHA != "" {
+		exec.GitHeadSHA = &headSHA
+		r.db.Model(exec).Update("git_head_sha", headSHA)
+	}
+
 	result, err := r.executor.Execute(ctx, task, &task.Project, buf)
 	if err != nil {
 		slog.Error("executor error", "task_id", task.ID, "error", err)
@@ -509,6 +533,14 @@ func (r *Runner) executeTask(
 			Status:       models.TaskStatusFailed,
 			ErrorMessage: err.Error(),
 		}
+	}
+
+	// If the task was killed by user, perform git revert.
+	if result.ErrorMessage == "Killed by user" {
+		GitRevert(task.Project.Path, headSHA, task, &task.Project)
+		// Set retry count to max so it won't auto-retry.
+		r.db.Model(task).Update("retry_count", maxRetries)
+		result.ShouldRetry = false
 	}
 
 	r.finishTask(task, exec, buf, result)

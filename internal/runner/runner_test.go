@@ -2,6 +2,7 @@ package runner
 
 import (
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -345,5 +346,66 @@ func TestPickNextTask_UniqueViolationSkips(t *testing.T) {
 	}
 	if exec != nil {
 		t.Errorf("expected no execution, got %v", exec.ID)
+	}
+}
+
+func TestKillTask_CancelsRunningTask(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	proj := createProject(t, db, "project-kill")
+	task := createTask(t, db, proj.ID, "task-to-kill", models.TaskStatusRunning)
+
+	cancelled := false
+	r := &Runner{
+		db:        db,
+		executors: make(map[uuid.UUID]*activeTask),
+		buffers:   make(map[uuid.UUID]*Buffer),
+	}
+	r.executors[proj.ID] = &activeTask{
+		task:      &task,
+		execution: &models.TaskExecution{TaskID: task.ID},
+		cancel:    func() { cancelled = true },
+	}
+
+	err := r.KillTask(task.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cancelled {
+		t.Error("expected cancel to be called")
+	}
+}
+
+func TestKillTask_NotRunning(t *testing.T) {
+	r := &Runner{
+		executors: make(map[uuid.UUID]*activeTask),
+	}
+
+	err := r.KillTask(uuid.New())
+	if err == nil {
+		t.Fatal("expected error for non-running task")
+	}
+	if !strings.Contains(err.Error(), "not currently running") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestKillTask_IdempotentAfterCompletion(t *testing.T) {
+	// After a task finishes, its executor is removed. A second kill should return an error.
+	r := &Runner{
+		executors: make(map[uuid.UUID]*activeTask),
+	}
+
+	taskID := uuid.New()
+	err := r.KillTask(taskID)
+	if err == nil {
+		t.Fatal("expected error for non-running task")
+	}
+
+	// Call again — should still return error (idempotent).
+	err = r.KillTask(taskID)
+	if err == nil {
+		t.Fatal("expected error on second kill attempt")
 	}
 }

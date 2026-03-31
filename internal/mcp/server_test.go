@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 // TestHandleMessage_parseError verifies that malformed JSON returns a parse error.
@@ -349,8 +351,10 @@ func TestSchemaHelpers(t *testing.T) {
 
 // mockRunner implements RunnerController for testing.
 type mockRunner struct {
-	resumed bool
-	startN  int
+	resumed    bool
+	startN     int
+	killedTask uuid.UUID
+	killErr    error
 }
 
 // Resume records that Resume was called.
@@ -361,6 +365,12 @@ func (m *mockRunner) Resume() {
 // StartN records the count passed to StartN.
 func (m *mockRunner) StartN(n int) {
 	m.startN = n
+}
+
+// KillTask records the task ID and returns the configured error.
+func (m *mockRunner) KillTask(taskID uuid.UUID) error {
+	m.killedTask = taskID
+	return m.killErr
 }
 
 // TestFormatToolResult_stringResult verifies string results are wrapped in MCP content format.

@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"botka/internal/runner"
 )
@@ -23,6 +26,7 @@ func RegisterRunnerRoutes(rg *gin.RouterGroup, h *RunnerHandler) {
 	rg.POST("/runner/pause", h.Pause)
 	rg.POST("/runner/stop", h.Stop)
 	rg.POST("/runner/usage/refresh", h.RefreshUsage)
+	rg.POST("/tasks/:id/kill", h.KillTask)
 }
 
 // Status returns the current runner state.
@@ -61,4 +65,18 @@ func (h *RunnerHandler) Pause(c *gin.Context) {
 func (h *RunnerHandler) Stop(c *gin.Context) {
 	h.runner.HardStop()
 	respondOK(c, h.runner.GetStatus())
+}
+
+// KillTask terminates a single running task and reverts its git changes.
+func (h *RunnerHandler) KillTask(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "invalid task id")
+		return
+	}
+	if err := h.runner.KillTask(id); err != nil {
+		respondError(c, http.StatusNotFound, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"message": "Task kill initiated"}})
 }

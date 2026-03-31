@@ -2,8 +2,11 @@ package mcp
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 
 	"botka/internal/models"
 )
@@ -427,5 +430,84 @@ func TestFormatTaskDetail_withExecutions(t *testing.T) {
 		if !strings.Contains(result, check) {
 			t.Errorf("formatTaskDetail missing %q in output:\n%s", check, result)
 		}
+	}
+}
+
+// TestHandleKillTask_noRunner verifies kill_task fails in stdio mode.
+func TestHandleKillTask_noRunner(t *testing.T) {
+	t.Parallel()
+	srv := NewServer(nil, nil, nil)
+
+	_, err := srv.handleKillTask(json.RawMessage(`{"task_id":"` + uuid.New().String() + `"}`))
+	if err == nil {
+		t.Fatal("expected error when runner is nil")
+	}
+	if !strings.Contains(err.Error(), "not available") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+// TestHandleKillTask_missingTaskID verifies kill_task requires task_id.
+func TestHandleKillTask_missingTaskID(t *testing.T) {
+	t.Parallel()
+	runner := &mockRunner{}
+	srv := NewServer(nil, runner, nil)
+
+	_, err := srv.handleKillTask(json.RawMessage(`{}`))
+	if err == nil {
+		t.Fatal("expected error for missing task_id")
+	}
+	if !strings.Contains(err.Error(), "task_id is required") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestHandleKillTask_invalidUUID verifies kill_task rejects invalid UUIDs.
+func TestHandleKillTask_invalidUUID(t *testing.T) {
+	t.Parallel()
+	runner := &mockRunner{}
+	srv := NewServer(nil, runner, nil)
+
+	_, err := srv.handleKillTask(json.RawMessage(`{"task_id":"not-a-uuid"}`))
+	if err == nil {
+		t.Fatal("expected error for invalid UUID")
+	}
+	if !strings.Contains(err.Error(), "invalid task_id") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestHandleKillTask_success verifies kill_task calls KillTask on the runner.
+func TestHandleKillTask_success(t *testing.T) {
+	t.Parallel()
+	runner := &mockRunner{}
+	srv := NewServer(nil, runner, nil)
+	taskID := uuid.New()
+
+	result, err := srv.handleKillTask(json.RawMessage(`{"task_id":"` + taskID.String() + `"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if runner.killedTask != taskID {
+		t.Errorf("expected KillTask(%s), got KillTask(%s)", taskID, runner.killedTask)
+	}
+	if !strings.Contains(result.(string), "Kill initiated") {
+		t.Errorf("unexpected result: %v", result)
+	}
+}
+
+// TestHandleKillTask_notRunning verifies kill_task returns error when task is not running.
+func TestHandleKillTask_notRunning(t *testing.T) {
+	t.Parallel()
+	taskID := uuid.New()
+	runner := &mockRunner{killErr: fmt.Errorf("task %s is not currently running", taskID)}
+	srv := NewServer(nil, runner, nil)
+
+	_, err := srv.handleKillTask(json.RawMessage(`{"task_id":"` + taskID.String() + `"}`))
+	if err == nil {
+		t.Fatal("expected error for non-running task")
+	}
+	if !strings.Contains(err.Error(), "not currently running") {
+		t.Errorf("unexpected error: %v", err)
 	}
 }

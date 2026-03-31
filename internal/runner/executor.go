@@ -51,6 +51,7 @@ type spawnOutput struct {
 	lastResult *Event
 	lastText   string
 	timedOut   bool
+	killed     bool
 }
 
 const (
@@ -84,6 +85,17 @@ func (e *Executor) Execute(
 	if err != nil {
 		return nil, err
 	}
+
+	// Detect user-initiated kill (parent context cancelled, not timeout).
+	if ctx.Err() != nil && execCtx.Err() == nil {
+		out.killed = true
+	}
+	// Also detect kill when parent cancelled even if execCtx also cancelled
+	// but not from timeout (timeout sets timedOut).
+	if ctx.Err() != nil && !out.timedOut {
+		out.killed = true
+	}
+
 	result := classifyOutcome(out, task)
 
 	if result.Status == models.TaskStatusDone {
@@ -93,6 +105,75 @@ func (e *Executor) Execute(
 		e.pushAndCreatePR(ctx, task, project)
 	}
 	return result, nil
+}
+
+// CaptureGitHEAD returns the current git HEAD SHA for the given project directory.
+func CaptureGitHEAD(projectPath string) string {
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = projectPath
+	out, err := cmd.Output()
+	if err != nil {
+		slog.Warn("failed to capture git HEAD", "path", projectPath, "error", err)
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// GitRevert resets the project to the given HEAD SHA and cleans untracked files.
+// If the project uses feature_branch strategy, it also checks out the default branch
+// and deletes the feature branch.
+func GitRevert(projectPath, headSHA string, task *models.Task, project *models.Project) {
+	if headSHA == "" {
+		slog.Info("no git HEAD SHA stored, skipping revert", "task_id", task.ID)
+		return
+	}
+
+	slog.Info("reverting git changes", "task_id", task.ID, "head_sha", headSHA)
+
+	// git reset --hard <sha>
+	resetCmd := exec.Command("git", "reset", "--hard", headSHA) //nolint:gosec // trusted SHA
+	resetCmd.Dir = projectPath
+	if out, err := resetCmd.CombinedOutput(); err != nil {
+		slog.Error("git reset failed", "task_id", task.ID, "error", err, "output", string(out))
+	}
+
+	// git clean -fd
+	cleanCmd := exec.Command("git", "clean", "-fd")
+	cleanCmd.Dir = projectPath
+	if out, err := cleanCmd.CombinedOutput(); err != nil {
+		slog.Error("git clean failed", "task_id", task.ID, "error", err, "output", string(out))
+	}
+
+	if project.BranchStrategy == "feature_branch" {
+		branchName := fmt.Sprintf("botka/task-%s", task.ID)
+
+		// Determine default branch
+		defaultBranch := "main"
+		dbCmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD", "--short")
+		dbCmd.Dir = projectPath
+		if out, err := dbCmd.Output(); err == nil {
+			parts := strings.SplitN(strings.TrimSpace(string(out)), "/", 2) //nolint:mnd
+			if len(parts) == 2 {                                            //nolint:mnd
+				defaultBranch = parts[1]
+			}
+		}
+
+		// git checkout <default-branch>
+		coCmd := exec.Command("git", "checkout", defaultBranch) //nolint:gosec // trusted branch name
+		coCmd.Dir = projectPath
+		if out, err := coCmd.CombinedOutput(); err != nil {
+			slog.Error("git checkout default branch failed", "task_id", task.ID, "error", err, "output", string(out))
+		}
+
+		// git branch -D <feature-branch>
+		delCmd := exec.Command("git", "branch", "-D", branchName) //nolint:gosec // UUID branch name
+		delCmd.Dir = projectPath
+		if out, err := delCmd.CombinedOutput(); err != nil {
+			slog.Warn("git branch delete failed", "task_id", task.ID, "error", err, "output", string(out))
+		}
+	}
+
+	slog.Info("git revert completed", "task_id", task.ID)
 }
 
 func (e *Executor) syncSpec(task *models.Task, project *models.Project) error {
@@ -210,6 +291,12 @@ func (e *Executor) spawnClaude(
 }
 
 func classifyOutcome(out *spawnOutput, task *models.Task) *ExecutionResult {
+	if out.killed {
+		return &ExecutionResult{
+			Status:       models.TaskStatusFailed,
+			ErrorMessage: "Killed by user",
+		}
+	}
 	if out.timedOut {
 		return &ExecutionResult{
 			Status:       models.TaskStatusFailed,

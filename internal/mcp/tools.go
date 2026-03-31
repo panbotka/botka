@@ -433,6 +433,33 @@ func (s *Server) handleGetRunnerStatus(_ json.RawMessage) (interface{}, error) {
 	return b.String(), nil
 }
 
+// handleKillTask kills a running task by ID.
+func (s *Server) handleKillTask(raw json.RawMessage) (interface{}, error) {
+	if s.runner == nil {
+		return nil, fmt.Errorf("runner control is not available in stdio mode")
+	}
+
+	var args struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if args.TaskID == "" {
+		return nil, errors.New("task_id is required")
+	}
+
+	id, err := uuid.Parse(args.TaskID)
+	if err != nil {
+		return nil, errors.New("invalid task_id")
+	}
+
+	if err := s.runner.KillTask(id); err != nil {
+		return nil, err
+	}
+	return fmt.Sprintf("Kill initiated for task %s. Git changes will be reverted.", id), nil
+}
+
 // handleStartRunner starts or resumes the task runner.
 // Returns an error in stdio mode where the runner is not available.
 func (s *Server) handleStartRunner(args json.RawMessage) (interface{}, error) {

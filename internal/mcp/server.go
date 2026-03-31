@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 
 	"botka/internal/handlers"
@@ -60,6 +61,7 @@ type toolHandler func(args json.RawMessage) (interface{}, error)
 type RunnerController interface {
 	Resume()
 	StartN(n int)
+	KillTask(taskID uuid.UUID) error
 }
 
 // Server handles MCP protocol messages. It is transport-agnostic;
@@ -220,6 +222,7 @@ func (s *Server) toolHandlers() map[string]toolHandler {
 		"list_projects":        s.handleListProjects,
 		"get_runner_status":    s.handleGetRunnerStatus,
 		"start_runner":         s.handleStartRunner,
+		"kill_task":            s.handleKillTask,
 		"update_project":       s.handleUpdateProject,
 		"run_command":          s.handleRunCommand,
 		"list_commands":        s.handleListCommands,
@@ -372,6 +375,13 @@ func runnerToolDefinitions() []toolDef {
 			InputSchema: schema(map[string]interface{}{
 				"count": prop("integer", "Number of tasks to process before auto-stopping (0 or omit for unlimited)"),
 			}),
+		},
+		{
+			Name:        "kill_task",
+			Description: "Kill a running task, terminate its Claude process, and revert all git changes",
+			InputSchema: schema(map[string]interface{}{
+				"task_id": uuidProp("UUID of the task to kill"),
+			}, "task_id"),
 		},
 	}
 }
