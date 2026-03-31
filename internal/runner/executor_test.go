@@ -523,6 +523,9 @@ func TestBuildPrompt_Basic(t *testing.T) {
 	if !strings.Contains(prompt, "task-11111111-1111-1111-1111-111111111111.md") {
 		t.Error("prompt should reference the spec file path")
 	}
+	if !strings.Contains(prompt, "Include the spec file docs/specs/task-11111111-1111-1111-1111-111111111111.md in your commit") {
+		t.Error("prompt should instruct agent to include spec file in commit")
+	}
 	if !strings.Contains(prompt, "NEVER run deploy") {
 		t.Error("prompt should contain safety warning")
 	}

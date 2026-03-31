@@ -120,9 +120,10 @@ func (e *Executor) buildPrompt(task *models.Task) string {
 	prompt := fmt.Sprintf(
 		"You are working on task: %s. Read the full specification at docs/specs/task-%s.md "+
 			"and implement it completely. When done, commit your changes with a descriptive commit message."+
+			" Include the spec file docs/specs/task-%s.md in your commit."+
 			" IMPORTANT: NEVER run deploy, restart, or service management commands (make deploy, systemctl restart, etc.)"+
 			" — you are running inside the application and would kill yourself.",
-		task.Title, task.ID,
+		task.Title, task.ID, task.ID,
 	)
 	if task.RetryCount > 0 && task.FailureReason != nil {
 		prompt += fmt.Sprintf(
