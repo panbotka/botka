@@ -241,6 +241,60 @@ func TestLaunchTask_RefusesDuplicateProject(t *testing.T) {
 	}
 }
 
+func TestLaunchTask_RefusesWhenMaxWorkersReached(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	projA := createProject(t, db, "project-a")
+	projB := createProject(t, db, "project-b")
+	projC := createProject(t, db, "project-c")
+	taskA := createTask(t, db, projA.ID, "task-a", models.TaskStatusRunning)
+	taskB := createTask(t, db, projB.ID, "task-b", models.TaskStatusRunning)
+	taskC := createTask(t, db, projC.ID, "task-c", models.TaskStatusQueued)
+
+	r := &Runner{
+		db:         db,
+		maxWorkers: 2,
+		executors:  make(map[uuid.UUID]*activeTask),
+		buffers:    make(map[uuid.UUID]*Buffer),
+	}
+
+	// Simulate two tasks already running (at max_workers limit).
+	r.executors[projA.ID] = &activeTask{
+		task:      &taskA,
+		execution: &models.TaskExecution{TaskID: taskA.ID},
+	}
+	r.executors[projB.ID] = &activeTask{
+		task:      &taskB,
+		execution: &models.TaskExecution{TaskID: taskB.ID},
+	}
+
+	// Try to launch a third task on a different project.
+	r.launchTask(&taskC, &models.TaskExecution{TaskID: taskC.ID})
+
+	// Should still have only 2 executors.
+	r.mu.RLock()
+	count := len(r.executors)
+	_, hasC := r.executors[projC.ID]
+	r.mu.RUnlock()
+
+	if count != 2 {
+		t.Errorf("expected 2 executors, got %d", count)
+	}
+	if hasC {
+		t.Error("executor for project-c should not exist")
+	}
+
+	// Task C should be requeued.
+	var reloaded models.Task
+	if err := db.First(&reloaded, taskC.ID).Error; err != nil {
+		t.Fatalf("reload taskC: %v", err)
+	}
+	if reloaded.Status != models.TaskStatusQueued {
+		t.Errorf("expected taskC status %q, got %q", models.TaskStatusQueued, reloaded.Status)
+	}
+}
+
 func TestUniqueIndex_PreventsSecondRunningTask(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)

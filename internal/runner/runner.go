@@ -458,7 +458,14 @@ func (r *Runner) launchTask(task *models.Task, execution *models.TaskExecution) 
 			"project_id", task.ProjectID,
 			"existing_task", existing.task.ID,
 			"new_task", task.ID)
-		// Requeue the task so it can be picked up later.
+		r.db.Model(task).Update("status", models.TaskStatusQueued)
+		return
+	}
+
+	if len(r.executors) >= r.maxWorkers {
+		r.mu.Unlock()
+		slog.Warn("scheduler: worker limit reached, requeuing task",
+			"task_id", task.ID, "current_workers", len(r.executors), "max_workers", r.maxWorkers)
 		r.db.Model(task).Update("status", models.TaskStatusQueued)
 		return
 	}
