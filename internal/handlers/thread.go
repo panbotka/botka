@@ -309,13 +309,6 @@ func (h *ThreadHandler) Pin(c *gin.Context) {
 		return
 	}
 
-	var count int64
-	h.db.Model(&models.Thread{}).Where("pinned = ?", true).Count(&count)
-	if count >= 10 {
-		respondError(c, http.StatusConflict, "maximum of 10 pinned threads")
-		return
-	}
-
 	h.db.Model(&models.Thread{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"pinned":     true,
 		"updated_at": time.Now(),

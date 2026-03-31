@@ -500,27 +500,6 @@ func TestThread_PinIdempotent(t *testing.T) {
 	}
 }
 
-func TestThread_PinIdempotentAtLimit(t *testing.T) {
-	db := setupTestDB(t)
-	cleanTables(t, db)
-
-	r := threadRouter(db)
-
-	// Pin 10 threads.
-	var lastPinned models.Thread
-	for i := 0; i < 10; i++ {
-		th := createTestThread(t, db)
-		doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/threads/%d/pin", th.ID), "")
-		lastPinned = th
-	}
-
-	// Re-pinning one that's already pinned should succeed (idempotent).
-	w := doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/threads/%d/pin", lastPinned.ID), "")
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for re-pin at limit, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
 func TestThread_PinNotFound(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)
@@ -533,27 +512,19 @@ func TestThread_PinNotFound(t *testing.T) {
 	}
 }
 
-func TestThread_PinLimit(t *testing.T) {
+func TestThread_PinUnlimited(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)
 
 	r := threadRouter(db)
 
-	// Pin 10 threads.
-	for i := 0; i < 10; i++ {
+	// Pinning more than 10 threads should succeed (no limit).
+	for i := 0; i < 15; i++ {
 		th := createTestThread(t, db)
 		w := doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/threads/%d/pin", th.ID), "")
 		if w.Code != http.StatusOK {
 			t.Fatalf("pin thread %d: expected 200, got %d: %s", i+1, w.Code, w.Body.String())
 		}
-	}
-
-	// 11th pin should fail.
-	th := createTestThread(t, db)
-	w := doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/threads/%d/pin", th.ID), "")
-
-	if w.Code != http.StatusConflict {
-		t.Fatalf("expected 409 for 11th pin, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
