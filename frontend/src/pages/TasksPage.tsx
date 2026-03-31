@@ -98,6 +98,16 @@ export default function TasksPage() {
 
   useRefreshOnFocus(refetchAll)
 
+  // Poll every 10s while the page is visible
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        refetchAll()
+      }
+    }, 10_000)
+    return () => clearInterval(id)
+  }, [refetchAll])
+
   const updateSearchParams = useCallback(
     (updates: Record<string, string | null>) => {
       const next: Record<string, string> = {}
