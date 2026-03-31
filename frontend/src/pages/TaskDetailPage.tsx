@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
+import { formatDateTime } from '../utils/dateFormat'
 import ReactMarkdown from 'react-markdown'
 import { clsx } from 'clsx'
 import {
@@ -55,7 +56,7 @@ function formatDuration(ms: number): string {
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString()
+  return formatDateTime(iso)
 }
 
 export default function TaskDetailPage() {

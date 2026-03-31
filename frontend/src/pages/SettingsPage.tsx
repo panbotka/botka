@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { clsx } from 'clsx'
+import { formatDate } from '../utils/dateFormat'
 import {
   Loader2,
   Plus,
@@ -1208,7 +1209,7 @@ function SecurityTab() {
                   <KeyRound className="h-4 w-4 text-zinc-400" />
                   <span className="text-sm text-zinc-700">{pk.name}</span>
                   <span className="text-xs text-zinc-400">
-                    {new Date(pk.created_at).toLocaleDateString()}
+                    {formatDate(pk.created_at)}
                   </span>
                 </div>
                 <button

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { formatDate as formatDateOnly } from '../utils/dateFormat'
 import {
   DndContext,
   closestCenter,
@@ -147,7 +148,7 @@ function formatDate(iso: string): string {
   if (hours < 24) return `${hours}h ago`
   const days = Math.floor(hours / 24)
   if (days < 7) return `${days}d ago`
-  return d.toLocaleDateString()
+  return formatDateOnly(d)
 }
 
 function formatDuration(startedAt: string | null, completedAt: string | null): string | null {

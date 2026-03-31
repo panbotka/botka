@@ -12,7 +12,7 @@ import (
 	"botka/internal/models"
 )
 
-const timeFmt = "2006-01-02 15:04"
+const timeFmt = "02/01/2006 15:04"
 
 // allowedTransitions defines valid status transitions for task updates.
 // Mirrors the transition rules in the REST API handlers.

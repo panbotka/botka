@@ -1,15 +1,10 @@
 import type { Message, Thread } from '../types';
+import { formatDateTime } from './dateFormat';
 
 export type ExportFormat = 'md' | 'json';
 
 function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleString('en-GB', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDateTime(dateStr);
 }
 
 export function exportAsMarkdown(messages: Message[], thread?: Thread): string {

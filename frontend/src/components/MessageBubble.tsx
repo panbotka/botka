@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import type { Message, Attachment, ForkPoint } from '../types';
+import { formatTime, formatDateTime } from '../utils/dateFormat';
 import MarkdownContent from './MarkdownContent';
 import ThinkingSection from './ThinkingSection';
 import MessageActions from './MessageActions';
@@ -36,16 +37,13 @@ function formatTokens(n: number): string {
 function formatTimestamp(dateStr: string): string {
   const date = new Date(dateStr);
   const now = new Date();
-  const hours = date.getHours().toString().padStart(2, '0');
-  const minutes = date.getMinutes().toString().padStart(2, '0');
-  const time = `${hours}:${minutes}`;
 
   const isToday = date.getFullYear() === now.getFullYear()
     && date.getMonth() === now.getMonth()
     && date.getDate() === now.getDate();
 
-  if (isToday) return time;
-  return `${date.getDate()}. ${date.getMonth() + 1}. ${time}`;
+  if (isToday) return formatTime(date);
+  return formatDateTime(date);
 }
 
 function TokenBadge({ promptTokens, completionTokens }: { promptTokens: number; completionTokens: number }) {

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { Persona, Tag, Thread, Project, SearchResult } from '../types'
+import { formatDate as formatDateOnly } from '../utils/dateFormat'
 import { api, searchMessages, ApiError } from '../api/client'
 import { downloadExport } from '../utils/exportThread'
 import { clearDraft } from './ChatInput'
@@ -227,7 +228,7 @@ export default function ThreadSidebar({
     if (hours < 24) return `${hours}h`
     if (days === 1) return 'Yesterday'
     if (days < 7) return d.toLocaleDateString('en-US', { weekday: 'short' })
-    return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short' })
+    return formatDateOnly(d)
   }
 
   const handleSelectSearchResult = (threadId: number) => {
