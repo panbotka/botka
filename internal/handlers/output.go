@@ -23,23 +23,40 @@ type bufferProvider interface {
 	GetBuffer(taskID uuid.UUID) *runner.Buffer
 }
 
+// taskStatusQuerier looks up a task's current status from the database.
+type taskStatusQuerier interface {
+	QueryTaskStatus(taskID uuid.UUID) (models.TaskStatus, error)
+}
+
+// dbTaskStatusQuerier implements taskStatusQuerier using GORM.
+type dbTaskStatusQuerier struct {
+	db *gorm.DB
+}
+
+func (q *dbTaskStatusQuerier) QueryTaskStatus(taskID uuid.UUID) (models.TaskStatus, error) {
+	var status models.TaskStatus
+	err := q.db.Model(&models.Task{}).Select("status").Where("id = ?", taskID).Scan(&status).Error
+	return status, err
+}
+
 // RegisterOutputRoute registers the SSE live output route on the given router group.
 func RegisterOutputRoute(rg *gin.RouterGroup, r *runner.Runner, db *gorm.DB) {
-	rg.GET("/tasks/:id/output", newOutputHandler(r))
+	sq := &dbTaskStatusQuerier{db: db}
+	rg.GET("/tasks/:id/output", newOutputHandler(r, sq))
 	rg.GET("/tasks/:id/output/raw", newRawOutputHandler(db))
 }
 
 // newOutputHandler returns a Gin handler that streams live task output via SSE.
-func newOutputHandler(r *runner.Runner) gin.HandlerFunc {
+func newOutputHandler(r *runner.Runner, sq taskStatusQuerier) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		streamTaskOutput(c, r)
+		streamTaskOutput(c, r, sq)
 	}
 }
 
 // streamTaskOutput streams live task output as SSE events.
 // It sends existing buffered data first, then streams new data as it arrives.
 // Each data event is base64-encoded. A final "done" event is sent when the task completes.
-func streamTaskOutput(c *gin.Context, bp bufferProvider) {
+func streamTaskOutput(c *gin.Context, bp bufferProvider, sq taskStatusQuerier) {
 	taskID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusBadRequest, "invalid task id")
@@ -58,10 +75,20 @@ func streamTaskOutput(c *gin.Context, bp bufferProvider) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	if buf == nil {
-		// Task is not currently running (already completed or not started).
-		// Send a "done" event via SSE so the frontend stops reconnecting.
 		setSSEHeaders(c)
-		_, _ = fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
+
+		// Check the actual task status in DB to distinguish between
+		// "task completed" and "task is running but orphaned (no executor)".
+		status, dbErr := sq.QueryTaskStatus(taskID)
+		if dbErr != nil || status != models.TaskStatusRunning {
+			// Task is not running — it completed, was never started, etc.
+			_, _ = fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
+			c.Writer.Flush()
+			return
+		}
+
+		// Task is marked running in DB but has no buffer — orphaned.
+		_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: {\"message\":\"No output available — task may be orphaned\"}\n\n")
 		c.Writer.Flush()
 		return
 	}

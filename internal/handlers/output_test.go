@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"botka/internal/models"
 	"botka/internal/runner"
 )
 
@@ -33,17 +34,28 @@ func (m *mockBufferProvider) GetBuffer(_ uuid.UUID) *runner.Buffer {
 	return m.buf
 }
 
+// mockTaskStatusQuerier is a test double for taskStatusQuerier.
+type mockTaskStatusQuerier struct {
+	status models.TaskStatus
+	err    error
+}
+
+func (m *mockTaskStatusQuerier) QueryTaskStatus(_ uuid.UUID) (models.TaskStatus, error) {
+	return m.status, m.err
+}
+
 func TestStreamTaskOutput_BufferAvailableImmediately(t *testing.T) {
 	buf := runner.NewBuffer(1024)
 	buf.Write([]byte("hello"))
 	buf.Close()
 
 	provider := &mockBufferProvider{buf: buf}
+	sq := &mockTaskStatusQuerier{status: models.TaskStatusRunning}
 
 	w := httptest.NewRecorder()
 	c, router := gin.CreateTestContext(w)
 	router.GET("/tasks/:id/output", func(c *gin.Context) {
-		streamTaskOutput(c, provider)
+		streamTaskOutput(c, provider, sq)
 	})
 
 	taskID := uuid.New()
@@ -66,11 +78,12 @@ func TestStreamTaskOutput_PollsForBuffer(t *testing.T) {
 
 	// Return nil for first 3 calls, then return the buffer.
 	provider := &mockBufferProvider{buf: buf, returnAfter: 3}
+	sq := &mockTaskStatusQuerier{status: models.TaskStatusRunning}
 
 	w := httptest.NewRecorder()
 	_, router := gin.CreateTestContext(w)
 	router.GET("/tasks/:id/output", func(c *gin.Context) {
-		streamTaskOutput(c, provider)
+		streamTaskOutput(c, provider, sq)
 	})
 
 	taskID := uuid.New()
@@ -101,14 +114,15 @@ func TestStreamTaskOutput_PollsForBuffer(t *testing.T) {
 	}
 }
 
-func TestStreamTaskOutput_NoBuffer_SendsDone(t *testing.T) {
-	// Provider always returns nil.
+func TestStreamTaskOutput_NoBuffer_TaskNotRunning_SendsDone(t *testing.T) {
+	// Provider always returns nil, task is done in DB.
 	provider := &mockBufferProvider{buf: nil}
+	sq := &mockTaskStatusQuerier{status: models.TaskStatusDone}
 
 	w := httptest.NewRecorder()
 	_, router := gin.CreateTestContext(w)
 	router.GET("/tasks/:id/output", func(c *gin.Context) {
-		streamTaskOutput(c, provider)
+		streamTaskOutput(c, provider, sq)
 	})
 
 	taskID := uuid.New()
@@ -117,7 +131,7 @@ func TestStreamTaskOutput_NoBuffer_SendsDone(t *testing.T) {
 
 	body := w.Body.String()
 	if !strings.Contains(body, "event: done") {
-		t.Errorf("expected done event when no buffer exists, got: %s", body)
+		t.Errorf("expected done event when task is not running, got: %s", body)
 	}
 
 	// Should have polled 10 times.
@@ -130,13 +144,38 @@ func TestStreamTaskOutput_NoBuffer_SendsDone(t *testing.T) {
 	}
 }
 
-func TestStreamTaskOutput_InvalidID(t *testing.T) {
-	provider := &mockBufferProvider{}
+func TestStreamTaskOutput_NoBuffer_TaskRunning_SendsError(t *testing.T) {
+	// Provider always returns nil, but task is still running in DB — orphaned.
+	provider := &mockBufferProvider{buf: nil}
+	sq := &mockTaskStatusQuerier{status: models.TaskStatusRunning}
 
 	w := httptest.NewRecorder()
 	_, router := gin.CreateTestContext(w)
 	router.GET("/tasks/:id/output", func(c *gin.Context) {
-		streamTaskOutput(c, provider)
+		streamTaskOutput(c, provider, sq)
+	})
+
+	taskID := uuid.New()
+	req := httptest.NewRequest(http.MethodGet, "/tasks/"+taskID.String()+"/output", nil)
+	router.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "event: error") {
+		t.Errorf("expected error event for orphaned task, got: %s", body)
+	}
+	if !strings.Contains(body, "orphaned") {
+		t.Errorf("expected orphaned message in error event, got: %s", body)
+	}
+}
+
+func TestStreamTaskOutput_InvalidID(t *testing.T) {
+	provider := &mockBufferProvider{}
+	sq := &mockTaskStatusQuerier{}
+
+	w := httptest.NewRecorder()
+	_, router := gin.CreateTestContext(w)
+	router.GET("/tasks/:id/output", func(c *gin.Context) {
+		streamTaskOutput(c, provider, sq)
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/tasks/not-a-uuid/output", nil)

@@ -9,15 +9,19 @@ export function useSSE(taskId: string | null) {
   const [events, setEvents] = useState<TaskOutputEvent[]>([])
   const [connected, setConnected] = useState(false)
   const [done, setDone] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const esRef = useRef<EventSource | null>(null)
   const parserRef = useRef<NDJSONParser>(new NDJSONParser())
   const doneRef = useRef(false)
+  const errorRef = useRef(false)
   const attemptsRef = useRef(0)
+  const receivedDataRef = useRef(false)
 
   const appendChunk = useCallback((chunk: string) => {
     const parser = parserRef.current
     const newEvents = parser.append(chunk)
     if (newEvents.length > 0) {
+      receivedDataRef.current = true
       setEvents(prev => {
         const combined = [...prev, ...newEvents]
         // Cap events to prevent unbounded growth
@@ -35,11 +39,13 @@ export function useSSE(taskId: string | null) {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let stopped = false
     doneRef.current = false
+    errorRef.current = false
     attemptsRef.current = 0
+    receivedDataRef.current = false
     parserRef.current = new NDJSONParser()
 
     function connect() {
-      if (stopped || doneRef.current) return
+      if (stopped || doneRef.current || errorRef.current) return
 
       const es = new EventSource(`/api/v1/tasks/${taskId}/output`)
       esRef.current = es
@@ -73,11 +79,28 @@ export function useSSE(taskId: string | null) {
         esRef.current = null
       })
 
+      es.addEventListener('error', ((event: MessageEvent) => {
+        // Server-sent error event (distinct from EventSource connection errors).
+        // This happens when the task is running in DB but has no executor (orphaned).
+        let message = 'Output not available'
+        try {
+          const data = JSON.parse(event.data)
+          if (data.message) message = data.message
+        } catch {
+          // use default message
+        }
+        errorRef.current = true
+        setError(message)
+        setConnected(false)
+        es.close()
+        esRef.current = null
+      }) as EventListener)
+
       es.onerror = () => {
         setConnected(false)
         es.close()
         esRef.current = null
-        if (!stopped && !doneRef.current && attemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+        if (!stopped && !doneRef.current && !errorRef.current && attemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
           attemptsRef.current++
           reconnectTimer = setTimeout(connect, RECONNECT_DELAY)
         }
@@ -87,6 +110,7 @@ export function useSSE(taskId: string | null) {
     // Reset state for new task
     setEvents([])
     setDone(false)
+    setError(null)
     setConnected(false)
 
     connect()
@@ -101,5 +125,5 @@ export function useSSE(taskId: string | null) {
     }
   }, [taskId, appendChunk])
 
-  return { events, connected, done }
+  return { events, connected, done, error }
 }
