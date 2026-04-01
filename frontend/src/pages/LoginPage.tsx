@@ -101,7 +101,7 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-zinc-100 p-4">
-      <div className="w-full max-w-sm space-y-6 rounded-xl border border-zinc-200 bg-white dark:bg-zinc-100 p-8 shadow-sm">
+      <div className="w-full max-w-sm space-y-6 rounded-xl border border-zinc-200 bg-white dark:bg-zinc-200 p-8 shadow-sm">
         <div className="text-center">
           <span className="text-4xl">🤖</span>
           <h1 className="mt-2 text-xl font-semibold text-zinc-900">Botka</h1>
@@ -165,7 +165,7 @@ export default function LoginPage() {
                 <div className="w-full border-t border-zinc-200" />
               </div>
               <div className="relative flex justify-center text-xs">
-                <span className="bg-white dark:bg-zinc-100 px-2 text-zinc-400">or</span>
+                <span className="bg-white dark:bg-zinc-200 px-2 text-zinc-400">or</span>
               </div>
             </div>
             <button
@@ -175,7 +175,7 @@ export default function LoginPage() {
                 'flex w-full items-center justify-center gap-2 rounded-md border px-4 py-2 text-sm font-medium transition-colors',
                 passkeyLoading
                   ? 'cursor-not-allowed border-zinc-200 bg-zinc-50 text-zinc-400'
-                  : 'border-zinc-300 bg-white dark:bg-zinc-100 text-zinc-700 hover:bg-zinc-50',
+                  : 'border-zinc-300 bg-white dark:bg-zinc-200 text-zinc-700 hover:bg-zinc-50',
               )}
             >
               {passkeyLoading ? (

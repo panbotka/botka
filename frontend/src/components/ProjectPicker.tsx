@@ -88,7 +88,7 @@ export default function ProjectPicker({ projects, currentProjectId, onSelect }: 
 
       {open && (
         <div className="absolute right-0 z-50 mt-1 w-56 bg-zinc-100 border border-zinc-200
-                        rounded-xl shadow-xl shadow-zinc-200/50 py-1 overflow-hidden">
+                        rounded-xl shadow-xl shadow-black/10 py-1 overflow-hidden">
           <div className="px-2 py-1.5">
             <div className="relative">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
@@ -98,7 +98,7 @@ export default function ProjectPicker({ projects, currentProjectId, onSelect }: 
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search..."
-                className="w-full pl-7 pr-2 py-1 text-sm bg-white dark:bg-zinc-100 border border-zinc-200 rounded-lg
+                className="w-full pl-7 pr-2 py-1 text-sm bg-white dark:bg-zinc-200 border border-zinc-200 rounded-lg
                            text-zinc-700 placeholder:text-zinc-400 outline-none focus:border-amber-300
                            focus:ring-1 focus:ring-amber-200"
               />
@@ -108,7 +108,7 @@ export default function ProjectPicker({ projects, currentProjectId, onSelect }: 
             <button
               onClick={() => { onSelect(null); setOpen(false) }}
               className={`w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer flex items-center gap-2
-                         ${!currentProjectId ? 'text-amber-600 bg-amber-50' : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'}`}
+                         ${!currentProjectId ? 'text-amber-600 bg-amber-50' : 'text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-200 hover:text-zinc-900'}`}
             >
               <X className="w-3.5 h-3.5" />
               No project
@@ -118,7 +118,7 @@ export default function ProjectPicker({ projects, currentProjectId, onSelect }: 
                 key={p.id}
                 onClick={() => { onSelect(p.id); setOpen(false) }}
                 className={`w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer flex items-center gap-2
-                           ${currentProjectId === p.id ? 'text-amber-600 bg-amber-50' : 'text-zinc-700 hover:bg-zinc-50'}`}
+                           ${currentProjectId === p.id ? 'text-amber-600 bg-amber-50' : 'text-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-200'}`}
               >
                 <FolderOpen className="w-3.5 h-3.5 flex-shrink-0" />
                 <span className="truncate">{p.name}</span>

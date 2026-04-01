@@ -177,7 +177,7 @@ export default function SearchOverlay({ open, onClose }: Props) {
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
       <div
-        className="relative bg-white dark:bg-zinc-100 border border-zinc-200 rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden animate-palette-in"
+        className="relative bg-white dark:bg-zinc-100 border border-zinc-200 rounded-2xl shadow-2xl shadow-black/20 w-full max-w-lg mx-4 overflow-hidden animate-palette-in"
         onKeyDown={handleKeyDown}
       >
         {/* Search input */}
@@ -200,7 +200,7 @@ export default function SearchOverlay({ open, onClose }: Props) {
               Clear
             </button>
           )}
-          <kbd className="text-[10px] text-zinc-400 bg-zinc-100 px-1.5 py-0.5 rounded border border-zinc-200 font-mono flex-shrink-0">
+          <kbd className="text-[10px] text-zinc-400 bg-zinc-200 px-1.5 py-0.5 rounded border border-zinc-300 font-mono flex-shrink-0">
             Esc
           </kbd>
         </div>
@@ -237,8 +237,8 @@ export default function SearchOverlay({ open, onClose }: Props) {
                   className={clsx(
                     'w-full text-left px-4 py-2 flex items-center gap-3 cursor-pointer transition-colors text-sm',
                     i === selectedIndex
-                      ? 'bg-zinc-100 text-zinc-900'
-                      : 'text-zinc-600 hover:bg-zinc-50',
+                      ? 'bg-zinc-200 text-zinc-900'
+                      : 'text-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-200',
                   )}
                   onClick={() => handleNavigate(item)}
                   onMouseEnter={() => setSelectedIndex(i)}

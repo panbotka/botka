@@ -168,7 +168,7 @@ export default function UsersTab() {
         </p>
         <button
           onClick={() => setShowCreate(!showCreate)}
-          className="flex items-center gap-1 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-50 hover:bg-zinc-800"
+          className="flex items-center gap-1 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-50 hover:bg-zinc-800 dark:bg-zinc-200 dark:text-zinc-800 dark:hover:bg-zinc-300"
         >
           <Plus className="h-4 w-4" />
           Add User
@@ -185,7 +185,7 @@ export default function UsersTab() {
                 type="text"
                 value={newUsername}
                 onChange={(e) => setNewUsername(e.target.value)}
-                className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm"
+                className="w-full rounded-md border border-zinc-300 bg-white dark:bg-zinc-100 px-3 py-1.5 text-sm"
                 required
               />
             </div>
@@ -195,7 +195,7 @@ export default function UsersTab() {
                 type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm"
+                className="w-full rounded-md border border-zinc-300 bg-white dark:bg-zinc-100 px-3 py-1.5 text-sm"
                 required
                 minLength={8}
               />
@@ -282,7 +282,7 @@ export default function UsersTab() {
               value={resetPass}
               onChange={(e) => setResetPass(e.target.value)}
               placeholder="New password (min 8 chars)"
-              className="flex-1 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm"
+              className="flex-1 rounded-md border border-zinc-300 bg-white dark:bg-zinc-100 px-3 py-1.5 text-sm"
               required
               minLength={8}
             />
@@ -333,7 +333,7 @@ export default function UsersTab() {
                 <select
                   value={grantThreadId}
                   onChange={(e) => setGrantThreadId(e.target.value ? Number(e.target.value) : '')}
-                  className="flex-1 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm"
+                  className="flex-1 rounded-md border border-zinc-300 bg-white dark:bg-zinc-100 px-3 py-1.5 text-sm"
                 >
                   <option value="">Select a thread to grant access...</option>
                   {availableThreads.map((t) => (
@@ -357,7 +357,7 @@ export default function UsersTab() {
               {userThreads.length === 0 ? (
                 <p className="text-sm text-zinc-400">No threads assigned yet.</p>
               ) : (
-                <div className="divide-y divide-zinc-200 rounded-md border border-zinc-200 bg-white">
+                <div className="divide-y divide-zinc-200 rounded-md border border-zinc-200 bg-white dark:bg-zinc-100">
                   {userThreads.map((ta) => (
                     <div key={ta.thread_id} className="flex items-center justify-between px-3 py-2">
                       <span className="text-sm text-zinc-700">{ta.thread_title}</span>

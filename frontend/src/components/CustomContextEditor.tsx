@@ -39,7 +39,7 @@ export default function CustomContextEditor({ threadId, initialContent, onClose,
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
          onClick={handleClose}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[80vh] flex flex-col"
+      <div className="bg-white dark:bg-zinc-100 rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[80vh] flex flex-col"
            onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100">
           <div className="flex items-center gap-2">

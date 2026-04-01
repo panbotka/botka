@@ -317,7 +317,7 @@ export default function CommandPalette({
               </svg>
             </button>
           )}
-          <kbd className="text-[10px] text-zinc-400 bg-zinc-100 px-1.5 py-0.5 rounded border border-zinc-200 font-mono">
+          <kbd className="text-[10px] text-zinc-400 bg-zinc-200 px-1.5 py-0.5 rounded border border-zinc-300 font-mono">
             Esc
           </kbd>
         </div>
@@ -343,7 +343,7 @@ export default function CommandPalette({
                   type="button"
                   data-selected={i === selectedIndex}
                   className={`w-full text-left px-4 py-2 flex items-center gap-3 cursor-pointer transition-colors text-sm
-                    ${i === selectedIndex ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-600 hover:bg-zinc-50'}`}
+                    ${i === selectedIndex ? 'bg-zinc-200 text-zinc-900' : 'text-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-200'}`}
                   onClick={() => item.action()}
                   onMouseEnter={() => setSelectedIndex(i)}
                 >
@@ -369,7 +369,7 @@ export default function CommandPalette({
                       {item.shortcut.map((k) => (
                         <kbd
                           key={k}
-                          className="px-1.5 py-0.5 text-[10px] font-mono text-zinc-400 bg-zinc-100 border border-zinc-200 rounded"
+                          className="px-1.5 py-0.5 text-[10px] font-mono text-zinc-400 bg-zinc-200 border border-zinc-300 rounded"
                         >
                           {k}
                         </kbd>

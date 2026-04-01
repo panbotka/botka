@@ -11,6 +11,17 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <title>Botka</title>
+    <script>
+      // Apply theme class before first paint to prevent FOUC on login page
+      try {
+        var s = JSON.parse(localStorage.getItem('botka-settings') || '{}');
+        var t = s.theme || 'light';
+        if (t === 'system') {
+          t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.className = t;
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

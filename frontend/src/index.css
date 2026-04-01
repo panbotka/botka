@@ -17,6 +17,11 @@ body {
 :root.font-medium { font-size: 16px; }
 :root.font-large { font-size: 18px; }
 
+/* Tell browsers to use dark-themed form controls, scrollbars, etc. */
+:root.dark, :root.dark-green, :root.dark-blue {
+  color-scheme: dark;
+}
+
 /* Dark theme */
 :root.dark {
   --color-zinc-50: #18181b;

@@ -42,7 +42,7 @@ export default function SlashCommandMenu({ filter, selectedIndex, onSelect }: Pr
     <div
       ref={listRef}
       className="absolute bottom-full left-0 right-0 mb-2
-                 bg-zinc-100 border border-zinc-200 rounded-xl shadow-xl shadow-zinc-200/50
+                 bg-zinc-100 border border-zinc-200 rounded-xl shadow-xl shadow-black/10
                  max-h-60 overflow-y-auto z-10"
     >
       {filtered.map((cmd, i) => (
@@ -52,8 +52,8 @@ export default function SlashCommandMenu({ filter, selectedIndex, onSelect }: Pr
           className={`w-full text-left px-4 py-2.5 flex items-center gap-3 cursor-pointer
                      transition-all duration-150 text-sm first:rounded-t-xl last:rounded-b-xl
                      ${i === selectedIndex
-                       ? 'bg-zinc-100 text-zinc-900'
-                       : 'text-zinc-600 hover:bg-zinc-50'}`}
+                       ? 'bg-zinc-200 text-zinc-900'
+                       : 'text-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-200'}`}
           onMouseDown={(e) => {
             e.preventDefault();
             onSelect(cmd.name);

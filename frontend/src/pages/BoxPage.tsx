@@ -148,7 +148,7 @@ export default function BoxPage() {
       )}
 
       {/* Status + Power controls */}
-      <div className="rounded-lg border border-zinc-200 bg-white p-5">
+      <div className="rounded-lg border border-zinc-200 bg-white dark:bg-zinc-100 p-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div
@@ -215,7 +215,7 @@ export default function BoxPage() {
             </button>
             <button
               onClick={() => setShowShutdownConfirm(false)}
-              className="rounded-md bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 border border-zinc-300 hover:bg-zinc-50 transition-colors"
+              className="rounded-md bg-white dark:bg-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 border border-zinc-300 hover:bg-zinc-50 transition-colors"
             >
               Cancel
             </button>
@@ -264,7 +264,7 @@ function ServiceCard({
   const isStopping = actionLoading === `stop-${service.name}`
 
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-4">
+    <div className="rounded-lg border border-zinc-200 bg-white dark:bg-zinc-100 p-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Cpu className="h-5 w-5 text-zinc-400" />

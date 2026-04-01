@@ -302,7 +302,7 @@ const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ thread
         {files.length > 0 && (
           <div className="flex flex-wrap gap-2 px-4 pt-3">
             {files.map((file, i) => (
-              <div key={i} className="relative group/file flex items-center gap-2 bg-zinc-100 rounded-lg px-3 py-1.5 text-xs text-zinc-600">
+              <div key={i} className="relative group/file flex items-center gap-2 bg-zinc-100 dark:bg-zinc-200 rounded-lg px-3 py-1.5 text-xs text-zinc-600">
                 {file.type.startsWith('image/') ? (
                   <img
                     src={URL.createObjectURL(file)}

@@ -97,7 +97,7 @@ function TextIcon({ className }: { className?: string }) {
 function FileCard({ attachment, icon, action, variant }: { attachment: Attachment; icon: React.ReactNode; action?: React.ReactNode; variant: 'user' | 'assistant' }) {
   const isUser = variant === 'user';
   return (
-    <div className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm ${isUser ? 'bg-white/10' : 'bg-zinc-100 border border-zinc-200'}`}>
+    <div className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm ${isUser ? 'bg-white/10' : 'bg-zinc-100 border border-zinc-200 dark:bg-zinc-200'}`}>
       <div className={`flex-shrink-0 ${isUser ? 'text-white/70' : 'text-zinc-500'}`}>
         {icon}
       </div>
@@ -308,7 +308,7 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
                   e.target.style.height = e.target.scrollHeight + 'px';
                 }}
                 onKeyDown={handleEditKeyDown}
-                className="w-full bg-zinc-50 text-zinc-900 text-sm rounded-lg px-3 py-2 resize-none outline-none focus:ring-1 focus:ring-emerald-500 border border-zinc-300 min-w-[200px]"
+                className="w-full bg-zinc-50 dark:bg-zinc-100 text-zinc-900 text-sm rounded-lg px-3 py-2 resize-none outline-none focus:ring-1 focus:ring-emerald-500 border border-zinc-300 min-w-[200px]"
                 rows={1}
               />
               <div className="flex justify-end gap-2">

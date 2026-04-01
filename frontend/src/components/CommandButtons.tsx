@@ -115,7 +115,7 @@ export default function CommandButtons({ project }: { project: Project | undefin
       {/* Deploy confirmation dialog */}
       {confirmDeploy && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setConfirmDeploy(false)}>
-          <div className="mx-4 w-full max-w-md rounded-lg bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="mx-4 w-full max-w-md rounded-lg bg-white dark:bg-zinc-100 p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-zinc-900">Confirm Deploy</h3>
             <p className="mt-2 text-sm text-zinc-600">
               This will execute the following command:

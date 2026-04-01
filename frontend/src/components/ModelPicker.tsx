@@ -92,7 +92,7 @@ export default function ModelPicker({ value, onChange }: Props) {
 
       {open && (
         <div className="absolute z-50 mt-1 w-full bg-zinc-100 border border-zinc-200
-                        rounded-xl shadow-xl shadow-zinc-200/50 py-1 overflow-hidden">
+                        rounded-xl shadow-xl shadow-black/10 py-1 overflow-hidden">
           {searchable && (
             <div className="px-2 pb-1">
               <input
@@ -114,7 +114,7 @@ export default function ModelPicker({ value, onChange }: Props) {
             <button
               onClick={() => { onChange(''); setOpen(false); setFilter(''); }}
               className={`w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer
-                         ${!value ? 'text-emerald-600 bg-emerald-50' : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'}`}
+                         ${!value ? 'text-emerald-600 bg-emerald-50' : 'text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-200 hover:text-zinc-900'}`}
             >
               Default (gateway decides)
             </button>
@@ -123,7 +123,7 @@ export default function ModelPicker({ value, onChange }: Props) {
                 key={m}
                 onClick={() => { onChange(m); setOpen(false); setFilter(''); }}
                 className={`w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer
-                           ${value === m ? 'text-emerald-600 bg-emerald-50' : 'text-zinc-700 hover:bg-zinc-50'}`}
+                           ${value === m ? 'text-emerald-600 bg-emerald-50' : 'text-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-200'}`}
               >
                 {m}
               </button>
