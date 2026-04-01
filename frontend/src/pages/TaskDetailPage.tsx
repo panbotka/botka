@@ -17,6 +17,8 @@ import {
   StopCircle,
   ChevronDown,
   ChevronRight,
+  Play,
+  Ban,
 } from 'lucide-react'
 import { TaskForm } from '../components/TaskForm'
 import { LiveOutputInline } from '../components/LiveOutput'
@@ -171,6 +173,30 @@ function TaskDetail({ taskId }: { taskId: string }) {
     }
   }
 
+  async function handleQueue() {
+    setActing(true)
+    try {
+      await updateTask(taskId, { status: 'queued' as TaskStatus })
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Queue failed')
+    } finally {
+      setActing(false)
+    }
+  }
+
+  async function handleCancel() {
+    setActing(true)
+    try {
+      await updateTask(taskId, { status: 'cancelled' as TaskStatus })
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Cancel failed')
+    } finally {
+      setActing(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex h-48 items-center justify-center">
@@ -317,6 +343,26 @@ function TaskDetail({ taskId }: { taskId: string }) {
       {/* Actions */}
       {task.status !== 'running' && (
         <div className="flex gap-3">
+          {task.status === 'pending' && (
+            <button
+              onClick={handleQueue}
+              disabled={acting}
+              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              <Play className="h-3.5 w-3.5" />
+              Queue
+            </button>
+          )}
+          {task.status === 'pending' && (
+            <button
+              onClick={handleCancel}
+              disabled={acting}
+              className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              <Ban className="h-3.5 w-3.5" />
+              Cancel
+            </button>
+          )}
           {(task.status === 'failed' || task.status === 'needs_review') && (
             <button
               onClick={handleRetry}
