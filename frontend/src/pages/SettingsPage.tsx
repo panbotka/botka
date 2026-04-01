@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { clsx } from 'clsx'
 import { formatDate } from '../utils/dateFormat'
 import {
@@ -18,6 +19,7 @@ import {
   Shield,
   KeyRound,
   Users,
+  FolderGit2,
 } from 'lucide-react'
 
 import { useSettings, type Theme, type FontSize } from '../context/SettingsContext'
@@ -51,6 +53,7 @@ import {
 } from '../api/client'
 import type { Persona, Tag, Memory } from '../types'
 import UsersTab from '../components/UsersTab'
+import { ProjectsContent } from './ProjectsPage'
 
 // ── Constants ──
 
@@ -67,7 +70,7 @@ const TAG_COLORS = [
   { name: 'Pink', hex: '#EC4899' },
 ]
 
-type TabId = 'general' | 'security' | 'users' | 'runner' | 'personas' | 'tags' | 'memories' | 'voice'
+type TabId = 'general' | 'security' | 'users' | 'runner' | 'personas' | 'tags' | 'memories' | 'voice' | 'projects'
 
 interface TabDef {
   id: TabId
@@ -80,11 +83,14 @@ const TABS: TabDef[] = [
   { id: 'security', label: 'Security', icon: Shield },
   { id: 'users', label: 'Users', icon: Users },
   { id: 'runner', label: 'Task Runner', icon: Cpu },
+  { id: 'projects', label: 'Projects', icon: FolderGit2 },
   { id: 'personas', label: 'Personas', icon: User },
   { id: 'tags', label: 'Tags', icon: TagIcon },
   { id: 'memories', label: 'Memories', icon: Brain },
   { id: 'voice', label: 'Voice', icon: Mic },
 ]
+
+const VALID_TABS = new Set<string>(TABS.map((t) => t.id))
 
 // ── General Tab ──
 
@@ -1436,7 +1442,17 @@ function RunnerTab() {
 
 export default function SettingsPage() {
   useDocumentTitle('Settings')
-  const [activeTab, setActiveTab] = useState<TabId>('general')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const activeTab: TabId = tabParam && VALID_TABS.has(tabParam) ? (tabParam as TabId) : 'general'
+
+  function handleTabChange(id: TabId) {
+    if (id === 'general') {
+      setSearchParams({}, { replace: true })
+    } else {
+      setSearchParams({ tab: id }, { replace: true })
+    }
+  }
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -1444,13 +1460,13 @@ export default function SettingsPage() {
 
       {/* Tab navigation */}
       <div className="border-b border-zinc-200">
-        <nav className="flex gap-6">
+        <nav className="flex gap-6 overflow-x-auto">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
-              onClick={() => setActiveTab(id)}
+              onClick={() => handleTabChange(id)}
               className={clsx(
-                'flex items-center gap-1.5 border-b-2 pb-2.5 pt-1 text-sm font-medium transition-colors',
+                'flex items-center gap-1.5 border-b-2 pb-2.5 pt-1 text-sm font-medium transition-colors whitespace-nowrap',
                 activeTab === id
                   ? 'border-zinc-900 text-zinc-900'
                   : 'border-transparent text-zinc-400 hover:text-zinc-600',
@@ -1469,6 +1485,7 @@ export default function SettingsPage() {
         {activeTab === 'security' && <SecurityTab />}
         {activeTab === 'users' && <UsersTab />}
         {activeTab === 'runner' && <RunnerTab />}
+        {activeTab === 'projects' && <ProjectsContent />}
         {activeTab === 'personas' && <PersonasTab />}
         {activeTab === 'tags' && <TagsTab />}
         {activeTab === 'memories' && <MemoriesTab />}

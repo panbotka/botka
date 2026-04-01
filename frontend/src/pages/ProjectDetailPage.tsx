@@ -826,7 +826,7 @@ export default function ProjectDetailPage() {
     return (
       <div className="mx-auto max-w-5xl">
         <Link
-          to="/projects"
+          to="/settings?tab=projects"
           className="mb-4 inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-700"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -844,7 +844,7 @@ export default function ProjectDetailPage() {
       {/* Back link + header */}
       <div>
         <Link
-          to="/projects"
+          to="/settings?tab=projects"
           className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-700"
         >
           <ArrowLeft className="h-4 w-4" />

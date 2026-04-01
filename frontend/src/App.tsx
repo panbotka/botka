@@ -4,8 +4,6 @@ import {
   LayoutDashboard,
   MessageSquare,
   ListTodo,
-  FolderGit2,
-  DollarSign,
   Settings,
   HelpCircle,
   Loader2,
@@ -24,9 +22,7 @@ const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const ChatPage = lazy(() => import('./pages/ChatPage'))
 const TasksPage = lazy(() => import('./pages/TasksPage'))
 const TaskDetailPage = lazy(() => import('./pages/TaskDetailPage'))
-const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
 const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage'))
-const CostDashboardPage = lazy(() => import('./pages/CostDashboardPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const HelpPage = lazy(() => import('./pages/HelpPage'))
 const BoxPage = lazy(() => import('./pages/BoxPage'))
@@ -36,8 +32,6 @@ const allNavItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', adminOnly: true },
   { to: '/chat', icon: MessageSquare, label: 'Chat', adminOnly: false },
   { to: '/tasks', icon: ListTodo, label: 'Tasks', adminOnly: true },
-  { to: '/projects', icon: FolderGit2, label: 'Projects', adminOnly: true },
-  { to: '/cost', icon: DollarSign, label: 'Cost', adminOnly: true },
   { to: '/box', icon: Server, label: 'Box', adminOnly: true },
   { to: '/settings', icon: Settings, label: 'Settings', adminOnly: true },
   { to: '/help', icon: HelpCircle, label: 'Help', adminOnly: false },
@@ -152,9 +146,9 @@ function AuthenticatedApp() {
               <Route path="/chat/*" element={<ChatPage />} />
               <Route path="/tasks" element={<TasksPage />} />
               <Route path="/tasks/:id" element={<TaskDetailPage />} />
-              <Route path="/projects" element={<ProjectsPage />} />
+              <Route path="/projects" element={<Navigate to="/settings?tab=projects" replace />} />
               <Route path="/projects/:id" element={<ProjectDetailPage />} />
-              <Route path="/cost" element={<CostDashboardPage />} />
+              <Route path="/cost" element={<Navigate to="/" replace />} />
               <Route path="/box" element={<BoxPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/help" element={<HelpPage />} />

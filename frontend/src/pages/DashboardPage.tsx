@@ -31,6 +31,7 @@ import {
   listProcesses,
   killProcess,
 } from '../api/client'
+import { CostContent } from './CostDashboardPage'
 import type {
   TaskStats,
   RunnerStatus as RunnerStatusType,
@@ -616,6 +617,9 @@ export default function DashboardPage() {
         const updated = await refreshUsage()
         setRunnerStatus((prev) => prev ? { ...prev, usage: updated } : prev)
       }} />
+
+      {/* Cost / Token Usage */}
+      <CostContent />
     </div>
   )
 }

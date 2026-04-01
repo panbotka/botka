@@ -272,8 +272,7 @@ function TopList({
   )
 }
 
-export default function CostDashboardPage() {
-  useDocumentTitle('Usage')
+export function CostContent() {
   const [data, setData] = useState<CostAnalytics | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -334,10 +333,10 @@ export default function CostDashboardPage() {
   const modelOrder = data.by_model.map((m) => m.model)
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-zinc-900">Usage</h1>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Usage</h2>
           <div className="flex items-center gap-1.5">
             <button
               onClick={handleRefresh}
@@ -472,6 +471,16 @@ export default function CostDashboardPage() {
           cost: p.cost_usd,
         }))}
       />
+    </div>
+  )
+}
+
+export default function CostDashboardPage() {
+  useDocumentTitle('Usage')
+  return (
+    <div className="mx-auto max-w-5xl">
+      <h1 className="mb-6 text-2xl font-bold text-zinc-900">Usage</h1>
+      <CostContent />
     </div>
   )
 }

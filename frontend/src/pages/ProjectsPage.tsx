@@ -309,8 +309,7 @@ function ProjectRow({
   )
 }
 
-export default function ProjectsPage() {
-  useDocumentTitle('Projects')
+export function ProjectsContent() {
   const { projects, loading, error, refetch, scan, scanning } = useProjects()
   useRefreshOnFocus(refetch)
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
@@ -333,16 +332,13 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
+    <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-zinc-900">Projects</h1>
-          {!loading && (
-            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs tabular-nums text-zinc-500">
-              {projects.length}
-            </span>
-          )}
+          <span className="text-sm font-semibold text-zinc-700">
+            {!loading && `${projects.length} projects`}
+          </span>
         </div>
         <button
           onClick={handleScan}
@@ -388,6 +384,16 @@ export default function ProjectsPage() {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+export default function ProjectsPage() {
+  useDocumentTitle('Projects')
+  return (
+    <div className="mx-auto max-w-5xl">
+      <h1 className="mb-5 text-2xl font-bold text-zinc-900">Projects</h1>
+      <ProjectsContent />
     </div>
   )
 }

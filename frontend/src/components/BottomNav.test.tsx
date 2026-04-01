@@ -50,7 +50,7 @@ describe('BottomNav', () => {
     expect(screen.getByText('Dashboard')).toBeInTheDocument()
     expect(screen.getByText('Chat')).toBeInTheDocument()
     expect(screen.getByText('Tasks')).toBeInTheDocument()
-    expect(screen.getByText('Cost')).toBeInTheDocument()
+    expect(screen.getByText('Box')).toBeInTheDocument()
     expect(screen.getByText('Settings')).toBeInTheDocument()
     expect(screen.getByText('Help')).toBeInTheDocument()
   })
@@ -71,7 +71,7 @@ describe('BottomNav', () => {
     expect(screen.getByText('Help')).toBeInTheDocument()
     expect(screen.queryByText('Dashboard')).not.toBeInTheDocument()
     expect(screen.queryByText('Tasks')).not.toBeInTheDocument()
-    expect(screen.queryByText('Cost')).not.toBeInTheDocument()
+    expect(screen.queryByText('Box')).not.toBeInTheDocument()
     expect(screen.queryByText('Settings')).not.toBeInTheDocument()
   })
 
