@@ -18,8 +18,8 @@ cmd/migrate-data/    Data migration utilities from source projects
 internal/
   config/            Environment config loading (.env + env vars)
   database/          GORM connection + golang-migrate migrations
-  models/            All GORM models (20 models)
-  handlers/          Gin HTTP handlers (24 handler files)
+  models/            All GORM models (17 model files)
+  handlers/          Gin HTTP handlers (26 handler files)
   claude/            Chat subprocess runner + context assembly
   runner/            Task scheduler loop + batch executor
   projects/          Git repo discovery and DB sync
@@ -30,8 +30,8 @@ frontend/src/
   api/               API client methods
   components/        React components (36 files)
   context/           React context (SSEContext, SettingsContext)
-  hooks/             Custom React hooks (20 hooks)
-  pages/             Page components (10 pages)
+  hooks/             Custom React hooks (18 hooks)
+  pages/             Page components (11 pages)
   types/             TypeScript type definitions
   utils/             Utility functions
 migrations/          SQL migration files (golang-migrate)
@@ -76,7 +76,7 @@ make clean          # Remove build artifacts
 
 ## Testing
 
-**~636 tests** across 58 test files covering all packages. Go tests use stdlib `testing`; frontend tests use Vitest.
+**~669 tests** across 63 test files covering all packages. Go tests use stdlib `testing`; frontend tests use Vitest.
 
 ```bash
 make test           # Run all tests with race detector
@@ -96,7 +96,7 @@ Tests auto-skip when the database is unavailable, so `make test` always passes. 
 
 ### Test Structure
 
-- **Unit tests** (no DB): `config`, `middleware`, `runner` (buffer, parser, executor, usage), `projects`
+- **Unit tests** (no DB): `config`, `middleware`, `runner` (buffer, parser, executor, usage, keepalive), `projects`
 - **Integration tests** (need `botka_test`): all `handlers` — HTTP-level tests via `httptest` + Gin test mode
 - **Model/package tests**: `models` (enums, table names), `mcp` (JSON-RPC, tools, SSE), `claude` (event parsing, context assembly, registry)
 - **Frontend tests**: Vitest unit tests in `frontend/src/` (94 tests across 10 files)
@@ -136,12 +136,15 @@ Saiduler's `projects` and Chatovadlo's `folders` are merged into a single `proje
 Chat messages are enriched with hierarchical context assembled in `internal/claude/context.go`:
 1. SOUL.md (identity) from OpenClaw workspace
 2. USER.md (user info)
-3. MEMORY.md (operational memory)
-4. Recent daily notes (last 3 days)
-5. App memories from database
-6. Thread system prompt (persona or custom)
-7. Project CLAUDE.md
-8. Conversation history (last 200 messages, truncated)
+3. TOOLS.md (available tools and commands)
+4. MEMORY.md (operational memory)
+5. Recent daily notes (last 3 days)
+6. App memories from database
+7. Thread system prompt (persona or custom)
+7a. Custom reference context
+7b. Thread URL sources (fetched fresh)
+8. Project CLAUDE.md
+9. Conversation history (last 200 messages, truncated)
 
 ### API Pattern
 
@@ -158,7 +161,7 @@ Two transports:
 - **Stdio:** `botka mcp` — JSON-RPC 2.0 on stdin/stdout, for use as Claude Code MCP server
 - **SSE:** `/mcp/sse` — HTTP SSE transport, requires `Authorization: Bearer <MCP_TOKEN>` header
 
-Exposes task management tools: create_task, list_tasks, get_task, update_task, list_projects.
+Exposes 19 tools across categories: task management (create_task, list_tasks, get_task, update_task), runner control (get_runner_status, start_runner, kill_task), project management (list_projects, update_project), command execution (run_command, list_commands, kill_command), and thread management (list_threads, list_thread_sources, add_thread_source, remove_thread_source, update_thread_source, get_thread_context, set_thread_context).
 
 ### Key Packages
 
@@ -200,6 +203,9 @@ Exposes task management tools: create_task, list_tasks, get_task, update_task, l
 | `WEBAUTHN_RPID` | *(derived from origin)* | WebAuthn relying party ID (hostname) |
 | `SESSION_MAX_AGE` | `720h` | Authentication session cookie max age |
 | `MCP_TOKEN` | *(empty)* | Bearer token for MCP SSE transport (empty = SSE disabled) |
+| `BOX_HOST` | `100.127.79.1` | Remote Box server IP/hostname |
+| `BOX_SSH_USER` | `box` | SSH user for Box server |
+| `BOX_WOL_COMMAND` | `/home/pi/bin/boxon` | Wake-on-LAN command for Box server |
 | `KEEPALIVE_ENABLED` | `true` | Enable periodic Claude Code ping to keep 5h rate limit window active |
 | `KEEPALIVE_INTERVAL` | `60m` | Interval between keepalive pings (Go duration) |
 

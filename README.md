@@ -17,6 +17,9 @@ Botka merges two projects into one:
 - Feature branch creation, verification commands, automatic PR creation
 - Task prioritization with drag-and-drop reordering
 - Batch status updates and retry logic with backoff
+- Kill running tasks with automatic git revert
+- Real-time task status updates via SSE
+- Keepalive ping to maintain 5h rate limit window
 - MCP server for creating tasks from Claude Code sessions
 
 ### Chat Interface
@@ -40,7 +43,8 @@ Botka merges two projects into one:
 - PWA with offline support and mobile-optimized bottom navigation
 - Clean design system (zinc/emerald/red/amber palette)
 - Dark mode toggle
-- MCP server (stdio + SSE transport)
+- Box server dashboard tab (monitor, wake, control remote server)
+- MCP server (stdio + SSE transport) with 19 tools
 
 ## Quick Start
 
@@ -113,6 +117,8 @@ All settings are loaded from `.env` file and environment variables (env vars tak
 | `MAX_WORKERS` | `2` | Concurrent task execution slots |
 | `USAGE_THRESHOLD_5H` | `0.90` | 5-hour rate limit threshold (0.0–1.0) |
 | `USAGE_THRESHOLD_7D` | `0.95` | 7-day rate limit threshold (0.0–1.0) |
+| `KEEPALIVE_ENABLED` | `true` | Enable periodic Claude Code ping to keep 5h rate limit window active |
+| `KEEPALIVE_INTERVAL` | `60m` | Interval between keepalive pings |
 
 ### Voice & Files
 
@@ -123,6 +129,23 @@ All settings are loaded from `.env` file and environment variables (env vars tak
 | `OPENCLAW_WORKSPACE` | `/home/pi/.openclaw/workspace` | Path to SOUL.md, USER.md, MEMORY.md |
 | `WHISPER_ENABLED` | `true` | Enable voice input transcription |
 | `UPLOAD_DIR` | `./data/uploads` | Directory for uploaded files |
+
+### Authentication & Security
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WEBAUTHN_ORIGIN` | `http://localhost:5110` | WebAuthn relying party origin |
+| `WEBAUTHN_RPID` | *(derived from origin)* | WebAuthn relying party ID (hostname) |
+| `SESSION_MAX_AGE` | `720h` | Authentication session cookie max age |
+| `MCP_TOKEN` | *(empty)* | Bearer token for MCP SSE transport (empty = SSE disabled) |
+
+### Box Server
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BOX_HOST` | `100.127.79.1` | Remote Box server IP/hostname |
+| `BOX_SSH_USER` | `box` | SSH user for Box server |
+| `BOX_WOL_COMMAND` | `/home/pi/bin/boxon` | Wake-on-LAN command for Box server |
 
 ## Development
 
@@ -143,7 +166,7 @@ make frontend-build   # Build frontend only
 
 ### Testing
 
-~312 tests across 29 test files. Handler integration tests use a `botka_test` PostgreSQL database:
+~669 tests across 63 test files. Handler integration tests use a `botka_test` PostgreSQL database:
 
 ```bash
 make test-db          # Create test database (one-time)
@@ -206,7 +229,8 @@ All endpoints are under `/api/v1`. Responses use a consistent envelope format:
 | Group | Endpoints | Description |
 |-------|-----------|-------------|
 | Projects | `GET/PUT /projects`, `POST /projects/scan` | List, update, and discover git repos |
-| Tasks | `GET/POST/PUT/DELETE /tasks`, retry, batch-status, reorder | Task CRUD and lifecycle management |
+| Tasks | `GET/POST/PUT/DELETE /tasks`, retry, batch-status, reorder, kill | Task CRUD and lifecycle management |
+| Task Events | `GET /tasks/events`, `GET /tasks/:id/events` | Real-time task status updates via SSE |
 | Runner | `GET /runner/status`, `POST /runner/start\|pause\|stop` | Task scheduler controls |
 | Threads | `GET/POST/PUT/DELETE /threads`, pin, archive, tags | Chat conversation management |
 | Chat | `POST /threads/:id/messages`, regenerate, edit, branch | Send messages, stream responses via SSE |
@@ -217,6 +241,10 @@ All endpoints are under `/api/v1`. Responses use a consistent envelope format:
 | Search | `GET /search?q=...` | Full-text search across messages |
 | Transcribe | `GET /transcribe/status`, `POST /transcribe` | Voice transcription via OpenClaw |
 | Processes | `GET/DELETE /processes` | Active Claude Code process management |
+| Commands | `GET/POST/DELETE /commands` | Project command execution |
+| Box | `GET /box/status`, `POST /box/wake\|command` | Remote Box server management |
+| Analytics | `GET /analytics/costs` | Task execution cost analytics |
+| Auth | `POST /auth/*`, `GET /auth/me` | WebAuthn registration and login |
 | Status | `GET /status`, `GET /models` | System status and model availability |
 | MCP | `POST /mcp/sse`, `POST /mcp/sse/message` | MCP SSE transport |
 
@@ -271,6 +299,6 @@ The app maintains two separate subprocess implementations because they have fund
 - **Project/Folder unification:** Saiduler's projects and Chatovadlo's folders are merged into one `projects` table serving both roles.
 - **One task per project:** The scheduler prevents concurrent task execution on the same project to avoid git conflicts.
 - **Usage monitoring:** The runner polls Anthropic API usage and pauses task scheduling when approaching rate limits.
-- **Hierarchical context:** Chat sessions get layered context (identity, user info, memories, persona, project CLAUDE.md, conversation history).
+- **Hierarchical context:** Chat sessions get 9 layers of context (identity, user info, tools, operational memory, daily notes, app memories, persona/system prompt, project CLAUDE.md, conversation history).
 - **Session pool:** After each chat response, a new Claude process is pre-spawned with `--resume` and kept alive for 5 minutes. When the next message arrives, it pipes the prompt directly to the waiting process, saving ~2-3s of process startup. Sessions are automatically evicted on model/project changes or session resets.
 - **Frontend embedded in binary:** Production builds embed `frontend/dist` via `go:embed` for single-binary deployment.

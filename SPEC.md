@@ -158,7 +158,7 @@ All via environment variables (`.env` file):
 | DATABASE_URL | postgres://botka:botka@localhost:5432/botka | PostgreSQL connection |
 | PROJECTS_DIR | /home/pi/projects | Git repo discovery directory |
 | CLAUDE_PATH | claude | Path to Claude CLI binary |
-| CLAUDE_CREDENTIALS_PATH | /home/pi/.claude/.credentials.json | For API usage monitoring |
+| CLAUDE_USAGE_CMD | /home/pi/bin/claude-usage | Command to fetch API usage data as JSON |
 | MAX_WORKERS | 2 | Concurrent task execution slots |
 | USAGE_THRESHOLD_5H | 0.90 | 5-hour usage warning threshold |
 | USAGE_THRESHOLD_7D | 0.95 | 7-day usage warning threshold |
