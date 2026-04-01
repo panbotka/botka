@@ -13,6 +13,7 @@ import { clsx } from 'clsx'
 import { useIsMobile } from './hooks/useIsMobile'
 import { SSEProvider } from './context/SSEContext'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import ErrorBoundary from './components/ErrorBoundary'
 import BottomNav from './components/BottomNav'
 import OfflineIndicator from './components/OfflineIndicator'
 import UpdateBanner from './components/UpdateBanner'
@@ -166,20 +167,22 @@ function AuthenticatedApp() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Suspense fallback={<FullPageLoader />}>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route
-            path="/*"
-            element={
-              <ProtectedRoute>
-                <AuthenticatedApp />
-              </ProtectedRoute>
-            }
-          />
-        </Routes>
-      </Suspense>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <Suspense fallback={<FullPageLoader />}>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route
+              path="/*"
+              element={
+                <ProtectedRoute>
+                  <AuthenticatedApp />
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </Suspense>
+      </AuthProvider>
+    </ErrorBoundary>
   )
 }

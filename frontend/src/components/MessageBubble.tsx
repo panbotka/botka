@@ -228,6 +228,15 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
   const toolCalls = message.tool_calls;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // This useEffect must be above the early return to maintain consistent hook order
+  useEffect(() => {
+    if (editing && textareaRef.current) {
+      textareaRef.current.focus();
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
+    }
+  }, [editing]);
+
   if (message.hidden) {
     return (
       <div className={`group flex ${isUser ? 'justify-end' : 'justify-start'} mb-3`}>
@@ -249,14 +258,6 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
   const pdfAttachments = attachments.filter((a) => a.mime_type === 'application/pdf');
   const textAttachments = attachments.filter((a) => a.mime_type.startsWith('text/'));
   const otherAttachments = attachments.filter((a) => !a.mime_type.startsWith('image/') && a.mime_type !== 'application/pdf' && !a.mime_type.startsWith('text/'));
-
-  useEffect(() => {
-    if (editing && textareaRef.current) {
-      textareaRef.current.focus();
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
-    }
-  }, [editing]);
 
   const handleEditSubmit = () => {
     const trimmed = editContent.trim();
