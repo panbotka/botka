@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { clsx } from 'clsx'
 import {
   CheckCircle2,
@@ -16,6 +16,7 @@ import {
   Play,
   Pause,
   Square,
+  MessageSquare,
 } from 'lucide-react'
 
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
@@ -27,6 +28,8 @@ import {
   startRunner,
   pauseRunner,
   stopRunner,
+  listProcesses,
+  killProcess,
 } from '../api/client'
 import type {
   TaskStats,
@@ -324,22 +327,86 @@ function RunnerControls({ status, onStart, onPause, onStop, toggling }: {
   )
 }
 
+interface ProcessInfo {
+  thread_id: number
+  thread_title: string
+  started_at: string
+  duration_sec: number
+}
+
+function formatProcessDuration(sec: number): string {
+  if (sec < 60) return `${sec}s`
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  return s > 0 ? `${m}m ${s}s` : `${m}m`
+}
+
+function ActiveSessions({ processes, onKill }: { processes: ProcessInfo[]; onKill: (threadId: number) => void }) {
+  const navigate = useNavigate()
+
+  if (processes.length === 0) return null
+
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:bg-zinc-100">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="text-emerald-500 animate-pulse">●</span>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          Active Chat Sessions
+        </h2>
+        <span className="text-sm text-zinc-400">({processes.length})</span>
+      </div>
+      <div className="space-y-2">
+        {processes.map((p) => (
+          <div
+            key={p.thread_id}
+            onClick={() => navigate(`/chat/${p.thread_id}`)}
+            className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50/50 px-4 py-3 cursor-pointer transition-all hover:bg-emerald-100/70 hover:border-emerald-300 hover:shadow-sm"
+          >
+            <MessageSquare className="h-4.5 w-4.5 shrink-0 text-emerald-600" />
+            <div className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium text-zinc-800">
+                {p.thread_title || `Thread ${p.thread_id}`}
+              </span>
+            </div>
+            <span className="shrink-0 text-xs tabular-nums text-zinc-500">
+              {formatProcessDuration(p.duration_sec)}
+            </span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onKill(p.thread_id)
+              }}
+              className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-100 hover:text-red-500 transition-colors"
+              title="Kill session"
+            >
+              <XCircle className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function DashboardPage() {
   useDocumentTitle('Dashboard')
   const [stats, setStats] = useState<TaskStats | null>(null)
   const [runnerStatus, setRunnerStatus] = useState<RunnerStatusType | null>(null)
+  const [processes, setProcesses] = useState<ProcessInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [toggling, setToggling] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     try {
-      const [taskStats, runner] = await Promise.all([
+      const [taskStats, runner, procs] = await Promise.all([
         fetchTaskStats(),
         fetchRunnerStatus(),
+        listProcesses(),
       ])
       setStats(taskStats)
       setRunnerStatus(runner)
+      setProcesses(procs)
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not connect to the server')
@@ -386,6 +453,13 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleKillProcess(threadId: number) {
+    try {
+      await killProcess(threadId)
+      await refresh()
+    } catch { /* ignore */ }
+  }
+
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -423,6 +497,9 @@ export default function DashboardPage() {
         onStop={handleStop}
         toggling={toggling}
       />
+
+      {/* Active chat sessions */}
+      <ActiveSessions processes={processes} onKill={handleKillProcess} />
 
       {/* Status cards grid */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
