@@ -490,6 +490,12 @@ export default function DashboardPage() {
     <div className="mx-auto max-w-5xl space-y-6">
       <h1 className="text-2xl font-bold text-zinc-900">Dashboard</h1>
 
+      {/* API Usage */}
+      <UsageMeters usage={runnerStatus.usage} onRefresh={async () => {
+        const updated = await refreshUsage()
+        setRunnerStatus((prev) => prev ? { ...prev, usage: updated } : prev)
+      }} />
+
       {/* Runner controls */}
       <RunnerControls
         status={runnerStatus}
@@ -611,12 +617,6 @@ export default function DashboardPage() {
           />
         )}
       </div>
-
-      {/* API Usage */}
-      <UsageMeters usage={runnerStatus.usage} onRefresh={async () => {
-        const updated = await refreshUsage()
-        setRunnerStatus((prev) => prev ? { ...prev, usage: updated } : prev)
-      }} />
 
       {/* Cost / Token Usage */}
       <CostContent />
