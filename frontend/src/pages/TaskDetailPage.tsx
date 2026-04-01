@@ -26,6 +26,7 @@ import TaskOutputView from '../components/TaskOutputView'
 import { fetchTask, retryTask, deleteTask, updateTask, killTask, fetchTaskRawOutput } from '../api/client'
 import { parseNDJSON, type TaskOutputEvent } from '../utils/parseNDJSON'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
+import { useTaskEvents } from '../hooks/useTaskEvents'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import type { Task, TaskStatus, TaskExecution } from '../types'
 
@@ -110,7 +111,15 @@ function TaskDetail({ taskId }: { taskId: string }) {
   }, [load])
 
   useRefreshOnFocus(load)
+  useTaskEvents(load)
   useDocumentTitle(task?.title || 'Task')
+
+  // Polling fallback: refresh every 5s while task is running
+  useEffect(() => {
+    if (task?.status !== 'running') return
+    const interval = setInterval(load, 5000)
+    return () => clearInterval(interval)
+  }, [task?.status, load])
 
   async function handleRetry() {
     setActing(true)
