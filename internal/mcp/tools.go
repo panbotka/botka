@@ -44,7 +44,7 @@ func (a *createTaskArgs) validate() (models.TaskStatus, error) {
 	if a.Spec == "" {
 		return "", errors.New("spec is required")
 	}
-	status := models.TaskStatusQueued
+	status := models.TaskStatusPending
 	if a.Status != "" {
 		status = models.TaskStatus(a.Status)
 		if status != models.TaskStatusPending && status != models.TaskStatusQueued {

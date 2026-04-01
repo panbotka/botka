@@ -24,7 +24,7 @@ func TestCreateTaskArgs_validate(t *testing.T) {
 		{
 			name:       "valid with defaults",
 			args:       createTaskArgs{Title: "t", ProjectName: "p", Spec: "s"},
-			wantStatus: models.TaskStatusQueued,
+			wantStatus: models.TaskStatusPending,
 		},
 		{
 			name:       "valid with pending status",
@@ -335,7 +335,7 @@ func TestCreateTaskArgs_validateErrorMessages(t *testing.T) {
 		{"empty title", createTaskArgs{ProjectName: "p", Spec: "s"}, "title is required", ""},
 		{"empty project", createTaskArgs{Title: "t", Spec: "s"}, "project_name is required", ""},
 		{"empty spec", createTaskArgs{Title: "t", ProjectName: "p"}, "spec is required", ""},
-		{"default status", createTaskArgs{Title: "t", ProjectName: "p", Spec: "s"}, "", models.TaskStatusQueued},
+		{"default status", createTaskArgs{Title: "t", ProjectName: "p", Spec: "s"}, "", models.TaskStatusPending},
 		{"explicit pending", createTaskArgs{Title: "t", ProjectName: "p", Spec: "s", Status: "pending"}, "", models.TaskStatusPending},
 		{"explicit queued", createTaskArgs{Title: "t", ProjectName: "p", Spec: "s", Status: "queued"}, "", models.TaskStatusQueued},
 		{"invalid status", createTaskArgs{Title: "t", ProjectName: "p", Spec: "s", Status: "running"}, "status must be pending or queued", ""},

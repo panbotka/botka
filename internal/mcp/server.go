@@ -320,7 +320,7 @@ func taskToolDefinitions() []toolDef {
 				"project_name": prop("string", "Name of the target project (case-insensitive)"),
 				"spec":         prop("string", "Detailed spec or prompt for Claude"),
 				"priority":     prop("integer", "Higher values run first (default 0)"),
-				"status":       enumProp("Initial status", "pending", "queued"),
+				"status":       enumProp("Initial status (default pending)", "pending", "queued"),
 			}, "title", "project_name", "spec"),
 		},
 		{
