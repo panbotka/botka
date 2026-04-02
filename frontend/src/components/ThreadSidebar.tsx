@@ -11,8 +11,9 @@ import CustomContextEditor from './CustomContextEditor'
 import {
   Plus, Search, Pin, Archive, MoreVertical, Pencil,
   Trash2, Download, Cpu, Tag as TagIcon, ChevronRight,
-  X, ChevronDown, FolderGit2, Globe, FileText,
+  X, ChevronDown, FolderGit2, Globe, FileText, Palette,
 } from 'lucide-react'
+import { THREAD_COLORS } from '../utils/threadColors'
 
 interface Props {
   threads: Thread[]
@@ -61,6 +62,7 @@ export default function ThreadSidebar({
   const [menuOpenId, setMenuOpenId] = useState<number | null>(null)
   const [modelPickerThread, setModelPickerThread] = useState<Thread | null>(null)
   const [tagMenuThreadId, setTagMenuThreadId] = useState<number | null>(null)
+  const [colorMenuThreadId, setColorMenuThreadId] = useState<number | null>(null)
   const [sourcesThreadId, setSourcesThreadId] = useState<number | null>(null)
   const [customContextThread, setCustomContextThread] = useState<Thread | null>(null)
   const [personaDropdownOpen, setPersonaDropdownOpen] = useState(false)
@@ -80,12 +82,14 @@ export default function ThreadSidebar({
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpenId(null)
         setTagMenuThreadId(null)
+        setColorMenuThreadId(null)
       }
     }
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setMenuOpenId(null)
         setTagMenuThreadId(null)
+        setColorMenuThreadId(null)
       }
     }
     document.addEventListener('mousedown', handleClick)
@@ -216,6 +220,15 @@ export default function ThreadSidebar({
     setModelPickerThread(null)
   }
 
+  const handleChangeColor = async (threadId: number, color: string) => {
+    try {
+      await api.updateThread(threadId, { color } as Partial<Thread>)
+      onThreadsChange()
+    } catch { /* ignore */ }
+    setColorMenuThreadId(null)
+    setMenuOpenId(null)
+  }
+
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr)
     const now = new Date()
@@ -257,6 +270,8 @@ export default function ThreadSidebar({
     const isStreaming = streamingThreadIds.has(thread.id)
     const hasProcess = activeProcessThreadIds.has(thread.id)
 
+    const threadColorEntry = thread.color ? THREAD_COLORS.find(c => c.key === thread.color) : null
+
     return (
     <div
       key={thread.id}
@@ -270,6 +285,7 @@ export default function ThreadSidebar({
                      : hasProcess
                        ? 'bg-emerald-50/50 hover:bg-emerald-50'
                        : 'hover:bg-zinc-100') + ' text-zinc-700 hover:text-zinc-900'}`}
+      style={threadColorEntry ? { borderLeft: `3px solid ${threadColorEntry.swatch}40` } : undefined}
       onClick={() => onSelectThread(thread.id)}
     >
       {editingId === thread.id ? (
@@ -435,6 +451,46 @@ export default function ThreadSidebar({
                       )}
                     </div>
                   </button>
+                  <div>
+                    <button
+                      onClick={() => setColorMenuThreadId(colorMenuThreadId === thread.id ? null : thread.id)}
+                      className="w-full flex items-center gap-3 px-3 py-2
+                                 text-sm text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                    >
+                      <Palette className="w-4 h-4 flex-shrink-0 text-zinc-400" />
+                      <span className="flex-1 text-left">Color</span>
+                      {thread.color && (
+                        <span
+                          className="w-3 h-3 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: THREAD_COLORS.find(c => c.key === thread.color)?.swatch }}
+                        />
+                      )}
+                      <ChevronRight className={`w-3 h-3 text-zinc-400 transition-transform ${colorMenuThreadId === thread.id ? 'rotate-90' : ''}`} />
+                    </button>
+                    {colorMenuThreadId === thread.id && (
+                      <div className="px-3 pb-2 pt-1">
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {THREAD_COLORS.map(color => {
+                            const isActive = (thread.color || '') === color.key
+                            return (
+                              <button
+                                key={color.key || 'none'}
+                                onClick={() => handleChangeColor(thread.id, color.key)}
+                                className={`w-8 h-8 rounded-lg border-2 transition-all cursor-pointer flex items-center justify-center
+                                  ${isActive ? 'border-zinc-500 scale-110' : 'border-zinc-200 hover:border-zinc-400'}`}
+                                style={{ backgroundColor: color.key ? color.swatch : undefined }}
+                                title={color.label}
+                              >
+                                {color.key === '' && (
+                                  <X className="w-3.5 h-3.5 text-zinc-400" />
+                                )}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   {tags.length > 0 && (
                     <div>
                       <button

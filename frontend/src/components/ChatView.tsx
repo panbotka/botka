@@ -17,6 +17,8 @@ import type { ExportFormat } from '../utils/exportThread';
 import { useNotifications } from '../hooks/useNotifications';
 import { useConnectionStatus } from '../hooks/useConnectionStatus';
 import { useChatSync } from '../hooks/useChatSync';
+import { useSettings } from '../context/SettingsContext';
+import { getThreadBackground } from '../utils/threadColors';
 
 interface Props {
   threadId: number | null;
@@ -58,6 +60,9 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
   const messageQueueRef = useRef<{ id: number; content: string; files?: File[] }[]>([]);
   const currentThreadIdRef = useRef(threadId);
   currentThreadIdRef.current = threadId;
+
+  // --- Settings ---
+  const { resolvedTheme } = useSettings();
 
   // --- SSE Manager ---
   const sseManager = useSSEManager();
@@ -770,7 +775,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overscroll-contain px-4 py-6">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overscroll-contain px-4 py-6 transition-colors duration-200" style={{ backgroundColor: getThreadBackground(thread?.color, resolvedTheme) }}>
         <div className="max-w-3xl mx-auto">
           {loading && (
             <div className="flex justify-center py-12">

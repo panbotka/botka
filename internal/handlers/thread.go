@@ -231,10 +231,11 @@ func (h *ThreadHandler) GetByID(c *gin.Context) {
 }
 
 type renameRequest struct {
-	Title string `json:"title"`
+	Title string  `json:"title"`
+	Color *string `json:"color,omitempty"`
 }
 
-// Rename updates a thread's title.
+// Rename updates a thread's title and/or color.
 func (h *ThreadHandler) Rename(c *gin.Context) {
 	id, err := paramInt64(c, "id")
 	if err != nil {
@@ -243,21 +244,34 @@ func (h *ThreadHandler) Rename(c *gin.Context) {
 	}
 
 	var req renameRequest
-	if err := c.ShouldBindJSON(&req); err != nil || req.Title == "" {
-		respondError(c, http.StatusBadRequest, "title is required")
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if msg := validateMaxLength("title", req.Title, maxTitleLength); msg != "" {
-		respondError(c, http.StatusBadRequest, msg)
-		return
-	}
-
-	if err := h.db.Model(&models.Thread{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"title":      req.Title,
+	updates := map[string]interface{}{
 		"updated_at": time.Now(),
-	}).Error; err != nil {
-		respondError(c, http.StatusInternalServerError, "failed to rename thread")
+	}
+
+	if req.Title != "" {
+		if msg := validateMaxLength("title", req.Title, maxTitleLength); msg != "" {
+			respondError(c, http.StatusBadRequest, msg)
+			return
+		}
+		updates["title"] = req.Title
+	}
+
+	if req.Color != nil {
+		updates["color"] = *req.Color
+	}
+
+	if len(updates) == 1 {
+		respondError(c, http.StatusBadRequest, "no fields to update")
+		return
+	}
+
+	if err := h.db.Model(&models.Thread{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		respondError(c, http.StatusInternalServerError, "failed to update thread")
 		return
 	}
 

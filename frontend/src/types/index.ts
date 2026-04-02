@@ -158,6 +158,7 @@ export interface Thread {
   project_id?: string
   pinned: boolean
   archived: boolean
+  color?: string
   claude_session_id?: string
   tags?: Tag[]
   created_at: string

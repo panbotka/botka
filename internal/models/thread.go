@@ -22,6 +22,7 @@ type Thread struct {
 	Project         *Project   `gorm:"foreignKey:ProjectID" json:"project,omitempty"`
 	Pinned          bool       `gorm:"not null;default:false" json:"pinned"`
 	Archived        bool       `gorm:"not null;default:false" json:"archived"`
+	Color           string     `gorm:"size:20;not null;default:''" json:"color"`
 	ClaudeSessionID *string    `gorm:"size:100" json:"claude_session_id"`
 	Tags            []Tag      `gorm:"many2many:thread_tags" json:"tags,omitempty"`
 	CreatedAt       time.Time  `json:"created_at"`
