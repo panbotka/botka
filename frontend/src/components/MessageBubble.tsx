@@ -7,6 +7,7 @@ import MessageActions from './MessageActions';
 import BranchIndicator from './BranchIndicator';
 import ToolCallPanel from './ToolCallPanel';
 import { Wrench, ChevronDown, EyeOff } from 'lucide-react';
+import { linkifyText } from '../utils/linkifyText';
 
 interface Props {
   message: Message;
@@ -329,7 +330,7 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
             </div>
           ) : isUser ? (
             <>
-              <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{message.content}</p>
+              <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{linkifyText(message.content)}</p>
               <AttachmentPreviews
                 imageAttachments={imageAttachments}
                 pdfAttachments={pdfAttachments}
