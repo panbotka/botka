@@ -17,6 +17,13 @@ import (
 
 const keepaliveInterval = 15 * time.Second
 
+// Buffer polling parameters — package-level vars for testability.
+var (
+	bufferPollMaxAttempts  = 60
+	bufferPollInterval     = 500 * time.Millisecond
+	bufferPollDBCheckEvery = 10
+)
+
 // bufferProvider abstracts the method used to look up a task's output buffer.
 // *runner.Runner satisfies this interface.
 type bufferProvider interface {
@@ -65,29 +72,39 @@ func streamTaskOutput(c *gin.Context, bp bufferProvider, sq taskStatusQuerier) {
 
 	// The buffer may not exist yet if the task was just claimed (status set to
 	// "running" in DB) but the executor goroutine hasn't created the buffer.
-	// Wait briefly before giving up.
+	// Poll with periodic DB status checks — on a loaded RPi the gap between
+	// status change and buffer creation can exceed 5 seconds.
 	var buf *runner.Buffer
-	for range 10 {
+	for i := range bufferPollMaxAttempts {
 		buf = bp.GetBuffer(taskID)
 		if buf != nil {
 			break
 		}
-		time.Sleep(500 * time.Millisecond)
+		// Periodically re-check if the task is still running so we can
+		// stop early when the task completes/fails during the wait.
+		if i > 0 && i%bufferPollDBCheckEvery == 0 {
+			status, dbErr := sq.QueryTaskStatus(taskID)
+			if dbErr != nil || status != models.TaskStatusRunning {
+				setSSEHeaders(c)
+				_, _ = fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
+				c.Writer.Flush()
+				return
+			}
+		}
+		time.Sleep(bufferPollInterval)
 	}
 	if buf == nil {
 		setSSEHeaders(c)
 
-		// Check the actual task status in DB to distinguish between
-		// "task completed" and "task is running but orphaned (no executor)".
+		// Final status check — distinguish completed task from orphaned.
 		status, dbErr := sq.QueryTaskStatus(taskID)
 		if dbErr != nil || status != models.TaskStatusRunning {
-			// Task is not running — it completed, was never started, etc.
 			_, _ = fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
 			c.Writer.Flush()
 			return
 		}
 
-		// Task is marked running in DB but has no buffer — orphaned.
+		// Task is marked running in DB but has no buffer — genuinely orphaned.
 		_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: {\"message\":\"No output available — task may be orphaned\"}\n\n")
 		c.Writer.Flush()
 		return

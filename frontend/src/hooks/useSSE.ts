@@ -4,6 +4,8 @@ import { NDJSONParser, type TaskOutputEvent } from '../utils/parseNDJSON'
 const MAX_EVENTS = 5000
 const RECONNECT_DELAY = 3000
 const MAX_RECONNECT_ATTEMPTS = 10
+const MAX_ERROR_RETRIES = 5
+const ERROR_RETRY_DELAY = 3000
 
 export function useSSE(taskId: string | null) {
   const [events, setEvents] = useState<TaskOutputEvent[]>([])
@@ -15,6 +17,7 @@ export function useSSE(taskId: string | null) {
   const doneRef = useRef(false)
   const errorRef = useRef(false)
   const attemptsRef = useRef(0)
+  const errorRetryRef = useRef(0)
   const receivedDataRef = useRef(false)
 
   const appendChunk = useCallback((chunk: string) => {
@@ -41,6 +44,7 @@ export function useSSE(taskId: string | null) {
     doneRef.current = false
     errorRef.current = false
     attemptsRef.current = 0
+    errorRetryRef.current = 0
     receivedDataRef.current = false
     parserRef.current = new NDJSONParser()
 
@@ -89,11 +93,18 @@ export function useSSE(taskId: string | null) {
         } catch {
           // use default message
         }
-        errorRef.current = true
-        setError(message)
-        setConnected(false)
         es.close()
         esRef.current = null
+        setConnected(false)
+
+        // Retry a few times — the buffer may appear shortly after.
+        if (!stopped && !doneRef.current && errorRetryRef.current < MAX_ERROR_RETRIES) {
+          errorRetryRef.current++
+          reconnectTimer = setTimeout(connect, ERROR_RETRY_DELAY)
+        } else {
+          errorRef.current = true
+          setError(message)
+        }
       }) as EventListener)
 
       es.onerror = () => {
