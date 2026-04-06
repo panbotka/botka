@@ -9,6 +9,7 @@ import MessageBubble from './MessageBubble';
 import ChatInput, { isAllowedFile, getFileExtension, MAX_FILE_SIZE } from './ChatInput';
 import type { ChatInputHandle } from './ChatInput';
 import ToolCallPanel from './ToolCallPanel';
+import AskUserPanel from './AskUserPanel';
 import StreamErrorBlock from './StreamErrorBlock';
 import Lightbox from './Lightbox';
 import { COMMANDS } from './SlashCommandMenu';
@@ -811,16 +812,24 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
             <>
               {activeToolCalls.length > 0 && (
                 <div className="mb-2 max-w-3xl">
-                  {activeToolCalls.map((tc) => (
-                    <ToolCallPanel
-                      key={tc.id}
-                      name={tc.name}
-                      input={tc.input}
-                      result={tc.result}
-                      isError={tc.isError}
-                      isStreaming={tc.result == null}
-                    />
-                  ))}
+                  {activeToolCalls.map((tc) =>
+                    tc.name === 'AskUserQuestion' && threadId ? (
+                      <AskUserPanel
+                        key={tc.id}
+                        toolCall={tc}
+                        threadId={threadId}
+                      />
+                    ) : (
+                      <ToolCallPanel
+                        key={tc.id}
+                        name={tc.name}
+                        input={tc.input}
+                        result={tc.result}
+                        isError={tc.isError}
+                        isStreaming={tc.result == null}
+                      />
+                    ),
+                  )}
                 </div>
               )}
               {(streamingContent || streamingThinking) && (

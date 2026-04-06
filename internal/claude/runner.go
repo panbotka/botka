@@ -238,7 +238,10 @@ func parseEvent(line []byte) StreamEvent {
 	case "result":
 		return parseResultEvent(raw, line)
 
-	case "rate_limit_event", "user":
+	case "user":
+		return parseUserEvent(raw)
+
+	case "rate_limit_event":
 		return StreamEvent{Kind: KindIgnored}
 
 	default:
@@ -335,6 +338,50 @@ func parseAssistantEvent(raw map[string]json.RawMessage) StreamEvent {
 				ToolInput: inputBytes,
 				ToolID:    block.ID,
 				Raw:       msgData,
+			}
+		}
+	}
+
+	return StreamEvent{Kind: KindIgnored}
+}
+
+// parseUserEvent extracts tool_result blocks from user messages.
+// Claude Code emits these for internal tool call results.
+func parseUserEvent(raw map[string]json.RawMessage) StreamEvent {
+	msgData, ok := raw["message"]
+	if !ok {
+		return StreamEvent{Kind: KindIgnored}
+	}
+
+	var msg struct {
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(msgData, &msg); err != nil {
+		return StreamEvent{Kind: KindIgnored}
+	}
+
+	// Content can be a string (plain user message) or an array (tool results)
+	if len(msg.Content) == 0 || msg.Content[0] != '[' {
+		return StreamEvent{Kind: KindIgnored}
+	}
+
+	var blocks []struct {
+		Type      string `json:"type"`
+		ToolUseID string `json:"tool_use_id"`
+		Content   string `json:"content"`
+		IsError   bool   `json:"is_error"`
+	}
+	if err := json.Unmarshal(msg.Content, &blocks); err != nil {
+		return StreamEvent{Kind: KindIgnored}
+	}
+
+	for _, block := range blocks {
+		if block.Type == "tool_result" {
+			return StreamEvent{
+				Kind:        KindToolResult,
+				ToolUseID:   block.ToolUseID,
+				ToolContent: block.Content,
+				ToolIsError: block.IsError,
 			}
 		}
 	}

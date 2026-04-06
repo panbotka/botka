@@ -267,6 +267,13 @@ export function interruptThread(id: number): Promise<void> {
   return request<void>(`/threads/${id}/interrupt`, { method: 'POST' })
 }
 
+export function submitToolResult(threadId: number, toolUseId: string, content: string, isError = false): Promise<void> {
+  return request<void>(`/threads/${threadId}/tool-results`, {
+    method: 'POST',
+    body: JSON.stringify({ tool_use_id: toolUseId, content, is_error: isError }),
+  })
+}
+
 export function newSession(id: number): Promise<void> {
   return request<void>(`/threads/${id}/session/new`, { method: 'POST' })
 }
@@ -916,6 +923,7 @@ export const api = {
   toggleMessageHidden,
   clearSession,
   interruptThread,
+  submitToolResult,
   newSession,
   fetchSessionHealth,
   renameThread,

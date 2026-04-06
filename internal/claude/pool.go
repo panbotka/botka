@@ -80,6 +80,11 @@ type Session struct {
 	// arriving while one is in-flight blocks until the first completes.
 	msgMu sync.Mutex
 
+	// stdinMu serializes writes to stdin. This is needed because
+	// SendToolResult writes to stdin from a different goroutine than
+	// SendMessage's reading loop.
+	stdinMu sync.Mutex
+
 	// dead is set when the process exits or is killed. Once dead, the
 	// session must be removed and a new one created.
 	dead bool
@@ -278,9 +283,12 @@ func (m *SessionManager) SendMessage(s *Session, prompt string) <-chan StreamEve
 
 		log.Printf("[session] sending message to session %s for thread %d", s.sessionPrefix, s.threadID)
 
-		// Write NDJSON line to stdin
-		if _, err := s.stdin.Write(append(msgBytes, '\n')); err != nil {
-			ch <- StreamEvent{Kind: KindError, ErrorMsg: fmt.Sprintf("write stdin: %v", err)}
+		// Write NDJSON line to stdin (under stdinMu to serialize with SendToolResult)
+		s.stdinMu.Lock()
+		_, writeErr := s.stdin.Write(append(msgBytes, '\n'))
+		s.stdinMu.Unlock()
+		if writeErr != nil {
+			ch <- StreamEvent{Kind: KindError, ErrorMsg: fmt.Sprintf("write stdin: %v", writeErr)}
 			m.markDead(s)
 			return
 		}
@@ -413,6 +421,52 @@ var ErrNoSession = errors.New("no active session")
 
 // ErrNotBusy is returned when the session is not currently processing a message.
 var ErrNotBusy = errors.New("session is not streaming")
+
+// ErrSessionDead is returned when the session process has exited.
+var ErrSessionDead = errors.New("session process has exited")
+
+// SendToolResult writes a tool_result NDJSON message to the session's stdin.
+// This is used when Claude calls an interactive tool like AskUserQuestion and
+// waits for user input. The existing SendMessage reading loop is still running
+// and will pick up Claude's continuation events after the tool result.
+func (m *SessionManager) SendToolResult(threadID int64, toolUseID, content string, isError bool) error {
+	m.mu.Lock()
+	s, ok := m.sessions[threadID]
+	m.mu.Unlock()
+
+	if !ok {
+		return ErrNoSession
+	}
+	if s.dead {
+		return ErrSessionDead
+	}
+	if !s.busy {
+		return ErrNotBusy
+	}
+
+	msg := map[string]interface{}{
+		"type":        "tool_result",
+		"tool_use_id": toolUseID,
+		"content":     content,
+		"is_error":    isError,
+	}
+	msgBytes, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshal tool result: %w", err)
+	}
+
+	log.Printf("[session] sending tool result for %s to session %s (thread %d)", toolUseID, s.sessionPrefix, s.threadID)
+
+	s.stdinMu.Lock()
+	_, err = s.stdin.Write(append(msgBytes, '\n'))
+	s.stdinMu.Unlock()
+	if err != nil {
+		m.markDead(s)
+		return fmt.Errorf("write stdin: %w", err)
+	}
+
+	return nil
+}
 
 // Interrupt sends SIGINT to the Claude process for the given thread, which
 // stops the current response without killing the session. The process emits

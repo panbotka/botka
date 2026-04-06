@@ -90,6 +90,7 @@ func RegisterChatRoutes(rg *gin.RouterGroup, h *ChatHandler) {
 	rg.GET("/threads/:id/stream/subscribe", h.SubscribeStream)
 	rg.GET("/threads/:id/session-health", h.SessionHealth)
 	rg.POST("/threads/:id/interrupt", h.Interrupt)
+	rg.POST("/threads/:id/tool-results", h.SubmitToolResult)
 }
 
 type sendMessageRequest struct {
@@ -1059,4 +1060,53 @@ func (h *ChatHandler) Interrupt(c *gin.Context) {
 	default:
 		respondError(c, http.StatusInternalServerError, "failed to interrupt session")
 	}
+}
+
+type submitToolResultRequest struct {
+	ToolUseID string `json:"tool_use_id" binding:"required"`
+	Content   string `json:"content"`
+	IsError   bool   `json:"is_error"`
+}
+
+// SubmitToolResult handles sending a tool result back to Claude Code's stdin.
+// This is used when Claude calls interactive tools like AskUserQuestion and
+// waits for user input. The active SSE stream picks up Claude's continuation.
+func (h *ChatHandler) SubmitToolResult(c *gin.Context) {
+	threadID, err := paramInt64(c, "id")
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "invalid thread id")
+		return
+	}
+
+	var req submitToolResultRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "invalid request: "+err.Error())
+		return
+	}
+
+	// Write tool result to Claude Code's stdin
+	if err := claude.Sessions.SendToolResult(threadID, req.ToolUseID, req.Content, req.IsError); err != nil {
+		switch err {
+		case claude.ErrNoSession:
+			respondError(c, http.StatusNotFound, "no active session")
+		case claude.ErrNotBusy:
+			respondError(c, http.StatusConflict, "session is not streaming")
+		case claude.ErrSessionDead:
+			respondError(c, http.StatusGone, "session process has exited")
+		default:
+			respondError(c, http.StatusInternalServerError, "failed to send tool result: "+err.Error())
+		}
+		return
+	}
+
+	// Publish a tool_result SSE event so the frontend can update the tool call state
+	resultJSON, _ := json.Marshal(map[string]interface{}{
+		"tool_use_id": req.ToolUseID,
+		"content":     req.Content,
+		"is_error":    req.IsError,
+	})
+	sseData := fmt.Sprintf("event: tool_result\ndata: %s\n\n", resultJSON)
+	claude.Streams.Publish(threadID, sseData)
+
+	respondOK(c, gin.H{"status": "sent"})
 }
