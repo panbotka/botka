@@ -215,6 +215,15 @@ func (e *Executor) buildPrompt(task *models.Task) string {
 	return prompt
 }
 
+// nonInteractivePrompt is always appended as a system prompt for task executions.
+// Task agents run without a user present, so interactive tools like AskUserQuestion
+// will fail. This prompt tells Claude to make reasonable assumptions instead.
+const nonInteractivePrompt = `You are running as an autonomous task agent in non-interactive mode. ` +
+	`There is no user present to answer questions. The AskUserQuestion tool is NOT available and will fail ` +
+	`if you try to use it. Do NOT call AskUserQuestion or any tool that requires interactive user input. ` +
+	`Instead, make reasonable assumptions based on the task specification and codebase context. ` +
+	`If a decision is ambiguous, choose the most conventional option and document your reasoning in a code comment or commit message.`
+
 // botkaSafetyPrompt is appended as a system prompt when executing tasks on the
 // botka project itself, to prevent task agents from running commands that would
 // restart the service and kill the agent's own process.
@@ -237,9 +246,11 @@ func (e *Executor) spawnClaude(
 		"--dangerously-skip-permissions", "--verbose",
 		"--output-format", "stream-json",
 	}
+	systemPrompt := nonInteractivePrompt
 	if isBotkaProject(project) {
-		args = append(args, "--append-system-prompt", botkaSafetyPrompt)
+		systemPrompt += " " + botkaSafetyPrompt
 	}
+	args = append(args, "--append-system-prompt", systemPrompt)
 	args = append(args, "-p", e.buildPrompt(task))
 
 	cmd := exec.CommandContext(ctx, claudePath, args...) //nolint:gosec // args are controlled

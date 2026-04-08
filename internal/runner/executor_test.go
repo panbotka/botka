@@ -598,6 +598,21 @@ func TestBotkaSafetyPromptNotEmpty(t *testing.T) {
 	}
 }
 
+func TestNonInteractivePromptContent(t *testing.T) {
+	if nonInteractivePrompt == "" {
+		t.Error("nonInteractivePrompt should not be empty")
+	}
+	if !strings.Contains(nonInteractivePrompt, "AskUserQuestion") {
+		t.Error("nonInteractivePrompt should mention AskUserQuestion")
+	}
+	if !strings.Contains(nonInteractivePrompt, "non-interactive") {
+		t.Error("nonInteractivePrompt should mention non-interactive mode")
+	}
+	if !strings.Contains(nonInteractivePrompt, "reasonable assumptions") {
+		t.Error("nonInteractivePrompt should instruct making reasonable assumptions")
+	}
+}
+
 func TestClassifyOutcome_Killed(t *testing.T) {
 	out := &spawnOutput{killed: true}
 	task := &models.Task{RetryCount: 0}
