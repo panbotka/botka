@@ -1,4 +1,4 @@
-import type { Project, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus } from '../types'
+import type { Project, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, SignalBridge, SignalGroup } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -362,6 +362,32 @@ export function reorderThreadSources(threadId: number, ids: number[]): Promise<v
     method: 'PUT',
     body: JSON.stringify({ ids }),
   })
+}
+
+// Signal Bridge
+
+export function getSignalGroups(): Promise<SignalGroup[]> {
+  return requestData<SignalGroup[]>('/signal/groups')
+}
+
+export async function getSignalBridge(threadId: number): Promise<SignalBridge | null> {
+  try {
+    return await requestData<SignalBridge>(`/threads/${threadId}/signal-bridge`)
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null
+    throw err
+  }
+}
+
+export function setSignalBridge(threadId: number, groupId: string, groupName: string): Promise<SignalBridge> {
+  return requestData<SignalBridge>(`/threads/${threadId}/signal-bridge`, {
+    method: 'PUT',
+    body: JSON.stringify({ group_id: groupId, group_name: groupName }),
+  })
+}
+
+export function removeSignalBridge(threadId: number): Promise<void> {
+  return request<void>(`/threads/${threadId}/signal-bridge`, { method: 'DELETE' })
 }
 
 // Search
@@ -937,6 +963,11 @@ export const api = {
   updateThreadSource,
   deleteThreadSource,
   reorderThreadSources,
+  // Signal Bridge
+  getSignalGroups,
+  getSignalBridge,
+  setSignalBridge,
+  removeSignalBridge,
   // Search
   searchMessages,
   globalSearch,

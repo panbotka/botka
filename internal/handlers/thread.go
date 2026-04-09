@@ -56,6 +56,7 @@ type threadListRow struct {
 	LastMessagePreview *string    `json:"last_message_preview"`
 	LastMessageAt      *time.Time `json:"last_message_at"`
 	TotalCostUSD       *float64   `json:"total_cost_usd,omitempty"`
+	SignalBridgeActive bool       `json:"signal_bridge_active"`
 }
 
 // List returns all threads, optionally including archived ones.
@@ -66,7 +67,8 @@ func (h *ThreadHandler) List(c *gin.Context) {
 	var rows []threadListRow
 	query := h.db.Table("threads t").
 		Select(`t.*, lm.content AS last_message_preview, lm.created_at AS last_message_at,
-			(SELECT SUM(cost_usd) FROM messages WHERE thread_id = t.id AND cost_usd IS NOT NULL) AS total_cost_usd`).
+			(SELECT SUM(cost_usd) FROM messages WHERE thread_id = t.id AND cost_usd IS NOT NULL) AS total_cost_usd,
+			EXISTS (SELECT 1 FROM signal_bridges sb WHERE sb.thread_id = t.id AND sb.active = true) AS signal_bridge_active`).
 		Joins(`LEFT JOIN LATERAL (
 			SELECT LEFT(content, 150) AS content, created_at
 			FROM messages WHERE thread_id = t.id

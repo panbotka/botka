@@ -8,10 +8,11 @@ import { useStreamingThreadIds } from '../context/SSEContext'
 import ModelPicker from './ModelPicker'
 import ThreadSourcesEditor from './ThreadSourcesEditor'
 import CustomContextEditor from './CustomContextEditor'
+import SignalBridgeEditor from './SignalBridgeEditor'
 import {
   Plus, Search, Pin, Archive, MoreVertical, Pencil,
   Trash2, Download, Cpu, Tag as TagIcon, ChevronRight,
-  X, ChevronDown, FolderGit2, Globe, FileText, Palette,
+  X, ChevronDown, FolderGit2, Globe, FileText, Palette, MessageSquare,
 } from 'lucide-react'
 import { THREAD_COLORS } from '../utils/threadColors'
 
@@ -65,6 +66,7 @@ export default function ThreadSidebar({
   const [colorMenuThreadId, setColorMenuThreadId] = useState<number | null>(null)
   const [sourcesThreadId, setSourcesThreadId] = useState<number | null>(null)
   const [customContextThread, setCustomContextThread] = useState<Thread | null>(null)
+  const [signalBridgeThreadId, setSignalBridgeThreadId] = useState<number | null>(null)
   const [personaDropdownOpen, setPersonaDropdownOpen] = useState(false)
   const personaDropdownRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -311,6 +313,9 @@ export default function ThreadSidebar({
                 )}
                 {thread.pinned && <Pin className="w-3 h-3 text-amber-500 flex-shrink-0" />}
                 {thread.persona_icon && <span className="flex-shrink-0">{thread.persona_icon}</span>}
+                {thread.signal_bridge_active && (
+                  <MessageSquare className="w-3 h-3 text-emerald-500 flex-shrink-0" aria-label="Signal bridge active" />
+                )}
                 {thread.title || 'New conversation'}
               </span>
               <span className="text-[11px] text-zinc-400 flex-shrink-0">
@@ -450,6 +455,17 @@ export default function ThreadSidebar({
                         </div>
                       )}
                     </div>
+                  </button>
+                  <button
+                    onClick={() => { setSignalBridgeThreadId(thread.id); setMenuOpenId(null) }}
+                    className="w-full flex items-center gap-3 px-3 py-2
+                               text-sm text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                  >
+                    <MessageSquare className={`w-4 h-4 flex-shrink-0 ${thread.signal_bridge_active ? 'text-emerald-500' : 'text-zinc-400'}`} />
+                    <span className="flex-1 text-left">Signal Bridge</span>
+                    {thread.signal_bridge_active && (
+                      <span className="text-[10px] text-emerald-600">Active</span>
+                    )}
                   </button>
                   <div>
                     <button
@@ -853,6 +869,13 @@ export default function ThreadSidebar({
           initialContent={customContextThread.custom_context || ''}
           onClose={() => setCustomContextThread(null)}
           onSaved={onThreadsChange}
+        />
+      )}
+      {signalBridgeThreadId !== null && (
+        <SignalBridgeEditor
+          threadId={signalBridgeThreadId}
+          onClose={() => setSignalBridgeThreadId(null)}
+          onChange={onThreadsChange}
         />
       )}
       {toast && (

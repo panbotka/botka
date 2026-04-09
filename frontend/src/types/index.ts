@@ -167,6 +167,23 @@ export interface Thread {
   total_cost_usd?: number | null
   last_message_preview?: string
   last_message_at?: string
+  signal_bridge_active?: boolean
+}
+
+export interface SignalBridge {
+  id: number
+  thread_id: number
+  group_id: string
+  group_name: string
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface SignalGroup {
+  id: string
+  name: string
+  member_count: number
 }
 
 export interface ThreadSource {
