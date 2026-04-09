@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"botka/internal/box"
 	"botka/internal/claude"
 	"botka/internal/models"
 )
@@ -47,6 +48,12 @@ type BridgeConfig struct {
 	// DefaultWorkDir is the fallback working directory when a thread has no
 	// project assigned.
 	DefaultWorkDir string
+	// BoxWaker, when non-nil, is used to wake and reach the remote Box host
+	// for threads whose project uses a "box:" prefixed path.
+	BoxWaker *box.Waker
+	// BoxSSHTarget is the "user@host" SSH destination for remote threads.
+	// When empty, remote-path threads fail fast.
+	BoxSSHTarget string
 	// ReconnectInterval is the delay between SSE reconnect attempts. Zero
 	// means use defaultReconnectInterval.
 	ReconnectInterval time.Duration
@@ -267,8 +274,13 @@ func (b *Bridge) runClaude(ctx context.Context, thread *models.Thread, prompt st
 		var project models.Project
 		if err := b.cfg.DB.First(&project, "id = ?", *thread.ProjectID).Error; err == nil {
 			if project.Path != "" {
-				if err := os.MkdirAll(project.Path, 0755); err == nil {
+				switch {
+				case claude.IsRemotePath(project.Path):
 					workDir = project.Path
+				default:
+					if err := os.MkdirAll(project.Path, 0755); err == nil {
+						workDir = project.Path
+					}
 				}
 			}
 			projectClaudeMD = project.ClaudeMD
@@ -336,6 +348,12 @@ func (b *Bridge) runClaude(ctx context.Context, thread *models.Thread, prompt st
 	cfg.SystemPromptFile = contextFile
 	cfg.WorkDir = workDir
 	cfg.Name = thread.Title
+	if claude.IsRemotePath(workDir) && b.cfg.BoxSSHTarget != "" {
+		cfg.Remote = &claude.RemoteSpec{
+			SSHTarget: b.cfg.BoxSSHTarget,
+			Waker:     b.cfg.BoxWaker,
+		}
+	}
 
 	session, _ := claude.Sessions.GetOrCreate(cfg, thread.ID, thread.Title)
 	var stream <-chan claude.StreamEvent

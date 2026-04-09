@@ -510,7 +510,7 @@ func TestIsAPIError_CaseInsensitive(t *testing.T) {
 }
 
 func TestBuildPrompt_Basic(t *testing.T) {
-	e := &Executor{claudePath: "/usr/bin/claude"}
+	e := &Executor{localClaudePath: "/usr/bin/claude", remoteClaudePath: "claude"}
 	task := &models.Task{RetryCount: 0}
 	task.ID = parseUUID("11111111-1111-1111-1111-111111111111")
 	task.Title = "Fix login bug"
@@ -532,7 +532,7 @@ func TestBuildPrompt_Basic(t *testing.T) {
 }
 
 func TestBuildPrompt_WithRetryInfo(t *testing.T) {
-	e := &Executor{claudePath: "/usr/bin/claude"}
+	e := &Executor{localClaudePath: "/usr/bin/claude", remoteClaudePath: "claude"}
 	failReason := "tests failed: 2 errors"
 	task := &models.Task{
 		RetryCount:    1,
@@ -552,7 +552,7 @@ func TestBuildPrompt_WithRetryInfo(t *testing.T) {
 }
 
 func TestBuildPrompt_RetryCountZeroNoFailureInfo(t *testing.T) {
-	e := &Executor{claudePath: "/usr/bin/claude"}
+	e := &Executor{localClaudePath: "/usr/bin/claude", remoteClaudePath: "claude"}
 	task := &models.Task{RetryCount: 0}
 	task.ID = parseUUID("33333333-3333-3333-3333-333333333333")
 	task.Title = "First attempt"
@@ -644,7 +644,7 @@ func TestClassifyOutcome_KilledOverridesTimeout(t *testing.T) {
 
 func TestCaptureGitHEAD_ValidRepo(t *testing.T) {
 	// Use the botka repo itself to test HEAD capture.
-	sha := CaptureGitHEAD("/home/pi/projects/botka")
+	sha := CaptureGitHEAD(&models.Project{Path: "/home/pi/projects/botka"}, nil, "")
 	if sha == "" {
 		t.Skip("could not capture git HEAD (not in a git repo)")
 	}
@@ -654,7 +654,7 @@ func TestCaptureGitHEAD_ValidRepo(t *testing.T) {
 }
 
 func TestCaptureGitHEAD_InvalidPath(t *testing.T) {
-	sha := CaptureGitHEAD("/nonexistent/path")
+	sha := CaptureGitHEAD(&models.Project{Path: "/nonexistent/path"}, nil, "")
 	if sha != "" {
 		t.Errorf("expected empty string for invalid path, got %q", sha)
 	}

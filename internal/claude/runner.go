@@ -76,58 +76,98 @@ const (
 
 // RunConfig holds configuration for a Claude Code subprocess invocation.
 type RunConfig struct {
-	ClaudePath       string // path to claude binary
-	WorkDir          string // working directory for the process
+	ClaudePath       string // path to claude binary (on local or remote host)
+	WorkDir          string // working directory for the process; "box:/..." means remote
 	SessionID        string // UUID for session tracking
 	Resume           bool   // whether to resume an existing session
 	Model            string // AI model to use
 	SystemPromptFile string // path to assembled context file
 	Name             string // display name for the session
+
+	// Remote, when non-nil, causes this invocation to run on a remote host
+	// via SSH. The runner wakes the host (via Waker), then exec's "ssh"
+	// instead of claude directly. WorkDir must use RemotePrefix when Remote
+	// is supplied; runners use SplitRemotePath to extract the remote path.
+	Remote *RemoteSpec
+}
+
+// buildRunArgs constructs the argv for a one-shot Run invocation. It returns
+// the claude flags (without the prompt appended).
+func buildRunArgs(cfg RunConfig) []string {
+	args := []string{
+		"-p",
+		"--verbose",
+		"--output-format", "stream-json",
+		"--include-partial-messages",
+		"--dangerously-skip-permissions",
+	}
+
+	if cfg.Resume && cfg.SessionID != "" {
+		args = append(args, "--resume", cfg.SessionID)
+	} else if cfg.SessionID != "" {
+		args = append(args, "--session-id", cfg.SessionID)
+	}
+
+	// Only pass --model for Claude Code model names (sonnet, opus, haiku)
+	// Skip OpenClaw-format models (e.g. "anthropic/claude-sonnet-4-20250514")
+	if cfg.Model != "" && !strings.Contains(cfg.Model, "/") {
+		args = append(args, "--model", cfg.Model)
+	}
+
+	if cfg.SystemPromptFile != "" && !cfg.Resume {
+		args = append(args, "--append-system-prompt-file", cfg.SystemPromptFile)
+	}
+
+	if cfg.Name != "" {
+		args = append(args, "--name", cfg.Name)
+	}
+	return args
+}
+
+// buildRunCmd constructs the exec.Cmd for a one-shot Run invocation, dispatching
+// to either local execution or SSH-wrapped remote execution based on cfg.Remote.
+// For remote invocations it calls Waker.EnsureUp to make sure Box is awake.
+func buildRunCmd(ctx context.Context, cfg RunConfig, prompt string) (*exec.Cmd, error) {
+	args := buildRunArgs(cfg)
+
+	if cfg.Remote != nil {
+		remoteDir, _ := SplitRemotePath(cfg.WorkDir)
+		if remoteDir == "" {
+			return nil, fmt.Errorf("remote run: empty remote path in %q", cfg.WorkDir)
+		}
+		if err := ensureRemoteUp(ctx, cfg.Remote); err != nil {
+			return nil, err
+		}
+		sshArgs := BuildSSHArgs(cfg.Remote.SSHTarget, remoteDir, cfg.ClaudePath, args, prompt)
+		cmd := exec.CommandContext(ctx, sshArgs[0], sshArgs[1:]...) //nolint:gosec // args are controlled
+		cmd.Env = SanitizedEnv()
+		// Working dir for the local ssh process doesn't matter; leave unset.
+		return cmd, nil
+	}
+
+	// Local execution: prompt is the final positional argument.
+	localArgs := append(args, prompt) //nolint:gocritic // append to fresh slice
+	cmd := exec.CommandContext(ctx, cfg.ClaudePath, localArgs...)
+	cmd.Env = SanitizedEnv()
+	if cfg.WorkDir != "" {
+		cmd.Dir = cfg.WorkDir
+	}
+	return cmd, nil
 }
 
 // Run spawns a Claude Code subprocess with the given prompt and streams events.
 // The returned channel receives parsed events until the process completes.
+// If cfg.Remote is set, the subprocess is spawned on the remote host via SSH.
 func Run(ctx context.Context, cfg RunConfig, prompt string) <-chan StreamEvent {
 	ch := make(chan StreamEvent, 64)
 
 	go func() {
 		defer close(ch)
 
-		args := []string{
-			"-p",
-			"--verbose",
-			"--output-format", "stream-json",
-			"--include-partial-messages",
-			"--dangerously-skip-permissions",
-		}
-
-		if cfg.Resume && cfg.SessionID != "" {
-			args = append(args, "--resume", cfg.SessionID)
-		} else if cfg.SessionID != "" {
-			args = append(args, "--session-id", cfg.SessionID)
-		}
-
-		// Only pass --model for Claude Code model names (sonnet, opus, haiku)
-		// Skip OpenClaw-format models (e.g. "anthropic/claude-sonnet-4-20250514")
-		if cfg.Model != "" && !strings.Contains(cfg.Model, "/") {
-			args = append(args, "--model", cfg.Model)
-		}
-
-		if cfg.SystemPromptFile != "" && !cfg.Resume {
-			args = append(args, "--append-system-prompt-file", cfg.SystemPromptFile)
-		}
-
-		if cfg.Name != "" {
-			args = append(args, "--name", cfg.Name)
-		}
-
-		// The prompt is the last argument
-		args = append(args, prompt)
-
-		cmd := exec.CommandContext(ctx, cfg.ClaudePath, args...)
-		cmd.Env = SanitizedEnv()
-		if cfg.WorkDir != "" {
-			cmd.Dir = cfg.WorkDir
+		cmd, err := buildRunCmd(ctx, cfg, prompt)
+		if err != nil {
+			ch <- StreamEvent{Kind: KindError, ErrorMsg: err.Error()}
+			return
 		}
 
 		sessionPrefix := cfg.SessionID
@@ -135,7 +175,7 @@ func Run(ctx context.Context, cfg RunConfig, prompt string) <-chan StreamEvent {
 			sessionPrefix = sessionPrefix[:8]
 		}
 
-		log.Printf("[claude] spawning: %s %v (dir=%s)", cfg.ClaudePath, args, cmd.Dir)
+		log.Printf("[claude] spawning: %s %v (dir=%s remote=%v)", cmd.Path, cmd.Args[1:], cmd.Dir, cfg.Remote != nil)
 
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
@@ -462,7 +502,15 @@ func (b *stderrBuffer) String() string {
 // SessionExists checks whether a Claude Code session file exists for the given
 // working directory. Claude stores sessions at ~/.claude/projects/<encoded-dir>/<id>.jsonl
 // where the encoded dir replaces both '/' and '.' with '-'.
+//
+// For remote work directories (IsRemotePath), the session file lives on the
+// remote host and cannot be stat'd from here. In that case SessionExists
+// returns true to skip the check — the one-shot Run will surface a resume
+// error from the remote claude if the session is actually gone.
 func SessionExists(sessionID, workDir string) bool {
+	if IsRemotePath(workDir) {
+		return true
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return true // assume it exists if we can't check

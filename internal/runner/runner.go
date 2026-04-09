@@ -25,6 +25,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"botka/internal/box"
 	"botka/internal/config"
 	"botka/internal/models"
 )
@@ -82,8 +83,13 @@ type Runner struct {
 }
 
 // NewRunner creates a new Runner instance and loads persisted state from the database.
-func NewRunner(db *gorm.DB, cfg *config.Config, usageMon *UsageMonitor) (*Runner, error) {
-	exec, err := NewExecutor(cfg.ClaudePath)
+// boxWaker may be nil, in which case remote-path projects fail fast when executed.
+func NewRunner(db *gorm.DB, cfg *config.Config, usageMon *UsageMonitor, boxWaker *box.Waker) (*Runner, error) {
+	sshTarget := ""
+	if boxWaker != nil {
+		sshTarget = boxWaker.SSHTarget()
+	}
+	exec, err := NewExecutor(cfg.ClaudePath, boxWaker, sshTarget)
 	if err != nil {
 		return nil, err
 	}
@@ -539,7 +545,7 @@ func (r *Runner) executeTask(
 	}()
 
 	// Capture git HEAD SHA before execution for potential revert.
-	headSHA := CaptureGitHEAD(task.Project.Path)
+	headSHA := CaptureGitHEAD(&task.Project, r.executor.waker, r.executor.sshTarget)
 	if headSHA != "" {
 		exec.GitHeadSHA = &headSHA
 		r.db.Model(exec).Update("git_head_sha", headSHA)
@@ -556,7 +562,7 @@ func (r *Runner) executeTask(
 
 	// If the task was killed by user, perform git revert.
 	if result.ErrorMessage == "Killed by user" {
-		GitRevert(task.Project.Path, headSHA, task, &task.Project)
+		GitRevert(&task.Project, r.executor.waker, r.executor.sshTarget, headSHA, task)
 		// Set retry count to max so it won't auto-retry.
 		r.db.Model(task).Update("retry_count", maxRetries)
 		result.ShouldRetry = false

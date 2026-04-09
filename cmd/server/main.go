@@ -20,6 +20,7 @@ import (
 	"gorm.io/gorm"
 
 	"botka"
+	"botka/internal/box"
 	"botka/internal/claude"
 	"botka/internal/config"
 	"botka/internal/database"
@@ -93,6 +94,11 @@ func run() error {
 	}
 	slog.Info("project discovery complete", "count", len(discovered))
 
+	// Box waker: shared between chat, signal bridge, and task runner so a
+	// single SSH probe covers any path that needs the remote Box host awake.
+	boxWaker := box.NewWaker(cfg.BoxSSHHost, cfg.BoxSSHUser, cfg.BoxWOLCommand)
+	boxSSHTarget := boxWaker.SSHTarget()
+
 	// Usage monitor: tracks Anthropic API rate limits.
 	usageMon := runner.NewUsageMonitor(
 		cfg.ClaudeUsageCmd,
@@ -103,8 +109,10 @@ func run() error {
 	usageMon.Start(context.Background())
 	defer usageMon.Stop()
 
-	// Task runner: scheduler loop and parallel task execution.
-	taskRunner, err := runner.NewRunner(db, cfg, usageMon)
+	// Task runner: scheduler loop and parallel task execution. The runner
+	// uses the shared box waker so remote-path projects ("box:/...") can
+	// spawn claude via SSH on the build machine.
+	taskRunner, err := runner.NewRunner(db, cfg, usageMon, boxWaker)
 	if err != nil {
 		return fmt.Errorf("create runner: %w", err)
 	}
@@ -129,12 +137,14 @@ func run() error {
 		},
 		DefaultModel:   cfg.AIModel,
 		DefaultWorkDir: cfg.ClaudeDefaultWorkDir,
+		BoxWaker:       boxWaker,
+		BoxSSHTarget:   boxSSHTarget,
 	})
 	bridgeCtx, bridgeCancel := context.WithCancel(context.Background())
 	defer bridgeCancel()
 	signalBridge.Start(bridgeCtx)
 
-	router := setupRouter(db, cfg, taskRunner, signalClient, signalBridge)
+	router := setupRouter(db, cfg, taskRunner, signalClient, signalBridge, boxWaker, boxSSHTarget)
 
 	return startServer(router, cfg.Port)
 }
@@ -166,7 +176,11 @@ func runMCP() error {
 }
 
 // setupRouter creates the Gin router with API, MCP, and frontend routes.
-func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner, signalClient *signal.Client, signalBridge *signal.Bridge) *gin.Engine {
+func setupRouter(
+	db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner,
+	signalClient *signal.Client, signalBridge *signal.Bridge,
+	boxWaker *box.Waker, boxSSHTarget string,
+) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Recovery(), gin.Logger(), middleware.CORS())
 
@@ -231,7 +245,10 @@ func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner, sig
 		OpenClawWorkspace: cfg.OpenClawWorkspace,
 		ContextDir:        cfg.ClaudeContextDir,
 	}
-	chatHandler := handlers.NewChatHandler(db, cfg.AIModel, cfg.UploadDir, claudeCfg, contextCfg, cfg.ClaudeDefaultWorkDir, signalBridge)
+	chatHandler := handlers.NewChatHandler(
+		db, cfg.AIModel, cfg.UploadDir, claudeCfg, contextCfg,
+		cfg.ClaudeDefaultWorkDir, signalBridge, boxWaker, boxSSHTarget,
+	)
 	handlers.RegisterChatRoutes(v1, chatHandler)
 
 	messageHandler := handlers.NewMessageHandler(db)

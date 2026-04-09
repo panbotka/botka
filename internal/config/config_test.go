@@ -265,6 +265,39 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 }
 
+func TestLoad_BoxDefaults(t *testing.T) {
+	for _, key := range []string{"BOX_HOST", "BOX_SSH_USER", "BOX_SSH_HOST", "BOX_WOL_COMMAND"} {
+		t.Setenv(key, "")
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+	if cfg.BoxHost != "100.127.79.1" {
+		t.Errorf("BoxHost = %q, want 100.127.79.1", cfg.BoxHost)
+	}
+	if cfg.BoxSSHUser != "box" {
+		t.Errorf("BoxSSHUser = %q, want box", cfg.BoxSSHUser)
+	}
+	if cfg.BoxSSHHost != "box" {
+		t.Errorf("BoxSSHHost = %q, want box", cfg.BoxSSHHost)
+	}
+	if cfg.BoxWOLCommand != "/home/pi/bin/boxon" {
+		t.Errorf("BoxWOLCommand = %q, want /home/pi/bin/boxon", cfg.BoxWOLCommand)
+	}
+}
+
+func TestLoad_BoxSSHHostOverride(t *testing.T) {
+	t.Setenv("BOX_SSH_HOST", "box.tailnet.example")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+	if cfg.BoxSSHHost != "box.tailnet.example" {
+		t.Errorf("BoxSSHHost = %q, want override", cfg.BoxSSHHost)
+	}
+}
+
 func TestLoad_SignalCLIURLOverride(t *testing.T) {
 	t.Setenv("SIGNAL_CLI_URL", "http://signal.example:5999")
 	cfg, err := Load()

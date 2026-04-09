@@ -36,6 +36,7 @@ type Config struct {
 	MCPToken             string
 	BoxHost              string
 	BoxSSHUser           string
+	BoxSSHHost           string
 	BoxWOLCommand        string
 	KeepaliveEnabled     bool
 	KeepaliveInterval    time.Duration
@@ -120,6 +121,7 @@ func Load() (*Config, error) {
 		MCPToken:             getEnv("MCP_TOKEN", ""),
 		BoxHost:              getEnv("BOX_HOST", "100.127.79.1"),
 		BoxSSHUser:           getEnv("BOX_SSH_USER", "box"),
+		BoxSSHHost:           getEnv("BOX_SSH_HOST", "box"),
 		BoxWOLCommand:        getEnv("BOX_WOL_COMMAND", "/home/pi/bin/boxon"),
 		KeepaliveEnabled:     keepaliveEnabled,
 		KeepaliveInterval:    keepaliveInterval,

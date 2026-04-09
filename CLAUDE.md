@@ -203,8 +203,9 @@ Exposes 19 tools across categories: task management (create_task, list_tasks, ge
 | `WEBAUTHN_RPID` | *(derived from origin)* | WebAuthn relying party ID (hostname) |
 | `SESSION_MAX_AGE` | `720h` | Authentication session cookie max age |
 | `MCP_TOKEN` | *(empty)* | Bearer token for MCP SSE transport (empty = SSE disabled) |
-| `BOX_HOST` | `100.127.79.1` | Remote Box server IP/hostname |
+| `BOX_HOST` | `100.127.79.1` | Remote Box server IP/hostname (used by Box service handler) |
 | `BOX_SSH_USER` | `box` | SSH user for Box server |
+| `BOX_SSH_HOST` | `box` | SSH hostname/alias used when spawning Claude Code on Box for `box:`-prefixed project paths |
 | `BOX_WOL_COMMAND` | `/home/pi/bin/boxon` | Wake-on-LAN command for Box server |
 | `KEEPALIVE_ENABLED` | `true` | Enable periodic Claude Code ping to keep 5h rate limit window active |
 | `KEEPALIVE_INTERVAL` | `60m` | Interval between keepalive pings (Go duration) |

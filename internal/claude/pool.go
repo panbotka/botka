@@ -146,14 +146,16 @@ func (m *SessionManager) GetOrCreate(cfg RunConfig, threadID int64, threadTitle 
 }
 
 // startSession spawns a new Claude Code process with stream-json I/O.
+// When cfg.Remote is set, the process is spawned on the remote host via SSH.
 func (m *SessionManager) startSession(cfg RunConfig, threadID int64, threadTitle string) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	args := buildStreamArgs(cfg)
-	cmd := exec.CommandContext(ctx, cfg.ClaudePath, args...)
-	cmd.Env = SanitizedEnv()
-	if cfg.WorkDir != "" {
-		cmd.Dir = cfg.WorkDir
+	cmd, err := buildSessionCmd(ctx, cfg, args)
+	if err != nil {
+		cancel()
+		log.Printf("[session] build session command failed for thread %d: %v", threadID, err)
+		return nil
 	}
 
 	stdin, err := cmd.StdinPipe()
@@ -535,6 +537,61 @@ func (m *SessionManager) GetHealth(threadID int64, model string) SessionHealth {
 		Model:                  model,
 		StartedAt:              s.startedAt.Format(time.RFC3339),
 		MessageCount:           s.messageCount,
+	}
+}
+
+// buildSessionCmd constructs the exec.Cmd for a persistent stream-json
+// session. When cfg.Remote is non-nil the command is wrapped in SSH so the
+// claude process lives on the remote host. Persistent sessions work the same
+// over SSH because "ssh user@host cmd" transparently forwards stdin and
+// stdout of the remote process.
+func buildSessionCmd(ctx context.Context, cfg RunConfig, claudeArgs []string) (*exec.Cmd, error) {
+	if cfg.Remote != nil {
+		remoteDir, _ := SplitRemotePath(cfg.WorkDir)
+		if remoteDir == "" {
+			return nil, fmt.Errorf("remote session: empty remote path in %q", cfg.WorkDir)
+		}
+		if err := ensureRemoteUp(ctx, cfg.Remote); err != nil {
+			return nil, err
+		}
+		// Persistent sessions read NDJSON from stdin, so we don't append a
+		// trailing prompt argument. Reuse BuildSSHArgs but pass an empty
+		// prompt and then trim the quoted empty string off the end.
+		sshArgs := buildRemoteSessionArgs(cfg.Remote.SSHTarget, remoteDir, cfg.ClaudePath, claudeArgs)
+		cmd := exec.CommandContext(ctx, sshArgs[0], sshArgs[1:]...) //nolint:gosec // args are controlled
+		cmd.Env = SanitizedEnv()
+		return cmd, nil
+	}
+
+	cmd := exec.CommandContext(ctx, cfg.ClaudePath, claudeArgs...)
+	cmd.Env = SanitizedEnv()
+	if cfg.WorkDir != "" {
+		cmd.Dir = cfg.WorkDir
+	}
+	return cmd, nil
+}
+
+// buildRemoteSessionArgs assembles the SSH argv for a persistent stream-json
+// session with no trailing prompt. The remote command cd's into the working
+// directory and exec's the claude binary, letting SSH forward stdin/stdout.
+func buildRemoteSessionArgs(sshTarget, remoteDir, claudePath string, args []string) []string {
+	var sb strings.Builder
+	sb.WriteString("cd ")
+	sb.WriteString(shellQuote(remoteDir))
+	sb.WriteString(" && exec ")
+	sb.WriteString(shellQuote(claudePath))
+	for _, a := range args {
+		sb.WriteByte(' ')
+		sb.WriteString(shellQuote(a))
+	}
+	return []string{
+		"ssh",
+		"-o", "BatchMode=yes",
+		"-o", "ServerAliveInterval=30",
+		"-o", "ServerAliveCountMax=3",
+		"-o", "StrictHostKeyChecking=no",
+		sshTarget,
+		sb.String(),
 	}
 }
 

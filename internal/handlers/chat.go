@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"botka/internal/box"
 	"botka/internal/claude"
 	"botka/internal/models"
 	"botka/internal/signal"
@@ -66,12 +67,19 @@ type ChatHandler struct {
 	contextCfg   claude.ContextConfig
 	defaultDir   string
 	signalBridge *signal.Bridge
+	boxWaker     *box.Waker
+	boxSSHTarget string
 }
 
 // NewChatHandler creates a new ChatHandler with the given dependencies. The
 // signalBridge may be nil, in which case outgoing messages are not forwarded
-// to Signal.
-func NewChatHandler(db *gorm.DB, model, uploadDir string, claudeCfg claude.RunConfig, contextCfg claude.ContextConfig, defaultDir string, signalBridge *signal.Bridge) *ChatHandler {
+// to Signal. boxWaker and boxSSHTarget may be nil/empty; when unset,
+// remote-path work directories ("box:/...") will fail fast at spawn time.
+func NewChatHandler(
+	db *gorm.DB, model, uploadDir string,
+	claudeCfg claude.RunConfig, contextCfg claude.ContextConfig, defaultDir string,
+	signalBridge *signal.Bridge, boxWaker *box.Waker, boxSSHTarget string,
+) *ChatHandler {
 	return &ChatHandler{
 		db:           db,
 		model:        model,
@@ -80,6 +88,8 @@ func NewChatHandler(db *gorm.DB, model, uploadDir string, claudeCfg claude.RunCo
 		contextCfg:   contextCfg,
 		defaultDir:   defaultDir,
 		signalBridge: signalBridge,
+		boxWaker:     boxWaker,
+		boxSSHTarget: boxSSHTarget,
 	}
 }
 
@@ -402,7 +412,10 @@ func (h *ChatHandler) SwitchBranch(c *gin.Context) {
 func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, lastUserContent string, lastUserMsgID *int64, retryCount int) {
 	threadID := thread.ID
 
-	// Determine working directory from project
+	// Determine working directory from project. For remote projects
+	// (path with "box:" prefix) we skip the MkdirAll because the directory
+	// lives on the remote host; it's the user's responsibility to ensure it
+	// exists on Box.
 	workDir := h.defaultDir
 	var projectClaudeMD string
 	var projectName, projectPath string
@@ -410,7 +423,9 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 		var project models.Project
 		if err := h.db.First(&project, "id = ?", *thread.ProjectID).Error; err == nil {
 			if project.Path != "" {
-				if err := os.MkdirAll(project.Path, 0755); err != nil {
+				if claude.IsRemotePath(project.Path) {
+					workDir = project.Path
+				} else if err := os.MkdirAll(project.Path, 0755); err != nil {
 					log.Printf("failed to create directory %s: %v", project.Path, err)
 				} else {
 					workDir = project.Path
@@ -490,6 +505,12 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 	cfg.SystemPromptFile = contextFile
 	cfg.WorkDir = workDir
 	cfg.Name = thread.Title
+	if claude.IsRemotePath(workDir) && h.boxSSHTarget != "" {
+		cfg.Remote = &claude.RemoteSpec{
+			SSHTarget: h.boxSSHTarget,
+			Waker:     h.boxWaker,
+		}
+	}
 
 	// Get or create a persistent session for this thread.
 	// The session stays alive across messages — no need for pre-warming or

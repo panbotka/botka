@@ -7,30 +7,42 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
+	"botka/internal/box"
 	"botka/internal/claude"
 	"botka/internal/models"
 )
 
 // Executor manages the lifecycle of executing a single task by spawning a Claude Code process.
+// It supports both local and remote (SSH-over-Box) projects. The same binary path is used
+// for local and remote spawns; for local projects it is resolved via exec.LookPath, while
+// for remote projects the path is passed through to ssh as-is so it resolves on the remote host.
 type Executor struct {
-	claudePath string
+	localClaudePath  string // resolved local claude binary path
+	remoteClaudePath string // unresolved claude binary path to use on the remote host
+	waker            *box.Waker
+	sshTarget        string
 }
 
 // NewExecutor creates a new Executor with the given claude binary path.
 // If claudePath is empty or "claude", it will be resolved via exec.LookPath.
-func NewExecutor(claudePath string) (*Executor, error) {
+// waker and sshTarget may be nil/empty if the deployment has no Box host;
+// remote projects will then fail fast when execution is attempted.
+func NewExecutor(claudePath string, waker *box.Waker, sshTarget string) (*Executor, error) {
 	resolved, err := exec.LookPath(claudePath)
 	if err != nil {
 		return nil, fmt.Errorf("claude CLI not found at %q: %w", claudePath, err)
 	}
-	return &Executor{claudePath: resolved}, nil
+	return &Executor{
+		localClaudePath:  resolved,
+		remoteClaudePath: claudePath,
+		waker:            waker,
+		sshTarget:        sshTarget,
+	}, nil
 }
 
 // ExecutionResult holds the outcome of a task execution attempt.
@@ -66,14 +78,19 @@ const (
 func (e *Executor) Execute(
 	ctx context.Context, task *models.Task, project *models.Project, buffer *Buffer,
 ) (*ExecutionResult, error) {
-	if _, err := os.Stat(project.Path); os.IsNotExist(err) {
-		return nil, fmt.Errorf("project directory does not exist: %s", project.Path)
+	pr := newProjectRunner(project, e.waker, e.sshTarget, e.remoteClaudePath)
+	if pr.isRemote() && e.sshTarget == "" {
+		return nil, fmt.Errorf("remote project %q has no SSH target configured", project.Path)
 	}
-	if err := e.syncSpec(task, project); err != nil {
+
+	if err := pr.exists(ctx); err != nil {
+		return nil, err
+	}
+	if err := e.syncSpec(ctx, pr, task); err != nil {
 		return nil, fmt.Errorf("spec sync failed: %w", err)
 	}
 	if project.BranchStrategy == "feature_branch" {
-		if err := e.setupBranch(ctx, task, project); err != nil {
+		if err := e.setupBranch(ctx, pr, task); err != nil {
 			slog.Warn("branch setup failed", "error", err, "task_id", task.ID)
 		}
 	}
@@ -81,7 +98,7 @@ func (e *Executor) Execute(
 	execCtx, cancel := context.WithTimeout(ctx, execTimeout)
 	defer cancel()
 
-	out, err := e.spawnClaude(execCtx, e.claudePath, task, project, buffer)
+	out, err := e.spawnClaude(execCtx, pr, task, buffer)
 	if err != nil {
 		return nil, err
 	}
@@ -99,21 +116,24 @@ func (e *Executor) Execute(
 	result := classifyOutcome(out, task)
 
 	if result.Status == models.TaskStatusDone {
-		e.maybeVerify(ctx, project, result)
+		e.maybeVerify(ctx, pr, result)
 	}
 	if isSuccessful(result.Status) && project.BranchStrategy == "feature_branch" {
-		e.pushAndCreatePR(ctx, task, project)
+		e.pushAndCreatePR(ctx, pr, task)
 	}
 	return result, nil
 }
 
-// CaptureGitHEAD returns the current git HEAD SHA for the given project directory.
-func CaptureGitHEAD(projectPath string) string {
-	cmd := exec.Command("git", "rev-parse", "HEAD")
-	cmd.Dir = projectPath
-	out, err := cmd.Output()
+// CaptureGitHEAD returns the current git HEAD SHA for the given project.
+// For remote projects it dispatches via SSH; for local projects it runs git
+// in-process. Returns an empty string on any error.
+func CaptureGitHEAD(project *models.Project, waker *box.Waker, sshTarget string) string {
+	pr := newProjectRunner(project, waker, sshTarget, "")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd // capture-head timeout
+	defer cancel()
+	out, err := pr.runGit(ctx, "rev-parse", "HEAD")
 	if err != nil {
-		slog.Warn("failed to capture git HEAD", "path", projectPath, "error", err)
+		slog.Warn("failed to capture git HEAD", "path", project.Path, "error", err)
 		return ""
 	}
 	return strings.TrimSpace(string(out))
@@ -122,53 +142,42 @@ func CaptureGitHEAD(projectPath string) string {
 // GitRevert resets the project to the given HEAD SHA and cleans untracked files.
 // If the project uses feature_branch strategy, it also checks out the default branch
 // and deletes the feature branch.
-func GitRevert(projectPath, headSHA string, task *models.Task, project *models.Project) {
+func GitRevert(
+	project *models.Project, waker *box.Waker, sshTarget, headSHA string, task *models.Task,
+) {
 	if headSHA == "" {
 		slog.Info("no git HEAD SHA stored, skipping revert", "task_id", task.ID)
 		return
 	}
-
 	slog.Info("reverting git changes", "task_id", task.ID, "head_sha", headSHA)
 
-	// git reset --hard <sha>
-	resetCmd := exec.Command("git", "reset", "--hard", headSHA) //nolint:gosec // trusted SHA
-	resetCmd.Dir = projectPath
-	if out, err := resetCmd.CombinedOutput(); err != nil {
+	pr := newProjectRunner(project, waker, sshTarget, "")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute) //nolint:mnd // revert budget
+	defer cancel()
+
+	if out, err := pr.runGit(ctx, "reset", "--hard", headSHA); err != nil {
 		slog.Error("git reset failed", "task_id", task.ID, "error", err, "output", string(out))
 	}
-
-	// git clean -fd
-	cleanCmd := exec.Command("git", "clean", "-fd")
-	cleanCmd.Dir = projectPath
-	if out, err := cleanCmd.CombinedOutput(); err != nil {
+	if out, err := pr.runGit(ctx, "clean", "-fd"); err != nil {
 		slog.Error("git clean failed", "task_id", task.ID, "error", err, "output", string(out))
 	}
 
 	if project.BranchStrategy == "feature_branch" {
 		branchName := fmt.Sprintf("botka/task-%s", task.ID)
 
-		// Determine default branch
 		defaultBranch := "main"
-		dbCmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD", "--short")
-		dbCmd.Dir = projectPath
-		if out, err := dbCmd.Output(); err == nil {
+		if out, err := pr.runGit(ctx, "symbolic-ref", "refs/remotes/origin/HEAD", "--short"); err == nil {
 			parts := strings.SplitN(strings.TrimSpace(string(out)), "/", 2) //nolint:mnd
 			if len(parts) == 2 {                                            //nolint:mnd
 				defaultBranch = parts[1]
 			}
 		}
 
-		// git checkout <default-branch>
-		coCmd := exec.Command("git", "checkout", defaultBranch) //nolint:gosec // trusted branch name
-		coCmd.Dir = projectPath
-		if out, err := coCmd.CombinedOutput(); err != nil {
-			slog.Error("git checkout default branch failed", "task_id", task.ID, "error", err, "output", string(out))
+		if out, err := pr.runGit(ctx, "checkout", defaultBranch); err != nil {
+			slog.Error("git checkout default branch failed",
+				"task_id", task.ID, "error", err, "output", string(out))
 		}
-
-		// git branch -D <feature-branch>
-		delCmd := exec.Command("git", "branch", "-D", branchName) //nolint:gosec // UUID branch name
-		delCmd.Dir = projectPath
-		if out, err := delCmd.CombinedOutput(); err != nil {
+		if out, err := pr.runGit(ctx, "branch", "-D", branchName); err != nil {
 			slog.Warn("git branch delete failed", "task_id", task.ID, "error", err, "output", string(out))
 		}
 	}
@@ -176,25 +185,18 @@ func GitRevert(projectPath, headSHA string, task *models.Task, project *models.P
 	slog.Info("git revert completed", "task_id", task.ID)
 }
 
-func (e *Executor) syncSpec(task *models.Task, project *models.Project) error {
-	specDir := filepath.Join(project.Path, "docs", "specs")
-	if err := os.MkdirAll(specDir, 0o750); err != nil {
-		return err
-	}
-	specFile := filepath.Join(specDir, fmt.Sprintf("task-%s.md", task.ID))
-	return os.WriteFile(specFile, []byte(task.Spec), 0o600) //nolint:gosec // spec file in project dir
+func (e *Executor) syncSpec(ctx context.Context, pr *projectRunner, task *models.Task) error {
+	relPath := fmt.Sprintf("docs/specs/task-%s.md", task.ID)
+	return pr.writeFile(ctx, relPath, []byte(task.Spec))
 }
 
-func (e *Executor) setupBranch(ctx context.Context, task *models.Task, project *models.Project) error {
+func (e *Executor) setupBranch(ctx context.Context, pr *projectRunner, task *models.Task) error {
 	branchName := fmt.Sprintf("botka/task-%s", task.ID)
-	cmd := exec.CommandContext(ctx, "git", "checkout", "-b", branchName) //nolint:gosec // UUID branch name
-	cmd.Dir = project.Path
-	if err := cmd.Run(); err != nil {
-		cmd = exec.CommandContext(ctx, "git", "checkout", branchName) //nolint:gosec // UUID branch name
-		cmd.Dir = project.Path
-		return cmd.Run()
+	if _, err := pr.runGit(ctx, "checkout", "-b", branchName); err == nil {
+		return nil
 	}
-	return nil
+	_, err := pr.runGit(ctx, "checkout", branchName)
+	return err
 }
 
 func (e *Executor) buildPrompt(task *models.Task) string {
@@ -238,26 +240,71 @@ func isBotkaProject(project *models.Project) bool {
 	return name == "botka" || strings.HasSuffix(project.Path, "/botka")
 }
 
+// buildSpawnCmd returns an exec.Cmd that runs claude with the given args in
+// the project's working directory. For local projects it runs the resolved
+// local claude binary with cmd.Dir set; for remote projects it wraps the
+// invocation in an SSH call to Box. Remote projects call EnsureUp first.
+func (e *Executor) buildSpawnCmd(
+	ctx context.Context, pr *projectRunner, claudeArgs []string,
+) (*exec.Cmd, error) {
+	if pr.isRemote() {
+		if err := pr.ensureWake(ctx); err != nil {
+			return nil, err
+		}
+		sshArgs := buildTaskSSHArgs(pr.remote.SSHTarget, pr.remoteDir, e.remoteClaudePath, claudeArgs)
+		return exec.CommandContext(ctx, sshArgs[0], sshArgs[1:]...), nil //nolint:gosec // args are controlled
+	}
+	cmd := exec.CommandContext(ctx, e.localClaudePath, claudeArgs...) //nolint:gosec // args are controlled
+	cmd.Dir = pr.project.Path
+	return cmd, nil
+}
+
+// buildTaskSSHArgs assembles an ssh argv that cd's into remoteDir and exec's
+// claude with the given args. Task execution's claude invocation has the
+// prompt already baked into claudeArgs (as a -p value), so this helper does
+// not accept a separate prompt like the chat runner's BuildSSHArgs.
+func buildTaskSSHArgs(sshTarget, remoteDir, claudePath string, claudeArgs []string) []string {
+	var sb strings.Builder
+	sb.WriteString("cd ")
+	sb.WriteString(shellQuote(remoteDir))
+	sb.WriteString(" && exec ")
+	sb.WriteString(shellQuote(claudePath))
+	for _, a := range claudeArgs {
+		sb.WriteByte(' ')
+		sb.WriteString(shellQuote(a))
+	}
+	return []string{
+		"ssh",
+		"-o", "BatchMode=yes",
+		"-o", "ServerAliveInterval=30",
+		"-o", "ServerAliveCountMax=3",
+		"-o", "StrictHostKeyChecking=no",
+		sshTarget,
+		sb.String(),
+	}
+}
+
 func (e *Executor) spawnClaude(
-	ctx context.Context, claudePath string, task *models.Task,
-	project *models.Project, buffer *Buffer,
+	ctx context.Context, pr *projectRunner, task *models.Task, buffer *Buffer,
 ) (*spawnOutput, error) {
-	args := []string{
+	claudeArgs := []string{
 		"--dangerously-skip-permissions", "--verbose",
 		"--output-format", "stream-json",
 	}
 	systemPrompt := nonInteractivePrompt
-	if isBotkaProject(project) {
+	if isBotkaProject(pr.project) {
 		systemPrompt += " " + botkaSafetyPrompt
 	}
-	args = append(args, "--append-system-prompt", systemPrompt)
-	args = append(args, "-p", e.buildPrompt(task))
+	claudeArgs = append(claudeArgs, "--append-system-prompt", systemPrompt)
+	claudeArgs = append(claudeArgs, "-p", e.buildPrompt(task))
 
-	cmd := exec.CommandContext(ctx, claudePath, args...) //nolint:gosec // args are controlled
-	cmd.Dir = project.Path
+	cmd, err := e.buildSpawnCmd(ctx, pr, claudeArgs)
+	if err != nil {
+		return nil, err
+	}
 	cmd.Env = append(claude.SanitizedEnv(), "BOTKA_TASK_AGENT=1")
-	// Use a process group so we can kill the entire tree (claude + child processes)
-	// on timeout or cancellation, not just the top-level process.
+	// Use a process group so we can kill the entire tree (claude + child processes,
+	// or the ssh client + its children) on timeout or cancellation.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
 	cmd.WaitDelay = gracefulStopTimeout
@@ -381,41 +428,31 @@ func isAPIError(output string) bool {
 	return false
 }
 
-func (e *Executor) maybeVerify(ctx context.Context, project *models.Project, result *ExecutionResult) {
-	if project.VerificationCommand == nil || *project.VerificationCommand == "" {
+func (e *Executor) maybeVerify(ctx context.Context, pr *projectRunner, result *ExecutionResult) {
+	if pr.project.VerificationCommand == nil || *pr.project.VerificationCommand == "" {
 		return
 	}
 	verCtx, cancel := context.WithTimeout(ctx, verifyTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(verCtx, "bash", "-c", *project.VerificationCommand) //nolint:gosec // user-configured
-	cmd.Dir = project.Path
-	output, err := cmd.CombinedOutput()
+	output, err := pr.runInProject(verCtx, "bash", "-c", *pr.project.VerificationCommand)
 	if err != nil {
 		result.Status = models.TaskStatusNeedsReview
 		result.Summary += fmt.Sprintf("\n\nVerification failed:\n%s", string(output))
-		slog.Warn("verification failed", "project", project.Name, "error", err)
+		slog.Warn("verification failed", "project", pr.project.Name, "error", err)
 	}
 }
 
-func (e *Executor) pushAndCreatePR(ctx context.Context, task *models.Task, project *models.Project) {
+func (e *Executor) pushAndCreatePR(ctx context.Context, pr *projectRunner, task *models.Task) {
 	branchName := fmt.Sprintf("botka/task-%s", task.ID)
-	cmd := exec.CommandContext(ctx, "git", "push", "-u", "origin", branchName) //nolint:gosec // UUID branch
-	cmd.Dir = project.Path
-	if err := cmd.Run(); err != nil {
+	if _, err := pr.runGit(ctx, "push", "-u", "origin", branchName); err != nil {
 		slog.Warn("git push failed", "error", err, "task_id", task.ID)
 		return
 	}
-	ghPath, err := exec.LookPath("gh")
-	if err != nil {
-		slog.Info("gh CLI not available, skipping PR creation")
-		return
-	}
+	// gh is expected to be installed on whichever host runs the project.
 	title := fmt.Sprintf("botka: %s", task.Title)
 	body := fmt.Sprintf("Automated task implementation\n\nTask ID: %s", task.ID)
-	prCmd := exec.CommandContext(ctx, ghPath, "pr", "create", "--title", title, "--body", body) //nolint:gosec
-	prCmd.Dir = project.Path
-	if err := prCmd.Run(); err != nil {
+	if _, err := pr.runInProject(ctx, "gh", "pr", "create", "--title", title, "--body", body); err != nil {
 		slog.Warn("PR creation failed", "error", err, "task_id", task.ID)
 	}
 }
