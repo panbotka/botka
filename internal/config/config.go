@@ -39,6 +39,7 @@ type Config struct {
 	BoxWOLCommand        string
 	KeepaliveEnabled     bool
 	KeepaliveInterval    time.Duration
+	SignalCLIURL         string
 }
 
 // Load reads configuration from the .env file and environment variables.
@@ -122,6 +123,7 @@ func Load() (*Config, error) {
 		BoxWOLCommand:        getEnv("BOX_WOL_COMMAND", "/home/pi/bin/boxon"),
 		KeepaliveEnabled:     keepaliveEnabled,
 		KeepaliveInterval:    keepaliveInterval,
+		SignalCLIURL:         getEnv("SIGNAL_CLI_URL", "http://127.0.0.1:5107"),
 	}, nil
 }
 

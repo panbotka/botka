@@ -260,6 +260,20 @@ func TestLoad_Defaults(t *testing.T) {
 	if !sliceEqual(cfg.AvailableModels, want) {
 		t.Errorf("AvailableModels = %v, want %v", cfg.AvailableModels, want)
 	}
+	if cfg.SignalCLIURL != "http://127.0.0.1:5107" {
+		t.Errorf("SignalCLIURL = %q, want %q", cfg.SignalCLIURL, "http://127.0.0.1:5107")
+	}
+}
+
+func TestLoad_SignalCLIURLOverride(t *testing.T) {
+	t.Setenv("SIGNAL_CLI_URL", "http://signal.example:5999")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+	if cfg.SignalCLIURL != "http://signal.example:5999" {
+		t.Errorf("SignalCLIURL = %q, want override", cfg.SignalCLIURL)
+	}
 }
 
 func TestLoad_InvalidMaxWorkers(t *testing.T) {
