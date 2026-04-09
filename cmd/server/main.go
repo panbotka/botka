@@ -9,7 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/signal"
+	ossignal "os/signal"
 	"strconv"
 	"strings"
 	"syscall"
@@ -28,6 +28,7 @@ import (
 	"botka/internal/middleware"
 	"botka/internal/projects"
 	"botka/internal/runner"
+	"botka/internal/signal"
 	"botka/internal/static"
 )
 
@@ -200,6 +201,10 @@ func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gi
 	threadSourceHandler := handlers.NewThreadSourceHandler(db)
 	handlers.RegisterThreadSourceRoutes(v1, threadSourceHandler)
 
+	signalClient := signal.NewClient(cfg.SignalCLIURL)
+	signalHandler := handlers.NewSignalHandler(db, signalClient)
+	handlers.RegisterSignalRoutes(v1, signalHandler)
+
 	claudeCfg := claude.RunConfig{ClaudePath: cfg.ClaudePath}
 	contextCfg := claude.ContextConfig{
 		OpenClawWorkspace: cfg.OpenClawWorkspace,
@@ -281,7 +286,7 @@ func startServer(handler http.Handler, port string) error {
 	}()
 
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	ossignal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
 	slog.Info("shutting down server")

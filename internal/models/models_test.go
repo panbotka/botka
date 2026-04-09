@@ -31,6 +31,7 @@ func TestTableNames(t *testing.T) {
 		{name: "Setting", model: &Setting{}, want: "app_settings"},
 		{name: "Session", model: &Session{}, want: "sessions"},
 		{name: "ThreadSource", model: &ThreadSource{}, want: "thread_sources"},
+		{name: "SignalBridge", model: &SignalBridge{}, want: "signal_bridges"},
 		{name: "WebAuthnCredential", model: &WebAuthnCredential{}, want: "webauthn_credentials"},
 	}
 
