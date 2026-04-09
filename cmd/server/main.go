@@ -112,7 +112,29 @@ func run() error {
 	taskRunner.RestoreState()
 	defer taskRunner.Shutdown()
 
-	router := setupRouter(db, cfg, taskRunner)
+	// Signal bridge: relays messages between Signal group chats and Botka
+	// threads. The bridge shares the Claude session manager with the chat
+	// handler so incoming Signal messages and UI chat messages serialize on
+	// the same per-thread mutex.
+	signalClient := signal.NewClient(cfg.SignalCLIURL)
+	signalBridge := signal.NewBridge(signal.BridgeConfig{
+		DB:     db,
+		Client: signalClient,
+		ClaudeCfg: claude.RunConfig{
+			ClaudePath: cfg.ClaudePath,
+		},
+		ContextCfg: claude.ContextConfig{
+			OpenClawWorkspace: cfg.OpenClawWorkspace,
+			ContextDir:        cfg.ClaudeContextDir,
+		},
+		DefaultModel:   cfg.AIModel,
+		DefaultWorkDir: cfg.ClaudeDefaultWorkDir,
+	})
+	bridgeCtx, bridgeCancel := context.WithCancel(context.Background())
+	defer bridgeCancel()
+	signalBridge.Start(bridgeCtx)
+
+	router := setupRouter(db, cfg, taskRunner, signalClient, signalBridge)
 
 	return startServer(router, cfg.Port)
 }
@@ -144,7 +166,7 @@ func runMCP() error {
 }
 
 // setupRouter creates the Gin router with API, MCP, and frontend routes.
-func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gin.Engine {
+func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner, signalClient *signal.Client, signalBridge *signal.Bridge) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Recovery(), gin.Logger(), middleware.CORS())
 
@@ -201,7 +223,6 @@ func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gi
 	threadSourceHandler := handlers.NewThreadSourceHandler(db)
 	handlers.RegisterThreadSourceRoutes(v1, threadSourceHandler)
 
-	signalClient := signal.NewClient(cfg.SignalCLIURL)
 	signalHandler := handlers.NewSignalHandler(db, signalClient)
 	handlers.RegisterSignalRoutes(v1, signalHandler)
 
@@ -210,7 +231,7 @@ func setupRouter(db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner) *gi
 		OpenClawWorkspace: cfg.OpenClawWorkspace,
 		ContextDir:        cfg.ClaudeContextDir,
 	}
-	chatHandler := handlers.NewChatHandler(db, cfg.AIModel, cfg.UploadDir, claudeCfg, contextCfg, cfg.ClaudeDefaultWorkDir)
+	chatHandler := handlers.NewChatHandler(db, cfg.AIModel, cfg.UploadDir, claudeCfg, contextCfg, cfg.ClaudeDefaultWorkDir, signalBridge)
 	handlers.RegisterChatRoutes(v1, chatHandler)
 
 	messageHandler := handlers.NewMessageHandler(db)

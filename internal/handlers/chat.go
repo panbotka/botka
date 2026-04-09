@@ -19,6 +19,7 @@ import (
 
 	"botka/internal/claude"
 	"botka/internal/models"
+	"botka/internal/signal"
 )
 
 var allowedMimeTypes = map[string]bool{
@@ -58,23 +59,27 @@ func isTransientError(msg string) bool {
 
 // ChatHandler handles chat message sending and streaming.
 type ChatHandler struct {
-	db         *gorm.DB
-	model      string
-	uploadDir  string
-	claudeCfg  claude.RunConfig
-	contextCfg claude.ContextConfig
-	defaultDir string
+	db           *gorm.DB
+	model        string
+	uploadDir    string
+	claudeCfg    claude.RunConfig
+	contextCfg   claude.ContextConfig
+	defaultDir   string
+	signalBridge *signal.Bridge
 }
 
-// NewChatHandler creates a new ChatHandler with the given dependencies.
-func NewChatHandler(db *gorm.DB, model, uploadDir string, claudeCfg claude.RunConfig, contextCfg claude.ContextConfig, defaultDir string) *ChatHandler {
+// NewChatHandler creates a new ChatHandler with the given dependencies. The
+// signalBridge may be nil, in which case outgoing messages are not forwarded
+// to Signal.
+func NewChatHandler(db *gorm.DB, model, uploadDir string, claudeCfg claude.RunConfig, contextCfg claude.ContextConfig, defaultDir string, signalBridge *signal.Bridge) *ChatHandler {
 	return &ChatHandler{
-		db:         db,
-		model:      model,
-		uploadDir:  uploadDir,
-		claudeCfg:  claudeCfg,
-		contextCfg: contextCfg,
-		defaultDir: defaultDir,
+		db:           db,
+		model:        model,
+		uploadDir:    uploadDir,
+		claudeCfg:    claudeCfg,
+		contextCfg:   contextCfg,
+		defaultDir:   defaultDir,
+		signalBridge: signalBridge,
 	}
 }
 
@@ -167,6 +172,10 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		return
 	}
 	h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("updated_at", time.Now())
+
+	// Forward the user's message to Signal if the thread has an active bridge
+	// so that Signal participants see both sides of the conversation.
+	h.signalBridge.ForwardToSignal(c.Request.Context(), threadID, "user", content)
 
 	// Save uploaded files and collect successful attachments
 	var attachments []*models.Attachment
@@ -716,31 +725,38 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 			}
 			if err := h.db.Create(&assistantMsg).Error; err != nil {
 				log.Printf("failed to save assistant message: %v", err)
-			} else if len(writtenFiles) > 0 {
-				// Deduplicate by file path — keep only the last Write per path
-				seen := make(map[string]bool)
-				var unique []writeToolCall
-				for i := len(writtenFiles) - 1; i >= 0; i-- {
-					if !seen[writtenFiles[i].FilePath] {
-						seen[writtenFiles[i].FilePath] = true
-						unique = append(unique, writtenFiles[i])
-					}
-				}
+			} else {
+				// Forward the assistant reply to the linked Signal group if
+				// this thread has an active bridge. Best-effort: errors are
+				// logged by the bridge and never surface to the chat client.
+				h.signalBridge.ForwardToSignal(c.Request.Context(), threadID, "assistant", assistantContent)
 
-				var attachments []models.Attachment
-				for _, wf := range unique {
-					if att := h.captureWrittenFile(assistantMsg.ID, wf.FilePath); att != nil {
-						attachments = append(attachments, *att)
+				if len(writtenFiles) > 0 {
+					// Deduplicate by file path — keep only the last Write per path
+					seen := make(map[string]bool)
+					var unique []writeToolCall
+					for i := len(writtenFiles) - 1; i >= 0; i-- {
+						if !seen[writtenFiles[i].FilePath] {
+							seen[writtenFiles[i].FilePath] = true
+							unique = append(unique, writtenFiles[i])
+						}
 					}
-				}
 
-				if len(attachments) > 0 {
-					attJSON, _ := json.Marshal(attachments)
-					sseData := fmt.Sprintf("event: attachments\ndata: %s\n\n", attJSON)
-					claude.Streams.Publish(threadID, sseData)
-					if !clientDisconnected {
-						fmt.Fprint(c.Writer, sseData)
-						flusher.Flush()
+					var attachments []models.Attachment
+					for _, wf := range unique {
+						if att := h.captureWrittenFile(assistantMsg.ID, wf.FilePath); att != nil {
+							attachments = append(attachments, *att)
+						}
+					}
+
+					if len(attachments) > 0 {
+						attJSON, _ := json.Marshal(attachments)
+						sseData := fmt.Sprintf("event: attachments\ndata: %s\n\n", attJSON)
+						claude.Streams.Publish(threadID, sseData)
+						if !clientDisconnected {
+							fmt.Fprint(c.Writer, sseData)
+							flusher.Flush()
+						}
 					}
 				}
 			}
