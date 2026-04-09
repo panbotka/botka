@@ -43,11 +43,19 @@ type activeTask struct {
 }
 
 // ActiveTaskInfo provides a read-only summary of a running task for the API.
+//
+// Orphaned is true when the task is marked 'running' in the database but is
+// not tracked by any in-memory executor. This happens after a process restart
+// if the previous instance's Claude Code subprocess outlived the Botka
+// process, or if RestoreState has not yet requeued the task. The dashboard
+// renders these distinctly so operators can see that the runner's in-memory
+// view disagrees with the database.
 type ActiveTaskInfo struct {
 	TaskID      uuid.UUID `json:"task_id"`
 	TaskTitle   string    `json:"task_title"`
 	ProjectName string    `json:"project_name"`
 	StartedAt   time.Time `json:"started_at"`
+	Orphaned    bool      `json:"orphaned,omitempty"`
 }
 
 // Status reports the current state of the scheduler.
@@ -271,11 +279,16 @@ func (r *Runner) Resume() {
 }
 
 // GetStatus returns the current state of the runner for the API.
+//
+// The active task list is the union of the in-memory executors and any tasks
+// marked 'running' in the database that are not tracked in memory. The latter
+// are returned with Orphaned=true so the dashboard never shows "Stopped 0/N
+// active" while the database still has running tasks (e.g. because a prior
+// process exited before its Claude Code subprocess finished).
 func (r *Runner) GetStatus() Status {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	tasks := make([]ActiveTaskInfo, 0, len(r.executors))
+	inMem := make(map[uuid.UUID]struct{}, len(r.executors))
 	for _, at := range r.executors {
 		tasks = append(tasks, ActiveTaskInfo{
 			TaskID:      at.task.ID,
@@ -283,18 +296,62 @@ func (r *Runner) GetStatus() Status {
 			ProjectName: at.task.Project.Name,
 			StartedAt:   at.execution.StartedAt,
 		})
+		inMem[at.task.ID] = struct{}{}
 	}
+	inMemCount := len(r.executors)
+	state := r.state
+	maxWorkers := r.maxWorkers
+	taskLimit := r.taskLimit
+	completedCount := r.completedCount
+	r.mu.RUnlock()
+
+	tasks = append(tasks, r.loadOrphanedRunningTasks(inMem)...)
 
 	usage := r.usageMon.CurrentUsage()
 	return Status{
-		State:          r.state,
+		State:          state,
 		ActiveTasks:    tasks,
-		MaxWorkers:     r.maxWorkers,
-		Draining:       len(r.executors) > r.maxWorkers,
+		MaxWorkers:     maxWorkers,
+		Draining:       inMemCount > maxWorkers,
 		Usage:          &usage,
-		TaskLimit:      r.taskLimit,
-		CompletedCount: r.completedCount,
+		TaskLimit:      taskLimit,
+		CompletedCount: completedCount,
 	}
+}
+
+// loadOrphanedRunningTasks queries the database for tasks with status 'running'
+// whose IDs are not in inMem and returns them as ActiveTaskInfo entries with
+// Orphaned=true. Errors are logged but do not fail the status response.
+func (r *Runner) loadOrphanedRunningTasks(inMem map[uuid.UUID]struct{}) []ActiveTaskInfo {
+	if r.db == nil {
+		return nil
+	}
+	var dbRunning []models.Task
+	if err := r.db.Preload("Project").
+		Where("status = ?", models.TaskStatusRunning).
+		Find(&dbRunning).Error; err != nil {
+		slog.Warn("failed to query running tasks for status", "error", err)
+		return nil
+	}
+	orphans := make([]ActiveTaskInfo, 0)
+	for i := range dbRunning {
+		t := &dbRunning[i]
+		if _, ok := inMem[t.ID]; ok {
+			continue
+		}
+		started := t.UpdatedAt
+		if t.StartedAt != nil {
+			started = *t.StartedAt
+		}
+		orphans = append(orphans, ActiveTaskInfo{
+			TaskID:      t.ID,
+			TaskTitle:   t.Title,
+			ProjectName: t.Project.Name,
+			StartedAt:   started,
+			Orphaned:    true,
+		})
+	}
+	return orphans
 }
 
 // RefreshUsage triggers an immediate usage poll and returns the updated info.

@@ -480,6 +480,165 @@ func TestRestoreState_RecoversOrphanedTasksWhenPaused(t *testing.T) {
 	}
 }
 
+func TestGetStatus_IncludesOrphanedRunningTasks(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	// Simulate a previous process that left a task in running state but whose
+	// in-memory executors map is empty (e.g. Botka restarted while the Claude
+	// subprocess was still alive, or RestoreState has not yet been called).
+	proj := createProject(t, db, "project-orphan-status")
+	orphan := createTask(t, db, proj.ID, "orphan-task", models.TaskStatusRunning)
+
+	r := &Runner{
+		db:         db,
+		state:      models.StateStopped,
+		maxWorkers: 2,
+		executors:  make(map[uuid.UUID]*activeTask),
+		buffers:    make(map[uuid.UUID]*Buffer),
+		usageMon:   &UsageMonitor{done: make(chan struct{})},
+	}
+
+	status := r.GetStatus()
+
+	if len(status.ActiveTasks) != 1 {
+		t.Fatalf("expected 1 active task (the orphan), got %d", len(status.ActiveTasks))
+	}
+	got := status.ActiveTasks[0]
+	if got.TaskID != orphan.ID {
+		t.Errorf("expected orphan task ID %v, got %v", orphan.ID, got.TaskID)
+	}
+	if !got.Orphaned {
+		t.Error("expected orphaned=true for DB-only running task")
+	}
+	if got.ProjectName != proj.Name {
+		t.Errorf("expected project name %q, got %q", proj.Name, got.ProjectName)
+	}
+	if status.State != models.StateStopped {
+		t.Errorf("expected state stopped, got %q", status.State)
+	}
+	if status.Draining {
+		t.Error("orphaned tasks should not set Draining")
+	}
+}
+
+func TestGetStatus_TrackedTasksNotMarkedOrphaned(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	proj := createProject(t, db, "project-tracked")
+	task := createTask(t, db, proj.ID, "tracked-task", models.TaskStatusRunning)
+	task.Project = proj
+
+	r := &Runner{
+		db:         db,
+		state:      models.StateRunning,
+		maxWorkers: 2,
+		executors:  make(map[uuid.UUID]*activeTask),
+		buffers:    make(map[uuid.UUID]*Buffer),
+		usageMon:   &UsageMonitor{done: make(chan struct{})},
+	}
+	startedAt := time.Now().Add(-30 * time.Second)
+	r.executors[proj.ID] = &activeTask{
+		task:      &task,
+		execution: &models.TaskExecution{TaskID: task.ID, StartedAt: startedAt},
+	}
+
+	status := r.GetStatus()
+
+	if len(status.ActiveTasks) != 1 {
+		t.Fatalf("expected exactly 1 active task, got %d", len(status.ActiveTasks))
+	}
+	got := status.ActiveTasks[0]
+	if got.TaskID != task.ID {
+		t.Errorf("expected task ID %v, got %v", task.ID, got.TaskID)
+	}
+	if got.Orphaned {
+		t.Error("expected orphaned=false for in-memory tracked task")
+	}
+	if !got.StartedAt.Equal(startedAt) {
+		t.Errorf("expected started_at to come from execution (%v), got %v", startedAt, got.StartedAt)
+	}
+}
+
+func TestGetStatus_MixedTrackedAndOrphaned(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	projTracked := createProject(t, db, "project-mixed-tracked")
+	projOrphan := createProject(t, db, "project-mixed-orphan")
+
+	tracked := createTask(t, db, projTracked.ID, "tracked", models.TaskStatusRunning)
+	tracked.Project = projTracked
+	orphan := createTask(t, db, projOrphan.ID, "orphan", models.TaskStatusRunning)
+
+	r := &Runner{
+		db:         db,
+		state:      models.StateRunning,
+		maxWorkers: 2,
+		executors:  make(map[uuid.UUID]*activeTask),
+		buffers:    make(map[uuid.UUID]*Buffer),
+		usageMon:   &UsageMonitor{done: make(chan struct{})},
+	}
+	r.executors[projTracked.ID] = &activeTask{
+		task:      &tracked,
+		execution: &models.TaskExecution{TaskID: tracked.ID, StartedAt: time.Now()},
+	}
+
+	status := r.GetStatus()
+
+	if len(status.ActiveTasks) != 2 {
+		t.Fatalf("expected 2 active tasks (1 tracked + 1 orphaned), got %d", len(status.ActiveTasks))
+	}
+
+	var trackedInfo, orphanInfo *ActiveTaskInfo
+	for i := range status.ActiveTasks {
+		switch status.ActiveTasks[i].TaskID {
+		case tracked.ID:
+			trackedInfo = &status.ActiveTasks[i]
+		case orphan.ID:
+			orphanInfo = &status.ActiveTasks[i]
+		}
+	}
+
+	if trackedInfo == nil {
+		t.Fatal("tracked task missing from active_tasks")
+	}
+	if trackedInfo.Orphaned {
+		t.Error("tracked task should not be flagged orphaned")
+	}
+	if orphanInfo == nil {
+		t.Fatal("orphan task missing from active_tasks")
+	}
+	if !orphanInfo.Orphaned {
+		t.Error("db-only task should be flagged orphaned")
+	}
+}
+
+func TestGetStatus_NoRunningTasksReturnsEmpty(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	proj := createProject(t, db, "project-empty")
+	// A queued task exists but no running tasks.
+	createTask(t, db, proj.ID, "queued-only", models.TaskStatusQueued)
+
+	r := &Runner{
+		db:         db,
+		state:      models.StatePaused,
+		maxWorkers: 2,
+		executors:  make(map[uuid.UUID]*activeTask),
+		buffers:    make(map[uuid.UUID]*Buffer),
+		usageMon:   &UsageMonitor{done: make(chan struct{})},
+	}
+
+	status := r.GetStatus()
+
+	if len(status.ActiveTasks) != 0 {
+		t.Errorf("expected no active tasks, got %d", len(status.ActiveTasks))
+	}
+}
+
 func TestKillTask_IdempotentAfterCompletion(t *testing.T) {
 	// After a task finishes, its executor is removed. A second kill should return an error.
 	r := &Runner{

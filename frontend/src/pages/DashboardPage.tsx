@@ -237,9 +237,11 @@ function RunnerControls({ status, onStart, onPause, onStop, toggling }: {
   toggling: boolean
 }) {
   const [taskCount, setTaskCount] = useState('')
-  const activeCount = status.active_tasks.length
+  const trackedCount = status.active_tasks.filter((t) => !t.orphaned).length
+  const orphanedCount = status.active_tasks.length - trackedCount
   const cfg = runnerStateConfig[status.state]
   const hasLimit = status.task_limit > 0
+  const showOrphanWarning = orphanedCount > 0 && status.state !== 'running'
 
   function handleStart() {
     const n = parseInt(taskCount, 10)
@@ -259,8 +261,17 @@ function RunnerControls({ status, onStart, onPause, onStop, toggling }: {
             </span>
           )}
           <span className="text-sm text-zinc-500">
-            {activeCount}/{status.max_workers} active
+            {trackedCount}/{status.max_workers} active
           </span>
+          {orphanedCount > 0 && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+              title="Tasks marked running in the database that are not tracked by the current runner process."
+            >
+              <AlertTriangle className="h-3 w-3" />
+              {orphanedCount} orphaned
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {status.state !== 'running' && (
@@ -309,16 +320,38 @@ function RunnerControls({ status, onStart, onPause, onStop, toggling }: {
           )}
         </div>
       </div>
+      {showOrphanWarning && (
+        <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            {orphanedCount === 1 ? 'A task is' : `${orphanedCount} tasks are`} marked running in the database but not tracked by the runner. This usually means the runner restarted while a task was executing.
+          </span>
+        </div>
+      )}
       {status.active_tasks.length > 0 && (
         <div className="mt-3 space-y-1.5">
           {status.active_tasks.map((t) => (
             <Link
               key={t.task_id}
               to={`/tasks/${t.task_id}`}
-              className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-zinc-50/50"
+              className={clsx(
+                'flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-zinc-50/50',
+                t.orphaned && 'bg-amber-50/50 dark:bg-amber-950/30',
+              )}
             >
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
-              <span className="truncate text-zinc-700">{t.task_title}</span>
+              {t.orphaned ? (
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+              ) : (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
+              )}
+              <span className={clsx('truncate', t.orphaned ? 'text-amber-800 dark:text-amber-300' : 'text-zinc-700')}>
+                {t.task_title}
+              </span>
+              {t.orphaned && (
+                <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                  orphaned
+                </span>
+              )}
               <span className="ml-auto shrink-0 text-xs text-zinc-400 dark:text-zinc-500">{t.project_name}</span>
             </Link>
           ))}

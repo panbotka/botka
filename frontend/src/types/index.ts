@@ -142,6 +142,7 @@ export interface ActiveTaskInfo {
   task_title: string
   project_name: string
   started_at: string
+  orphaned?: boolean
 }
 
 // ── Threads (from Chatovadlo) ──

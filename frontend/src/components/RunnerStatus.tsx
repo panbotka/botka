@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Play, Pause, Square } from 'lucide-react'
+import { Play, Pause, Square, AlertTriangle } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { RunnerStatus as RunnerStatusType } from '../types'
 
@@ -28,7 +28,8 @@ const stateConfig = {
 
 export function RunnerStatus({ status, onStart, onPause, onStop, toggling }: RunnerStatusProps) {
   const [taskCount, setTaskCount] = useState('')
-  const activeCount = status.active_tasks.length
+  const trackedCount = status.active_tasks.filter((t) => !t.orphaned).length
+  const orphanedCount = status.active_tasks.length - trackedCount
   const cfg = stateConfig[status.state]
   const hasLimit = status.task_limit > 0
 
@@ -50,8 +51,17 @@ export function RunnerStatus({ status, onStart, onPause, onStop, toggling }: Run
             </span>
           )}
           <span className="text-sm text-zinc-500">
-            {activeCount}/{status.max_workers} active
+            {trackedCount}/{status.max_workers} active
           </span>
+          {orphanedCount > 0 && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700"
+              title="Tasks marked running in the database that are not tracked by the current runner process."
+            >
+              <AlertTriangle className="h-3 w-3" />
+              {orphanedCount} orphaned
+            </span>
+          )}
           {status.draining && (
             <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
               draining
