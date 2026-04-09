@@ -1,4 +1,4 @@
-import type { Project, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, SignalBridge, SignalGroup } from '../types'
+import type { Project, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -906,6 +906,10 @@ export function fetchBoxStatus(): Promise<BoxStatus> {
   return requestData<BoxStatus>('/box/status')
 }
 
+export function fetchBoxProjects(): Promise<BoxProjectsResponse> {
+  return requestData<BoxProjectsResponse>('/box/projects')
+}
+
 export function wakeBox(): Promise<{ message: string }> {
   return requestData<{ message: string }>('/box/wake', { method: 'POST' })
 }
@@ -1014,6 +1018,7 @@ export const api = {
   revokeUserThread,
   // Box
   fetchBoxStatus,
+  fetchBoxProjects,
   wakeBox,
   shutdownBox,
   startBoxService,

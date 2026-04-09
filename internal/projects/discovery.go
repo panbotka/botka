@@ -123,6 +123,8 @@ func upsertProject(db *gorm.DB, dp DiscoveredProject) error {
 }
 
 // deactivateMissing sets active=false on projects whose paths are not in the given set.
+// Remote box: prefixed projects are skipped because they are managed by the
+// dedicated Box projects listing endpoint, not the local filesystem scan.
 func deactivateMissing(db *gorm.DB, discoveredPaths map[string]struct{}) error {
 	var allProjects []models.Project
 	if err := db.Find(&allProjects).Error; err != nil {
@@ -130,6 +132,9 @@ func deactivateMissing(db *gorm.DB, discoveredPaths map[string]struct{}) error {
 	}
 
 	for _, project := range allProjects {
+		if strings.HasPrefix(project.Path, "box:") {
+			continue
+		}
 		if _, found := discoveredPaths[project.Path]; !found && project.Active {
 			if err := db.Model(&project).Update("active", false).Error; err != nil {
 				return fmt.Errorf("deactivating project %q: %w", project.Name, err)

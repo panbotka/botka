@@ -282,7 +282,7 @@ func setupRouter(
 	statusHandler := handlers.NewStatusHandler(cfg.AIModel, cfg.AvailableModels, cfg.WhisperEnabled)
 	handlers.RegisterStatusRoutes(v1, statusHandler)
 
-	boxHandler := handlers.NewBoxHandler(cfg.BoxHost, cfg.BoxSSHUser, cfg.BoxWOLCommand)
+	boxHandler := handlers.NewBoxHandler(db, cfg.BoxHost, cfg.BoxSSHUser, cfg.BoxWOLCommand)
 	handlers.RegisterBoxRoutes(v1, boxHandler)
 
 	settingsHandler := handlers.NewSettingsHandler(db)

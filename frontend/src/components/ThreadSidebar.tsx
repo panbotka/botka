@@ -9,10 +9,11 @@ import ModelPicker from './ModelPicker'
 import ThreadSourcesEditor from './ThreadSourcesEditor'
 import CustomContextEditor from './CustomContextEditor'
 import SignalBridgeEditor from './SignalBridgeEditor'
+import BoxStatusBadge from './BoxStatusBadge'
 import {
   Plus, Search, Pin, Archive, MoreVertical, Pencil,
   Trash2, Download, Cpu, Tag as TagIcon, ChevronRight,
-  X, ChevronDown, FolderGit2, Globe, FileText, Palette, MessageSquare,
+  X, ChevronDown, FolderGit2, Globe, FileText, Palette, MessageSquare, Server,
 } from 'lucide-react'
 import { THREAD_COLORS } from '../utils/threadColors'
 
@@ -341,8 +342,19 @@ export default function ThreadSidebar({
                 </span>
               )}
               {thread.project_id && projectMap.get(thread.project_id) && (
-                <span className="text-[10px] text-zinc-400 flex items-center gap-0.5">
-                  <FolderGit2 className="w-2.5 h-2.5" />
+                <span
+                  className={`text-[10px] flex items-center gap-0.5 ${
+                    projectMap.get(thread.project_id)!.path.startsWith('box:')
+                      ? 'text-sky-500'
+                      : 'text-zinc-400'
+                  }`}
+                  title={projectMap.get(thread.project_id)!.path.startsWith('box:') ? 'Running on Box' : undefined}
+                >
+                  {projectMap.get(thread.project_id)!.path.startsWith('box:') ? (
+                    <Server className="w-2.5 h-2.5" />
+                  ) : (
+                    <FolderGit2 className="w-2.5 h-2.5" />
+                  )}
                   <span className="truncate max-w-[80px]">{projectMap.get(thread.project_id)!.name}</span>
                 </span>
               )}
@@ -841,7 +853,7 @@ export default function ThreadSidebar({
         </div>
 
         {/* Footer */}
-        <div className="p-3 border-t border-zinc-200 flex items-center">
+        <div className="p-3 border-t border-zinc-200 flex items-center justify-between gap-2">
           <button
             onClick={onToggleArchived}
             className={`flex items-center gap-1.5 px-2 py-1.5 text-xs rounded-lg
@@ -854,6 +866,7 @@ export default function ThreadSidebar({
             <Archive className="w-3.5 h-3.5" />
             {showArchived ? 'Hide archived' : 'Archived'}
           </button>
+          <BoxStatusBadge />
         </div>
       </aside>
       {modelPickerModal}

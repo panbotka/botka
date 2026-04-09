@@ -9,8 +9,9 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import ChatView from '../components/ChatView'
 import ThreadSidebar from '../components/ThreadSidebar'
 import ProcessBar from '../components/ProcessBar'
-import ProjectPicker from '../components/ProjectPicker'
+import ProjectPicker, { isBoxProject } from '../components/ProjectPicker'
 import CommandButtons from '../components/CommandButtons'
+import BoxRunningIndicator from '../components/BoxRunningIndicator'
 import { MessageSquare, ArrowLeft } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
@@ -224,10 +225,14 @@ export default function ChatPage() {
               </div>
               {activeThread && (
                 <>
+                  {activeProject && isBoxProject(activeProject) && (
+                    <BoxRunningIndicator />
+                  )}
                   <ProjectPicker
                     projects={projects}
                     currentProjectId={activeThread.project_id}
                     onSelect={(projectId) => handleProjectChange(activeThread.id, projectId)}
+                    onBoxProjectsChanged={loadProjects}
                   />
                   <CommandButtons project={activeProject} />
                   <span className="text-[11px] text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md flex-shrink-0">
@@ -303,10 +308,14 @@ export default function ChatPage() {
               </div>
               {activeThread && (
                 <>
+                  {activeProject && isBoxProject(activeProject) && (
+                    <BoxRunningIndicator />
+                  )}
                   <ProjectPicker
                     projects={projects}
                     currentProjectId={activeThread.project_id}
                     onSelect={(projectId) => handleProjectChange(activeThread.id, projectId)}
+                    onBoxProjectsChanged={loadProjects}
                   />
                   <CommandButtons project={activeProject} />
                   <span className="text-[11px] text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md flex-shrink-0">

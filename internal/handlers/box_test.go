@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -34,7 +35,7 @@ func boxRouter(h *BoxHandler) *gin.Engine {
 }
 
 func newTestBoxHandler(runner *mockCommandRunner) *BoxHandler {
-	h := NewBoxHandler("10.0.0.1", "testuser", "/usr/bin/wol")
+	h := NewBoxHandler(nil, "10.0.0.1", "testuser", "/usr/bin/wol")
 	h.runner = runner
 	return h
 }
@@ -214,6 +215,199 @@ func TestBoxHandler_Status_ResponseShape(t *testing.T) {
 		if svc.Status != "stopped" {
 			t.Errorf("expected service %s to be stopped, got %s", svc.Name, svc.Status)
 		}
+	}
+}
+
+func TestParseBoxProjectNames(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		expect []string
+	}{
+		{
+			name: "directories only",
+			input: `botka/
+saiduler/
+README.md
+notes.txt
+`,
+			expect: []string{"botka", "saiduler"},
+		},
+		{
+			name: "sorted output",
+			input: `zeta/
+alpha/
+middle/
+`,
+			expect: []string{"alpha", "middle", "zeta"},
+		},
+		{
+			name:   "empty",
+			input:  "",
+			expect: nil,
+		},
+		{
+			name: "hidden directories skipped",
+			input: `.git/
+.cache/
+visible/
+`,
+			expect: []string{"visible"},
+		},
+		{
+			name: "blank lines tolerated",
+			input: `
+
+foo/
+
+bar/
+`,
+			expect: []string{"bar", "foo"},
+		},
+		{
+			name: "non-directory entries skipped",
+			input: `file.txt
+dir/
+another_file
+`,
+			expect: []string{"dir"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseBoxProjectNames(tc.input)
+			if len(got) != len(tc.expect) {
+				t.Fatalf("expected %v, got %v", tc.expect, got)
+			}
+			for i, v := range got {
+				if v != tc.expect[i] {
+					t.Errorf("index %d: expected %q, got %q", i, tc.expect[i], v)
+				}
+			}
+		})
+	}
+}
+
+func TestBoxHandler_ListProjects_Offline(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	h := NewBoxHandler(db, "10.0.0.1", "testuser", "/usr/bin/wol")
+	// runner intentionally not set — host is unreachable so we return before SSH.
+
+	r := boxRouter(h)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/box/projects", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			Data   []boxProjectEntry `json:"data"`
+			Online bool              `json:"online"`
+			Note   string            `json:"note"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Data.Online {
+		t.Error("expected online=false for unreachable host")
+	}
+	if resp.Data.Note == "" {
+		t.Error("expected note when box is offline")
+	}
+	if len(resp.Data.Data) != 0 {
+		t.Errorf("expected empty data, got %v", resp.Data.Data)
+	}
+}
+
+func TestBoxHandler_UpsertBoxProjects_Idempotent(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	h := NewBoxHandler(db, "10.0.0.1", "testuser", "/usr/bin/wol")
+
+	names := []string{"appone", "apptwo"}
+	entries, err := h.upsertBoxProjects(names)
+	if err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+	for _, e := range entries {
+		if e.ID == "" {
+			t.Errorf("expected non-empty id, got %+v", e)
+		}
+		if !strings.HasPrefix(e.Path, "box:") {
+			t.Errorf("expected box: prefix, got %q", e.Path)
+		}
+	}
+
+	// Second call must return the same IDs (reactivation path).
+	entries2, err := h.upsertBoxProjects(names)
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if len(entries2) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries2))
+	}
+	for i := range entries {
+		if entries[i].ID != entries2[i].ID {
+			t.Errorf("entry %d id changed: %q vs %q", i, entries[i].ID, entries2[i].ID)
+		}
+	}
+}
+
+func TestBoxHandler_ListProjects_NoDatabase(t *testing.T) {
+	// Without a database, the endpoint must fail cleanly instead of panicking.
+	h := NewBoxHandler(nil, "10.0.0.1", "testuser", "/usr/bin/wol")
+	r := boxRouter(h)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/box/projects", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestBoxHandler_ListProjects_Cached(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	h := NewBoxHandler(db, "10.0.0.1", "testuser", "/usr/bin/wol")
+	// Seed cache directly so we don't rely on SSH.
+	h.storeCachedProjects([]boxProjectEntry{{ID: "abc", Name: "cached-app", Path: "box:/home/box/projects/cached-app"}})
+
+	r := boxRouter(h)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/box/projects", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Data struct {
+			Data   []boxProjectEntry `json:"data"`
+			Online bool              `json:"online"`
+			Cached bool              `json:"cached"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !resp.Data.Cached {
+		t.Error("expected cached=true")
+	}
+	if len(resp.Data.Data) != 1 || resp.Data.Data[0].Name != "cached-app" {
+		t.Errorf("unexpected data: %+v", resp.Data.Data)
 	}
 }
 

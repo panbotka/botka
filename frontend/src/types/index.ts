@@ -350,6 +350,19 @@ export interface BoxStatus {
   services: BoxServiceStatus[]
 }
 
+export interface BoxProject {
+  id: string
+  name: string
+  path: string
+}
+
+export interface BoxProjectsResponse {
+  data: BoxProject[]
+  online: boolean
+  note?: string
+  cached?: boolean
+}
+
 // Cost analytics types
 
 export interface ModelTokens {

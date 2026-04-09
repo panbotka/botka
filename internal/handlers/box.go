@@ -2,13 +2,20 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"os/exec"
+	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+
+	"botka/internal/models"
 )
 
 // BoxService describes a known service running on the box server.
@@ -56,18 +63,41 @@ func (e *execCommandRunner) Run(ctx context.Context, name string, args ...string
 	return exec.CommandContext(ctx, name, args...).CombinedOutput()
 }
 
+// boxProjectsRoot is the directory on Box scanned for project subdirectories.
+const boxProjectsRoot = "/home/box/projects"
+
+// boxProjectsCacheTTL bounds how long a successful project listing is cached.
+const boxProjectsCacheTTL = 2 * time.Minute
+
 // BoxHandler handles box server management endpoints.
 type BoxHandler struct {
+	db         *gorm.DB
 	host       string
 	sshUser    string
 	wolCommand string
 	services   []BoxService
 	runner     CommandRunner
+
+	// projectsCache stores the last successful Box project listing so
+	// repeated UI polls within boxProjectsCacheTTL skip the SSH round-trip.
+	projectsMu       sync.Mutex
+	projectsCachedAt time.Time
+	projectsCache    []boxProjectEntry
+}
+
+// boxProjectEntry represents a single remote project returned to the frontend.
+type boxProjectEntry struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Path string `json:"path"`
 }
 
 // NewBoxHandler creates a new BoxHandler with the given configuration.
-func NewBoxHandler(host, sshUser, wolCommand string) *BoxHandler {
+// The db argument may be nil for tests that only exercise non-project endpoints;
+// the projects endpoint requires a database.
+func NewBoxHandler(db *gorm.DB, host, sshUser, wolCommand string) *BoxHandler {
 	return &BoxHandler{
+		db:         db,
 		host:       host,
 		sshUser:    sshUser,
 		wolCommand: wolCommand,
@@ -80,6 +110,7 @@ func NewBoxHandler(host, sshUser, wolCommand string) *BoxHandler {
 func RegisterBoxRoutes(rg *gin.RouterGroup, h *BoxHandler) {
 	box := rg.Group("/box")
 	box.GET("/status", h.Status)
+	box.GET("/projects", h.ListProjects)
 	box.POST("/wake", h.Wake)
 	box.POST("/shutdown", h.Shutdown)
 	box.POST("/services/:name/start", h.StartService)
@@ -191,6 +222,176 @@ func (h *BoxHandler) StopService(c *gin.Context) {
 	}
 
 	respondOK(c, gin.H{"message": fmt.Sprintf("service %s stopped", name)})
+}
+
+// ListProjects returns the set of project directories discovered on Box.
+// When Box is offline or unreachable, it returns an empty list and sets
+// `online: false` with a human-readable note. Successful results are cached
+// in memory for boxProjectsCacheTTL to avoid hammering SSH on repeat polls.
+//
+// As a side effect, discovered directories are upserted into the projects
+// table with paths prefixed by the remote marker ("box:") so they can be
+// referenced as normal Project rows elsewhere in the app (e.g. by threads).
+func (h *BoxHandler) ListProjects(c *gin.Context) {
+	if h.db == nil {
+		respondError(c, http.StatusInternalServerError, "box handler not configured with database")
+		return
+	}
+
+	// Cache hit — serve stored entries without touching Box.
+	if cached, ok := h.cachedProjects(); ok {
+		respondOK(c, gin.H{
+			"data":   cached,
+			"online": true,
+			"cached": true,
+		})
+		return
+	}
+
+	if !h.isOnline() {
+		respondOK(c, gin.H{
+			"data":   []boxProjectEntry{},
+			"online": false,
+			"note":   "Box is offline — start it to browse remote projects.",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	sshTarget := fmt.Sprintf("%s@%s", h.sshUser, h.host)
+	// Use -1 for one entry per line; -p marks directories with a trailing slash;
+	// BatchMode avoids interactive prompts. The remote command lists immediate
+	// children of boxProjectsRoot and filters to directories (trailing slash).
+	output, err := h.runner.Run(ctx,
+		"ssh",
+		"-o", "BatchMode=yes",
+		"-o", "ConnectTimeout=5",
+		"-o", "StrictHostKeyChecking=no",
+		sshTarget,
+		"ls", "-1p", boxProjectsRoot,
+	)
+	if err != nil {
+		respondError(c, http.StatusBadGateway, fmt.Sprintf("failed to list box projects: %s: %s", err, strings.TrimSpace(string(output))))
+		return
+	}
+
+	names := parseBoxProjectNames(string(output))
+	entries, err := h.upsertBoxProjects(names)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, fmt.Sprintf("failed to sync box projects: %s", err))
+		return
+	}
+
+	h.storeCachedProjects(entries)
+
+	respondOK(c, gin.H{
+		"data":   entries,
+		"online": true,
+		"cached": false,
+	})
+}
+
+// parseBoxProjectNames extracts plain directory names from `ls -1p` output.
+// Directories are marked with a trailing slash; hidden entries (dot-prefixed)
+// and non-directories are discarded. The result is sorted for stability.
+func parseBoxProjectNames(output string) []string {
+	var names []string
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, ".") {
+			continue
+		}
+		if !strings.HasSuffix(line, "/") {
+			continue
+		}
+		name := strings.TrimSuffix(line, "/")
+		if name == "" || strings.ContainsAny(name, "/\\") {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// upsertBoxProjects creates or reactivates Project rows for each discovered
+// remote directory and returns the corresponding entries. Existing box: rows
+// that are no longer present on Box are left alone (not auto-deactivated),
+// since a transient filesystem issue should not invalidate them.
+func (h *BoxHandler) upsertBoxProjects(names []string) ([]boxProjectEntry, error) {
+	entries := make([]boxProjectEntry, 0, len(names))
+	for _, name := range names {
+		path := "box:" + boxProjectsRoot + "/" + name
+
+		var existing models.Project
+		err := h.db.Where("path = ?", path).First(&existing).Error
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			project := models.Project{
+				Name:           name,
+				Path:           path,
+				BranchStrategy: "main",
+				Active:         true,
+			}
+			if createErr := h.db.Create(&project).Error; createErr != nil {
+				return nil, fmt.Errorf("creating box project %q: %w", name, createErr)
+			}
+			entries = append(entries, boxProjectEntry{
+				ID:   project.ID.String(),
+				Name: project.Name,
+				Path: project.Path,
+			})
+		case err != nil:
+			return nil, fmt.Errorf("querying box project %q: %w", name, err)
+		default:
+			// Reactivate if previously deactivated and keep the name in sync.
+			updates := map[string]any{}
+			if !existing.Active {
+				updates["active"] = true
+			}
+			if existing.Name != name {
+				updates["name"] = name
+			}
+			if len(updates) > 0 {
+				if updateErr := h.db.Model(&existing).Updates(updates).Error; updateErr != nil {
+					return nil, fmt.Errorf("updating box project %q: %w", name, updateErr)
+				}
+			}
+			entries = append(entries, boxProjectEntry{
+				ID:   existing.ID.String(),
+				Name: name,
+				Path: path,
+			})
+		}
+	}
+	return entries, nil
+}
+
+// cachedProjects returns the last cached box project list if still fresh.
+func (h *BoxHandler) cachedProjects() ([]boxProjectEntry, bool) {
+	h.projectsMu.Lock()
+	defer h.projectsMu.Unlock()
+	if h.projectsCachedAt.IsZero() {
+		return nil, false
+	}
+	if time.Since(h.projectsCachedAt) >= boxProjectsCacheTTL {
+		return nil, false
+	}
+	// Return a copy so callers can't mutate the cache.
+	cp := make([]boxProjectEntry, len(h.projectsCache))
+	copy(cp, h.projectsCache)
+	return cp, true
+}
+
+// storeCachedProjects saves the given entries as the cached project list.
+func (h *BoxHandler) storeCachedProjects(entries []boxProjectEntry) {
+	h.projectsMu.Lock()
+	defer h.projectsMu.Unlock()
+	h.projectsCache = make([]boxProjectEntry, len(entries))
+	copy(h.projectsCache, entries)
+	h.projectsCachedAt = time.Now()
 }
 
 // isOnline checks if the box is reachable via TCP on port 22 (SSH).
