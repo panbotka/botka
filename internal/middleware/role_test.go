@@ -71,6 +71,13 @@ func TestIsAllowedExternalPath(t *testing.T) {
 		{"/api/v1/search", "GET", false},
 		// Non-numeric thread ID
 		{"/api/v1/threads/abc", "GET", false},
+		// File/upload serving — GET allowed
+		{"/api/v1/uploads/abc123.jpg", "GET", true},
+		{"/api/v1/uploads/somefile.pdf", "GET", true},
+		{"/api/v1/files/1", "GET", true},
+		{"/api/v1/files/1/download", "GET", true},
+		// File/upload serving — non-GET forbidden
+		{"/api/v1/uploads/abc123.jpg", "DELETE", false},
 	}
 
 	for _, tt := range tests {

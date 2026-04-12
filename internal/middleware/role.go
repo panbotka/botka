@@ -154,6 +154,11 @@ func isAllowedExternalPath(path, method string) bool {
 		return true
 	}
 
+	// File/upload serving (attachments on messages).
+	if method == "GET" && (strings.HasPrefix(path, "/api/v1/uploads/") || strings.HasPrefix(path, "/api/v1/files/")) {
+		return true
+	}
+
 	return false
 }
 
