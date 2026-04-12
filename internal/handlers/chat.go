@@ -32,7 +32,9 @@ var allowedMimeTypes = map[string]bool{
 	"text/plain":      true,
 }
 
-// extToMime maps file extensions to MIME types for AI-generated file detection.
+// extToMime maps supported AI-generated file extensions to MIME types.
+// The set is fixed by spec: images (png, jpg/jpeg, gif, webp) plus pdf,
+// html, json, csv. Files with other extensions are not auto-attached.
 var extToMime = map[string]string{
 	".png":  "image/png",
 	".jpg":  "image/jpeg",
@@ -40,11 +42,9 @@ var extToMime = map[string]string{
 	".gif":  "image/gif",
 	".webp": "image/webp",
 	".pdf":  "application/pdf",
-	".txt":  "text/plain",
-	".md":   "text/plain",
-	".csv":  "text/csv",
 	".html": "text/html",
-	".svg":  "image/svg+xml",
+	".json": "application/json",
+	".csv":  "text/csv",
 }
 
 const maxUploadSize = 10 << 20 // 10 MB
@@ -577,7 +577,7 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 	var lastErrorMsg string
 	var lastCostUSD float64
 	var lastInputTokens, lastOutputTokens int
-	var writtenFiles []writeToolCall
+	collectedPaths := newPathCollector()
 	var collectedToolCalls []models.ToolCall
 
 	for event := range stream {
@@ -634,15 +634,10 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 				Input: event.ToolInput,
 			})
 
-			// Collect Write/Edit tool calls for AI-generated file attachment
-			if event.ToolName == "Write" || event.ToolName == "Edit" {
-				var toolInput struct {
-					FilePath string `json:"file_path"`
-				}
-				if json.Unmarshal(event.ToolInput, &toolInput) == nil && toolInput.FilePath != "" {
-					writtenFiles = append(writtenFiles, writeToolCall{FilePath: toolInput.FilePath})
-				}
-			}
+			// Collect candidate file paths from this tool_use so they can
+			// be auto-attached to the assistant message after streaming
+			// completes.
+			collectedPaths.fromToolUse(event.ToolName, event.ToolInput)
 
 		case claude.KindToolResult:
 			hasContent = true
@@ -656,6 +651,13 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 			if !clientDisconnected {
 				fmt.Fprint(c.Writer, sseData)
 				flusher.Flush()
+			}
+
+			// Scan successful tool_result content for absolute file paths.
+			// Errors are skipped because their output usually references
+			// failed/missing files that we should not try to attach.
+			if !event.ToolIsError {
+				collectedPaths.fromToolResult(event.ToolContent)
 			}
 
 		case claude.KindResult:
@@ -752,20 +754,11 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 				// logged by the bridge and never surface to the chat client.
 				h.signalBridge.ForwardToSignal(c.Request.Context(), threadID, "assistant", assistantContent)
 
-				if len(writtenFiles) > 0 {
-					// Deduplicate by file path — keep only the last Write per path
-					seen := make(map[string]bool)
-					var unique []writeToolCall
-					for i := len(writtenFiles) - 1; i >= 0; i-- {
-						if !seen[writtenFiles[i].FilePath] {
-							seen[writtenFiles[i].FilePath] = true
-							unique = append(unique, writtenFiles[i])
-						}
-					}
-
+				paths := collectedPaths.paths()
+				if len(paths) > 0 {
 					var attachments []models.Attachment
-					for _, wf := range unique {
-						if att := h.captureWrittenFile(assistantMsg.ID, wf.FilePath); att != nil {
+					for _, p := range paths {
+						if att := h.captureWrittenFile(assistantMsg.ID, p); att != nil {
 							attachments = append(attachments, *att)
 						}
 					}
@@ -1010,11 +1003,6 @@ func (h *ChatHandler) saveUploadedFile(messageID int64, fh *multipart.FileHeader
 	}
 
 	return &attachment, nil
-}
-
-// writeToolCall records a Write or Edit tool call with the target file path.
-type writeToolCall struct {
-	FilePath string
 }
 
 // captureWrittenFile copies a file from disk to the uploads directory and creates
