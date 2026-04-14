@@ -487,8 +487,11 @@ func TestGetStatus_IncludesOrphanedRunningTasks(t *testing.T) {
 	// Simulate a previous process that left a task in running state but whose
 	// in-memory executors map is empty (e.g. Botka restarted while the Claude
 	// subprocess was still alive, or RestoreState has not yet been called).
+	// started_at must be older than orphanGracePeriod to be detected.
 	proj := createProject(t, db, "project-orphan-status")
 	orphan := createTask(t, db, proj.ID, "orphan-task", models.TaskStatusRunning)
+	oldStart := time.Now().Add(-2 * time.Minute)
+	db.Model(&orphan).Update("started_at", oldStart)
 
 	r := &Runner{
 		db:         db,
@@ -571,6 +574,8 @@ func TestGetStatus_MixedTrackedAndOrphaned(t *testing.T) {
 	tracked := createTask(t, db, projTracked.ID, "tracked", models.TaskStatusRunning)
 	tracked.Project = projTracked
 	orphan := createTask(t, db, projOrphan.ID, "orphan", models.TaskStatusRunning)
+	oldStart := time.Now().Add(-2 * time.Minute)
+	db.Model(&orphan).Update("started_at", oldStart)
 
 	r := &Runner{
 		db:         db,
@@ -636,6 +641,67 @@ func TestGetStatus_NoRunningTasksReturnsEmpty(t *testing.T) {
 
 	if len(status.ActiveTasks) != 0 {
 		t.Errorf("expected no active tasks, got %d", len(status.ActiveTasks))
+	}
+}
+
+func TestGetStatus_GracePeriodHidesRecentlyStartedTask(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	// A task that just transitioned to running (within grace period) should
+	// NOT appear as orphaned even though it has no in-memory executor yet.
+	// This covers the race between claimTask (DB commit) and launchTask.
+	proj := createProject(t, db, "project-grace")
+	recentStart := time.Now().Add(-5 * time.Second)
+	task := createTask(t, db, proj.ID, "just-claimed", models.TaskStatusRunning)
+	db.Model(&task).Update("started_at", recentStart)
+
+	r := &Runner{
+		db:         db,
+		state:      models.StateRunning,
+		maxWorkers: 2,
+		executors:  make(map[uuid.UUID]*activeTask),
+		buffers:    make(map[uuid.UUID]*Buffer),
+		usageMon:   &UsageMonitor{done: make(chan struct{})},
+	}
+
+	status := r.GetStatus()
+
+	if len(status.ActiveTasks) != 0 {
+		t.Fatalf("expected 0 active tasks (grace period should hide recently started task), got %d", len(status.ActiveTasks))
+	}
+}
+
+func TestGetStatus_GracePeriodExpiresForTrulyOrphanedTask(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	// A task that has been running long past the grace period with no executor
+	// is truly orphaned and should be reported.
+	proj := createProject(t, db, "project-expired-grace")
+	oldStart := time.Now().Add(-5 * time.Minute)
+	task := createTask(t, db, proj.ID, "stuck-task", models.TaskStatusRunning)
+	db.Model(&task).Update("started_at", oldStart)
+
+	r := &Runner{
+		db:         db,
+		state:      models.StateStopped,
+		maxWorkers: 2,
+		executors:  make(map[uuid.UUID]*activeTask),
+		buffers:    make(map[uuid.UUID]*Buffer),
+		usageMon:   &UsageMonitor{done: make(chan struct{})},
+	}
+
+	status := r.GetStatus()
+
+	if len(status.ActiveTasks) != 1 {
+		t.Fatalf("expected 1 active task (orphaned after grace period), got %d", len(status.ActiveTasks))
+	}
+	if !status.ActiveTasks[0].Orphaned {
+		t.Error("expected orphaned=true for task past grace period with no executor")
+	}
+	if status.ActiveTasks[0].TaskID != task.ID {
+		t.Errorf("expected task ID %v, got %v", task.ID, status.ActiveTasks[0].TaskID)
 	}
 }
 

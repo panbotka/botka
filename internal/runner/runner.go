@@ -33,6 +33,9 @@ import (
 const (
 	tickInterval   = 5 * time.Second
 	bufferCapacity = 1 << 20 // 1 MB
+	// Grace period before a DB-only running task is considered orphaned.
+	// Covers the window between claimTask (DB commit) and launchTask (executor map insert).
+	orphanGracePeriod = 30 * time.Second
 )
 
 // activeTask tracks a currently executing task.
@@ -321,7 +324,10 @@ func (r *Runner) GetStatus() Status {
 
 // loadOrphanedRunningTasks queries the database for tasks with status 'running'
 // whose IDs are not in inMem and returns them as ActiveTaskInfo entries with
-// Orphaned=true. Errors are logged but do not fail the status response.
+// Orphaned=true. Tasks that transitioned to running within orphanGracePeriod
+// are excluded to avoid false positives during the window between claimTask
+// (DB commit) and launchTask (executor map insertion). Errors are logged but
+// do not fail the status response.
 func (r *Runner) loadOrphanedRunningTasks(inMem map[uuid.UUID]struct{}) []ActiveTaskInfo {
 	if r.db == nil {
 		return nil
@@ -333,6 +339,7 @@ func (r *Runner) loadOrphanedRunningTasks(inMem map[uuid.UUID]struct{}) []Active
 		slog.Warn("failed to query running tasks for status", "error", err)
 		return nil
 	}
+	now := time.Now()
 	orphans := make([]ActiveTaskInfo, 0)
 	for i := range dbRunning {
 		t := &dbRunning[i]
@@ -342,6 +349,9 @@ func (r *Runner) loadOrphanedRunningTasks(inMem map[uuid.UUID]struct{}) []Active
 		started := t.UpdatedAt
 		if t.StartedAt != nil {
 			started = *t.StartedAt
+		}
+		if now.Sub(started) < orphanGracePeriod {
+			continue
 		}
 		orphans = append(orphans, ActiveTaskInfo{
 			TaskID:      t.ID,
