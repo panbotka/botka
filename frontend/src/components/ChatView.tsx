@@ -74,6 +74,9 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
   const streamingThinking = sseSession?.thinking ?? '';
   const thinkingDurationMs = sseSession?.thinkingDurationMs ?? null;
   const activeToolCalls: ActiveToolCall[] = sseSession?.toolCalls ?? [];
+  const pendingAskUserCalls = activeToolCalls.filter(
+    tc => tc.name === 'AskUserQuestion' && !tc.result,
+  );
   const reconnecting = sseSession?.reconnecting ?? null;
   const retryInfo = sseSession?.retryInfo ?? null;
   const isStreaming = sseSession?.isStreaming ?? false;
@@ -880,6 +883,13 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
                   <span />
                 </div>
               )}
+            </div>
+          )}
+          {!isStreamingThisThread && pendingAskUserCalls.length > 0 && threadId && (
+            <div className="mb-2 max-w-3xl">
+              {pendingAskUserCalls.map(tc => (
+                <AskUserPanel key={tc.id} toolCall={tc} threadId={threadId} />
+              ))}
             </div>
           )}
           {memorySuggestions.length > 0 && !isStreamingThisThread && (

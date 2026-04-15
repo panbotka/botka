@@ -32,6 +32,7 @@ export default function AskUserPanel({ toolCall, threadId }: Props) {
   const [freeText, setFreeText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const isAnswered = !!toolCall.result;
@@ -97,11 +98,15 @@ export default function AskUserPanel({ toolCall, threadId }: Props) {
   const handleSubmit = async () => {
     if (!canSubmit() || submitting) return;
     setSubmitting(true);
+    setError(null);
     try {
       await submitToolResult(threadId, toolCall.id, buildResultContent());
       setSubmitted(true);
     } catch (err) {
-      console.error('Failed to submit tool result:', err);
+      const msg = err instanceof Error ? err.message : 'Failed to submit answer';
+      setError(msg.includes('session') || msg.includes('Session')
+        ? 'Session expired. Please resend your message.'
+        : `Failed to submit: ${msg}`);
     } finally {
       setSubmitting(false);
     }
@@ -193,6 +198,12 @@ export default function AskUserPanel({ toolCall, threadId }: Props) {
         </div>
       ))}
 
+      {error && (
+        <div className="mt-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
       <div className="flex justify-end mt-3">
         <button
           onClick={handleSubmit}
@@ -204,7 +215,7 @@ export default function AskUserPanel({ toolCall, threadId }: Props) {
           }`}
         >
           <Send size={14} />
-          {submitting ? 'Sending...' : 'Submit'}
+          {submitting ? 'Sending...' : error ? 'Retry' : 'Submit'}
         </button>
       </div>
     </div>

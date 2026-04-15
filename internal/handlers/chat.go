@@ -596,98 +596,136 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 	collectedPaths := newPathCollector()
 	var collectedToolCalls []models.ToolCall
 
-	for event := range stream {
-		// Check if client disconnected — stop writing but keep reading
-		// so we can save the full response to the database.
-		if !clientDisconnected {
-			select {
-			case <-clientGone:
-				clientDisconnected = true
-				log.Printf("[chat] client disconnected for thread %d, continuing to capture response", threadID)
-			default:
+	keepaliveTicker := time.NewTicker(15 * time.Second)
+	defer keepaliveTicker.Stop()
+
+loop:
+	for {
+		select {
+		case event, ok := <-stream:
+			if !ok {
+				break loop
 			}
-		}
+			keepaliveTicker.Reset(15 * time.Second)
 
-		switch event.Kind {
-		case claude.KindContentDelta:
-			hasContent = true
-			fullResponse.WriteString(event.Text)
-			chunk, _ := json.Marshal(map[string]string{"content": event.Text})
-			sseData := fmt.Sprintf("data: %s\n\n", chunk)
-			claude.Streams.Publish(threadID, sseData)
-			if !clientDisconnected {
-				fmt.Fprint(c.Writer, sseData)
-				flusher.Flush()
-			}
+			switch event.Kind {
+			case claude.KindContentDelta:
+				hasContent = true
+				fullResponse.WriteString(event.Text)
+				chunk, _ := json.Marshal(map[string]string{"content": event.Text})
+				sseData := fmt.Sprintf("data: %s\n\n", chunk)
+				claude.Streams.Publish(threadID, sseData)
+				if !clientDisconnected {
+					fmt.Fprint(c.Writer, sseData)
+					flusher.Flush()
+				}
 
-		case claude.KindThinkingDelta:
-			hasContent = true
-			chunk, _ := json.Marshal(map[string]string{"content": event.Thinking})
-			sseData := fmt.Sprintf("event: thinking\ndata: %s\n\n", chunk)
-			claude.Streams.Publish(threadID, sseData)
-			if !clientDisconnected {
-				fmt.Fprint(c.Writer, sseData)
-				flusher.Flush()
-			}
+			case claude.KindThinkingDelta:
+				hasContent = true
+				chunk, _ := json.Marshal(map[string]string{"content": event.Thinking})
+				sseData := fmt.Sprintf("event: thinking\ndata: %s\n\n", chunk)
+				claude.Streams.Publish(threadID, sseData)
+				if !clientDisconnected {
+					fmt.Fprint(c.Writer, sseData)
+					flusher.Flush()
+				}
 
-		case claude.KindToolUse:
-			hasContent = true
-			toolJSON, _ := json.Marshal(map[string]interface{}{
-				"id":    event.ToolID,
-				"name":  event.ToolName,
-				"input": json.RawMessage(event.ToolInput),
-			})
-			sseData := fmt.Sprintf("event: tool_use\ndata: %s\n\n", toolJSON)
-			claude.Streams.Publish(threadID, sseData)
-			if !clientDisconnected {
-				fmt.Fprint(c.Writer, sseData)
-				flusher.Flush()
-			}
+			case claude.KindToolUse:
+				hasContent = true
+				toolJSON, _ := json.Marshal(map[string]interface{}{
+					"id":    event.ToolID,
+					"name":  event.ToolName,
+					"input": json.RawMessage(event.ToolInput),
+				})
+				sseData := fmt.Sprintf("event: tool_use\ndata: %s\n\n", toolJSON)
+				claude.Streams.Publish(threadID, sseData)
+				if !clientDisconnected {
+					fmt.Fprint(c.Writer, sseData)
+					flusher.Flush()
+				}
 
-			// Collect tool call for persistence
-			collectedToolCalls = append(collectedToolCalls, models.ToolCall{
-				Name:  event.ToolName,
-				Input: event.ToolInput,
-			})
+				// Collect tool call for persistence
+				collectedToolCalls = append(collectedToolCalls, models.ToolCall{
+					Name:  event.ToolName,
+					Input: event.ToolInput,
+				})
 
-			// Collect candidate file paths from this tool_use so they can
-			// be auto-attached to the assistant message after streaming
-			// completes.
-			collectedPaths.fromToolUse(event.ToolName, event.ToolInput)
+				// Collect candidate file paths from this tool_use so they can
+				// be auto-attached to the assistant message after streaming
+				// completes.
+				collectedPaths.fromToolUse(event.ToolName, event.ToolInput)
 
-		case claude.KindToolResult:
-			hasContent = true
-			resultJSON, _ := json.Marshal(map[string]interface{}{
-				"tool_use_id": event.ToolUseID,
-				"content":     event.ToolContent,
-				"is_error":    event.ToolIsError,
-			})
-			sseData := fmt.Sprintf("event: tool_result\ndata: %s\n\n", resultJSON)
-			claude.Streams.Publish(threadID, sseData)
-			if !clientDisconnected {
-				fmt.Fprint(c.Writer, sseData)
-				flusher.Flush()
-			}
+			case claude.KindToolResult:
+				hasContent = true
+				resultJSON, _ := json.Marshal(map[string]interface{}{
+					"tool_use_id": event.ToolUseID,
+					"content":     event.ToolContent,
+					"is_error":    event.ToolIsError,
+				})
+				sseData := fmt.Sprintf("event: tool_result\ndata: %s\n\n", resultJSON)
+				claude.Streams.Publish(threadID, sseData)
+				if !clientDisconnected {
+					fmt.Fprint(c.Writer, sseData)
+					flusher.Flush()
+				}
 
-			// Scan successful tool_result content for absolute file paths.
-			// Errors are skipped because their output usually references
-			// failed/missing files that we should not try to attach.
-			if !event.ToolIsError {
-				collectedPaths.fromToolResult(event.ToolContent)
-			}
+				// Scan successful tool_result content for absolute file paths.
+				// Errors are skipped because their output usually references
+				// failed/missing files that we should not try to attach.
+				if !event.ToolIsError {
+					collectedPaths.fromToolResult(event.ToolContent)
+				}
 
-		case claude.KindResult:
-			if event.IsError {
+			case claude.KindResult:
+				if event.IsError {
+					if !hasContent && isTransientError(event.ErrorMsg) {
+						shouldRetry = true
+						retryErrMsg = event.ErrorMsg
+					} else {
+						log.Printf("[chat] thread %d result error: %s", threadID, event.ErrorMsg)
+						errPayload := map[string]interface{}{"error": event.ErrorMsg}
+						if len(event.Raw) > 0 {
+							errPayload["raw"] = string(event.Raw)
+						}
+						errJSON, _ := json.Marshal(errPayload)
+						sseData := fmt.Sprintf("event: error\ndata: %s\n\n", errJSON)
+						claude.Streams.Publish(threadID, sseData)
+						if !clientDisconnected {
+							fmt.Fprint(c.Writer, sseData)
+							flusher.Flush()
+						}
+						errored = true
+						lastErrorMsg = event.ErrorMsg
+					}
+				} else {
+					if fullResponse.Len() == 0 && event.ResultText != "" {
+						fullResponse.WriteString(event.ResultText)
+					}
+					lastCostUSD = event.CostUSD
+					lastInputTokens = event.InputTokens
+					lastOutputTokens = event.OutputTokens
+					usageJSON, _ := json.Marshal(map[string]interface{}{
+						"cost_usd":      event.CostUSD,
+						"duration_ms":   event.DurationMs,
+						"num_turns":     event.NumTurns,
+						"input_tokens":  event.InputTokens,
+						"output_tokens": event.OutputTokens,
+					})
+					sseData := fmt.Sprintf("event: usage\ndata: %s\n\n", usageJSON)
+					claude.Streams.Publish(threadID, sseData)
+					if !clientDisconnected {
+						fmt.Fprint(c.Writer, sseData)
+						flusher.Flush()
+					}
+				}
+
+			case claude.KindError:
 				if !hasContent && isTransientError(event.ErrorMsg) {
 					shouldRetry = true
 					retryErrMsg = event.ErrorMsg
 				} else {
-					log.Printf("[chat] thread %d result error: %s", threadID, event.ErrorMsg)
-					errPayload := map[string]interface{}{"error": event.ErrorMsg}
-					if len(event.Raw) > 0 {
-						errPayload["raw"] = string(event.Raw)
-					}
-					errJSON, _ := json.Marshal(errPayload)
+					log.Printf("[chat] thread %d process error: %s", threadID, event.ErrorMsg)
+					errJSON, _ := json.Marshal(map[string]string{"error": event.ErrorMsg})
 					sseData := fmt.Sprintf("event: error\ndata: %s\n\n", errJSON)
 					claude.Streams.Publish(threadID, sseData)
 					if !clientDisconnected {
@@ -697,43 +735,18 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 					errored = true
 					lastErrorMsg = event.ErrorMsg
 				}
-			} else {
-				if fullResponse.Len() == 0 && event.ResultText != "" {
-					fullResponse.WriteString(event.ResultText)
-				}
-				lastCostUSD = event.CostUSD
-				lastInputTokens = event.InputTokens
-				lastOutputTokens = event.OutputTokens
-				usageJSON, _ := json.Marshal(map[string]interface{}{
-					"cost_usd":      event.CostUSD,
-					"duration_ms":   event.DurationMs,
-					"num_turns":     event.NumTurns,
-					"input_tokens":  event.InputTokens,
-					"output_tokens": event.OutputTokens,
-				})
-				sseData := fmt.Sprintf("event: usage\ndata: %s\n\n", usageJSON)
-				claude.Streams.Publish(threadID, sseData)
-				if !clientDisconnected {
-					fmt.Fprint(c.Writer, sseData)
-					flusher.Flush()
-				}
 			}
 
-		case claude.KindError:
-			if !hasContent && isTransientError(event.ErrorMsg) {
-				shouldRetry = true
-				retryErrMsg = event.ErrorMsg
-			} else {
-				log.Printf("[chat] thread %d process error: %s", threadID, event.ErrorMsg)
-				errJSON, _ := json.Marshal(map[string]string{"error": event.ErrorMsg})
-				sseData := fmt.Sprintf("event: error\ndata: %s\n\n", errJSON)
-				claude.Streams.Publish(threadID, sseData)
-				if !clientDisconnected {
-					fmt.Fprint(c.Writer, sseData)
-					flusher.Flush()
-				}
-				errored = true
-				lastErrorMsg = event.ErrorMsg
+		case <-keepaliveTicker.C:
+			if !clientDisconnected {
+				fmt.Fprint(c.Writer, ":keepalive\n\n")
+				flusher.Flush()
+			}
+
+		case <-clientGone:
+			if !clientDisconnected {
+				clientDisconnected = true
+				log.Printf("[chat] client disconnected for thread %d, continuing to capture response", threadID)
 			}
 		}
 	}
