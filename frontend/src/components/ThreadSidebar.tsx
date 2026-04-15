@@ -9,11 +9,12 @@ import ModelPicker from './ModelPicker'
 import ThreadSourcesEditor from './ThreadSourcesEditor'
 import CustomContextEditor from './CustomContextEditor'
 import SignalBridgeEditor from './SignalBridgeEditor'
+import MCPServerToggle from './MCPServerToggle'
 import BoxStatusBadge from './BoxStatusBadge'
 import {
   Plus, Search, Pin, Archive, MoreVertical, Pencil,
   Trash2, Download, Cpu, Tag as TagIcon, ChevronRight,
-  X, ChevronDown, FolderGit2, Globe, FileText, Palette, MessageSquare, Server,
+  X, ChevronDown, FolderGit2, Globe, FileText, Palette, MessageSquare, Server, Plug,
 } from 'lucide-react'
 import { THREAD_COLORS } from '../utils/threadColors'
 
@@ -68,6 +69,7 @@ export default function ThreadSidebar({
   const [sourcesThreadId, setSourcesThreadId] = useState<number | null>(null)
   const [customContextThread, setCustomContextThread] = useState<Thread | null>(null)
   const [signalBridgeThreadId, setSignalBridgeThreadId] = useState<number | null>(null)
+  const [mcpServersThreadId, setMcpServersThreadId] = useState<number | null>(null)
   const [personaDropdownOpen, setPersonaDropdownOpen] = useState(false)
   const personaDropdownRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -479,6 +481,14 @@ export default function ThreadSidebar({
                       <span className="text-[10px] text-emerald-600">Active</span>
                     )}
                   </button>
+                  <button
+                    onClick={() => { setMcpServersThreadId(thread.id); setMenuOpenId(null) }}
+                    className="w-full flex items-center gap-3 px-3 py-2
+                               text-sm text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                  >
+                    <Plug className="w-4 h-4 flex-shrink-0 text-zinc-400" />
+                    MCP Servers
+                  </button>
                   <div>
                     <button
                       onClick={() => setColorMenuThreadId(colorMenuThreadId === thread.id ? null : thread.id)}
@@ -889,6 +899,12 @@ export default function ThreadSidebar({
           threadId={signalBridgeThreadId}
           onClose={() => setSignalBridgeThreadId(null)}
           onChange={onThreadsChange}
+        />
+      )}
+      {mcpServersThreadId !== null && (
+        <MCPServerToggle
+          scope={{ type: 'thread', id: mcpServersThreadId }}
+          onClose={() => setMcpServersThreadId(null)}
         />
       )}
       {toast && (

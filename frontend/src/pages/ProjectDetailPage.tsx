@@ -23,6 +23,7 @@ import {
   Rocket,
   Square,
   ArrowUp,
+  Plug,
 } from 'lucide-react'
 import {
   fetchProject,
@@ -35,6 +36,7 @@ import {
   fetchTasks,
   updateProject,
 } from '../api/client'
+import MCPServerToggle from '../components/MCPServerToggle'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import type { Project, Task, BranchStrategy, GitCommit, GitStatus, ProjectStats, RunningCommandStatus } from '../types'
@@ -621,6 +623,17 @@ function SettingsTab({ project, onSaved }: { project: Project; onSaved: () => vo
         </div>
 
         {error && <p className="text-sm text-red-500">{error}</p>}
+      </div>
+
+      {/* MCP Servers */}
+      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <Plug className="h-4 w-4 text-zinc-500" />
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+            MCP Servers
+          </h3>
+        </div>
+        <MCPServerToggle scope={{ type: 'project', id: project.id }} />
       </div>
     </div>
   )

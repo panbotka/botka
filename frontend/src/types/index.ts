@@ -389,6 +389,15 @@ export interface MCPServer {
   updated_at: string
 }
 
+export interface MCPServerWithStatus {
+  id: number
+  name: string
+  server_type: MCPServerType
+  is_default: boolean
+  active: boolean
+  enabled: boolean
+}
+
 // Cost analytics types
 
 export interface ModelTokens {

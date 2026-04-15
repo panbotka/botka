@@ -1,4 +1,4 @@
-import type { Project, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer } from '../types'
+import type { Project, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -950,6 +950,30 @@ export function deleteMCPServer(id: number): Promise<void> {
   return request<void>(`/mcp-servers/${id}`, { method: 'DELETE' })
 }
 
+// MCP Server Assignments (per thread / project)
+
+export function fetchThreadMCPServers(threadId: number): Promise<MCPServerWithStatus[]> {
+  return requestData<MCPServerWithStatus[]>(`/threads/${threadId}/mcp-servers`)
+}
+
+export function setThreadMCPServers(threadId: number, serverIds: number[]): Promise<MCPServerWithStatus[]> {
+  return requestData<MCPServerWithStatus[]>(`/threads/${threadId}/mcp-servers`, {
+    method: 'PUT',
+    body: JSON.stringify({ mcp_server_ids: serverIds }),
+  })
+}
+
+export function fetchProjectMCPServers(projectId: string): Promise<MCPServerWithStatus[]> {
+  return requestData<MCPServerWithStatus[]>(`/projects/${projectId}/mcp-servers`)
+}
+
+export function setProjectMCPServers(projectId: string, serverIds: number[]): Promise<MCPServerWithStatus[]> {
+  return requestData<MCPServerWithStatus[]>(`/projects/${projectId}/mcp-servers`, {
+    method: 'PUT',
+    body: JSON.stringify({ mcp_server_ids: serverIds }),
+  })
+}
+
 // Convenience object for use in hooks that call api.methodName()
 export const api = {
   // Projects
@@ -1045,6 +1069,11 @@ export const api = {
   createMCPServer,
   updateMCPServer,
   deleteMCPServer,
+  // MCP Server Assignments
+  fetchThreadMCPServers,
+  setThreadMCPServers,
+  fetchProjectMCPServers,
+  setProjectMCPServers,
   // Box
   fetchBoxStatus,
   fetchBoxProjects,
