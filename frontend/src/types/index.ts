@@ -363,6 +363,32 @@ export interface BoxProjectsResponse {
   cached?: boolean
 }
 
+// ── MCP Servers ──
+
+export type MCPServerType = 'stdio' | 'sse'
+
+export interface MCPServerStdioConfig {
+  command: string
+  args?: string[]
+  env?: Record<string, string>
+}
+
+export interface MCPServerSSEConfig {
+  url: string
+  headers?: Record<string, string>
+}
+
+export interface MCPServer {
+  id: number
+  name: string
+  server_type: MCPServerType
+  config: MCPServerStdioConfig | MCPServerSSEConfig
+  is_default: boolean
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
 // Cost analytics types
 
 export interface ModelTokens {

@@ -1,4 +1,4 @@
-import type { Project, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup } from '../types'
+import type { Project, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -926,6 +926,30 @@ export function stopBoxService(name: string): Promise<{ message: string }> {
   return requestData<{ message: string }>(`/box/services/${encodeURIComponent(name)}/stop`, { method: 'POST' })
 }
 
+// MCP Servers
+
+export function fetchMCPServers(): Promise<MCPServer[]> {
+  return requestData<MCPServer[]>('/mcp-servers')
+}
+
+export function createMCPServer(data: Partial<MCPServer>): Promise<MCPServer> {
+  return requestData<MCPServer>('/mcp-servers', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export function updateMCPServer(id: number, data: Partial<MCPServer>): Promise<MCPServer> {
+  return requestData<MCPServer>(`/mcp-servers/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
+export function deleteMCPServer(id: number): Promise<void> {
+  return request<void>(`/mcp-servers/${id}`, { method: 'DELETE' })
+}
+
 // Convenience object for use in hooks that call api.methodName()
 export const api = {
   // Projects
@@ -1016,6 +1040,11 @@ export const api = {
   fetchUserThreads,
   grantUserThread,
   revokeUserThread,
+  // MCP Servers
+  fetchMCPServers,
+  createMCPServer,
+  updateMCPServer,
+  deleteMCPServer,
   // Box
   fetchBoxStatus,
   fetchBoxProjects,

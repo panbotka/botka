@@ -20,6 +20,10 @@ import {
   KeyRound,
   Users,
   FolderGit2,
+  Server,
+  Star,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 
 import { useSettings, type Theme, type FontSize } from '../context/SettingsContext'
@@ -39,6 +43,10 @@ import {
   createMemory,
   updateMemory,
   deleteMemory,
+  fetchMCPServers,
+  createMCPServer,
+  updateMCPServer,
+  deleteMCPServer,
   getModels,
   getTranscribeStatus,
   fetchServerSettings,
@@ -51,7 +59,7 @@ import {
   passkeyRegisterFinish,
   type PasskeyInfo,
 } from '../api/client'
-import type { Persona, Tag, Memory } from '../types'
+import type { Persona, Tag, Memory, MCPServer, MCPServerType, MCPServerStdioConfig, MCPServerSSEConfig } from '../types'
 import UsersTab from '../components/UsersTab'
 import { ProjectsContent } from './ProjectsPage'
 
@@ -70,7 +78,7 @@ const TAG_COLORS = [
   { name: 'Pink', hex: '#EC4899' },
 ]
 
-type TabId = 'general' | 'security' | 'users' | 'runner' | 'personas' | 'tags' | 'memories' | 'voice' | 'projects'
+type TabId = 'general' | 'security' | 'users' | 'runner' | 'personas' | 'tags' | 'memories' | 'voice' | 'projects' | 'mcp-servers'
 
 interface TabDef {
   id: TabId
@@ -87,6 +95,7 @@ const TABS: TabDef[] = [
   { id: 'personas', label: 'Personas', icon: User },
   { id: 'tags', label: 'Tags', icon: TagIcon },
   { id: 'memories', label: 'Memories', icon: Brain },
+  { id: 'mcp-servers', label: 'MCP Servers', icon: Server },
   { id: 'voice', label: 'Voice', icon: Mic },
 ]
 
@@ -1333,6 +1342,585 @@ function VoiceTab() {
   )
 }
 
+// ── Key-Value Pair Editor ──
+
+function KeyValueEditor({
+  pairs,
+  onChange,
+  keyPlaceholder = 'Key',
+  valuePlaceholder = 'Value',
+  maskValues = false,
+}: {
+  pairs: [string, string][]
+  onChange: (pairs: [string, string][]) => void
+  keyPlaceholder?: string
+  valuePlaceholder?: string
+  maskValues?: boolean
+}) {
+  const [visibleIndices, setVisibleIndices] = useState<Set<number>>(new Set())
+
+  function updatePair(idx: number, field: 0 | 1, value: string) {
+    const updated = pairs.map((p, i) => (i === idx ? (field === 0 ? [value, p[1]] : [p[0], value]) as [string, string] : p))
+    onChange(updated)
+  }
+
+  function removePair(idx: number) {
+    onChange(pairs.filter((_, i) => i !== idx))
+    setVisibleIndices((prev) => {
+      const next = new Set<number>()
+      prev.forEach((i) => { if (i < idx) next.add(i); else if (i > idx) next.add(i - 1) })
+      return next
+    })
+  }
+
+  function addPair() {
+    onChange([...pairs, ['', '']])
+  }
+
+  function toggleVisibility(idx: number) {
+    setVisibleIndices((prev) => {
+      const next = new Set(prev)
+      if (next.has(idx)) next.delete(idx)
+      else next.add(idx)
+      return next
+    })
+  }
+
+  return (
+    <div className="space-y-2">
+      {pairs.map(([key, value], idx) => (
+        <div key={idx} className="flex items-center gap-2">
+          <input
+            type="text"
+            value={key}
+            onChange={(e) => updatePair(idx, 0, e.target.value)}
+            className="flex-1 rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+            placeholder={keyPlaceholder}
+          />
+          <div className="flex-1 flex items-center gap-1">
+            <input
+              type={maskValues && !visibleIndices.has(idx) ? 'password' : 'text'}
+              value={value}
+              onChange={(e) => updatePair(idx, 1, e.target.value)}
+              className="flex-1 rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              placeholder={valuePlaceholder}
+            />
+            {maskValues && (
+              <button
+                type="button"
+                onClick={() => toggleVisibility(idx)}
+                className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
+                title={visibleIndices.has(idx) ? 'Hide value' : 'Show value'}
+              >
+                {visibleIndices.has(idx) ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => removePair(idx)}
+            className="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
+            title="Remove"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={addPair}
+        className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100"
+      >
+        <Plus className="h-3 w-3" />
+        Add
+      </button>
+    </div>
+  )
+}
+
+// ── MCP Servers Tab ──
+
+interface MCPServerForm {
+  name: string
+  server_type: MCPServerType
+  is_default: boolean
+  active: boolean
+  command: string
+  args: string
+  env: [string, string][]
+  url: string
+  headers: [string, string][]
+}
+
+const EMPTY_MCP_FORM: MCPServerForm = {
+  name: '',
+  server_type: 'stdio',
+  is_default: false,
+  active: true,
+  command: '',
+  args: '',
+  env: [],
+  url: '',
+  headers: [],
+}
+
+function mcpServerToForm(s: MCPServer): MCPServerForm {
+  if (s.server_type === 'stdio') {
+    const cfg = s.config as MCPServerStdioConfig
+    return {
+      name: s.name,
+      server_type: s.server_type,
+      is_default: s.is_default,
+      active: s.active,
+      command: cfg.command || '',
+      args: (cfg.args || []).join(' '),
+      env: Object.entries(cfg.env || {}),
+      url: '',
+      headers: [],
+    }
+  }
+  const cfg = s.config as MCPServerSSEConfig
+  return {
+    name: s.name,
+    server_type: s.server_type,
+    is_default: s.is_default,
+    active: s.active,
+    command: '',
+    args: '',
+    env: [],
+    url: cfg.url || '',
+    headers: Object.entries(cfg.headers || {}),
+  }
+}
+
+function formToPayload(form: MCPServerForm): Partial<MCPServer> {
+  const base = {
+    name: form.name.trim(),
+    server_type: form.server_type,
+    is_default: form.is_default,
+    active: form.active,
+  }
+  if (form.server_type === 'stdio') {
+    const args = form.args.trim() ? form.args.trim().split(/\s+/) : undefined
+    const env: Record<string, string> = {}
+    for (const [k, v] of form.env) {
+      if (k.trim()) env[k.trim()] = v
+    }
+    return { ...base, config: { command: form.command.trim(), args, env: Object.keys(env).length > 0 ? env : undefined } as unknown as MCPServerStdioConfig }
+  }
+  const headers: Record<string, string> = {}
+  for (const [k, v] of form.headers) {
+    if (k.trim()) headers[k.trim()] = v
+  }
+  return { ...base, config: { url: form.url.trim(), headers: Object.keys(headers).length > 0 ? headers : undefined } as unknown as MCPServerSSEConfig }
+}
+
+function MCPServersTab() {
+  const [servers, setServers] = useState<MCPServer[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [adding, setAdding] = useState(false)
+  const [form, setForm] = useState<MCPServerForm>(EMPTY_MCP_FORM)
+  const [saving, setSaving] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    fetchMCPServers()
+      .then(setServers)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  function startAdd() {
+    setAdding(true)
+    setEditingId(null)
+    setForm(EMPTY_MCP_FORM)
+    setError('')
+  }
+
+  function startEdit(s: MCPServer) {
+    setEditingId(s.id)
+    setAdding(false)
+    setForm(mcpServerToForm(s))
+    setError('')
+  }
+
+  function cancel() {
+    setAdding(false)
+    setEditingId(null)
+    setForm(EMPTY_MCP_FORM)
+    setError('')
+  }
+
+  function validate(): string | null {
+    if (!form.name.trim()) return 'Name is required'
+    if (form.server_type === 'stdio' && !form.command.trim()) return 'Command is required for stdio servers'
+    if (form.server_type === 'sse') {
+      if (!form.url.trim()) return 'URL is required for SSE servers'
+      if (!form.url.trim().startsWith('http://') && !form.url.trim().startsWith('https://'))
+        return 'URL must start with http:// or https://'
+    }
+    return null
+  }
+
+  async function save() {
+    const validationError = validate()
+    if (validationError) {
+      setError(validationError)
+      return
+    }
+    setSaving(true)
+    setError('')
+    try {
+      const payload = formToPayload(form)
+      if (editingId !== null) {
+        await updateMCPServer(editingId, payload)
+      } else {
+        await createMCPServer(payload)
+      }
+      cancel()
+      load()
+    } catch (e) {
+      if (e instanceof Error) {
+        setError(e.message)
+      } else {
+        setError('Failed to save')
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleDelete(id: number) {
+    try {
+      await deleteMCPServer(id)
+      setDeleteConfirm(null)
+      load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete')
+    }
+  }
+
+  async function handleToggleActive(s: MCPServer) {
+    try {
+      await updateMCPServer(s.id, { active: !s.active })
+      load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update')
+    }
+  }
+
+  async function handleToggleDefault(s: MCPServer) {
+    try {
+      await updateMCPServer(s.id, { is_default: !s.is_default })
+      load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update')
+    }
+  }
+
+  const isEditing = adding || editingId !== null
+
+  if (loading) {
+    return (
+      <div className="flex h-48 items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {!isEditing && (
+        <button
+          onClick={startAdd}
+          className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-50 hover:bg-zinc-800 dark:bg-zinc-200 dark:text-zinc-800 dark:hover:bg-zinc-300"
+        >
+          <Plus className="h-4 w-4" />
+          Add MCP Server
+        </button>
+      )}
+
+      {isEditing && (
+        <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 space-y-4">
+          <h3 className="text-sm font-medium text-zinc-900">
+            {adding ? 'New MCP Server' : 'Edit MCP Server'}
+          </h3>
+
+          {/* Name */}
+          <div>
+            <label className="text-xs font-medium text-zinc-500">Name</label>
+            <input
+              type="text"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              placeholder="Server name"
+            />
+          </div>
+
+          {/* Server Type */}
+          <div>
+            <label className="text-xs font-medium text-zinc-500">Server Type</label>
+            <div className="mt-1 flex gap-2">
+              {(['stdio', 'sse'] as MCPServerType[]).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => !editingId && setForm((f) => ({ ...f, server_type: t }))}
+                  disabled={editingId !== null}
+                  className={clsx(
+                    'rounded-md px-4 py-1.5 text-sm font-medium transition-colors',
+                    form.server_type === t
+                      ? 'bg-zinc-900 text-zinc-50 dark:bg-zinc-200 dark:text-zinc-800'
+                      : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200',
+                    editingId !== null && 'cursor-not-allowed opacity-60',
+                  )}
+                >
+                  {t.toUpperCase()}
+                </button>
+              ))}
+            </div>
+            {editingId !== null && (
+              <p className="mt-1 text-xs text-zinc-400">Server type cannot be changed after creation</p>
+            )}
+          </div>
+
+          {/* Stdio-specific fields */}
+          {form.server_type === 'stdio' && (
+            <>
+              <div>
+                <label className="text-xs font-medium text-zinc-500">Command</label>
+                <input
+                  type="text"
+                  value={form.command}
+                  onChange={(e) => setForm((f) => ({ ...f, command: e.target.value }))}
+                  className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                  placeholder="e.g. npx, node, /usr/bin/python3"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-zinc-500">Arguments</label>
+                <input
+                  type="text"
+                  value={form.args}
+                  onChange={(e) => setForm((f) => ({ ...f, args: e.target.value }))}
+                  className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                  placeholder="Space-separated arguments"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-zinc-500">Environment Variables</label>
+                <div className="mt-1">
+                  <KeyValueEditor
+                    pairs={form.env}
+                    onChange={(env) => setForm((f) => ({ ...f, env }))}
+                    keyPlaceholder="Variable name"
+                    valuePlaceholder="Value"
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* SSE-specific fields */}
+          {form.server_type === 'sse' && (
+            <>
+              <div>
+                <label className="text-xs font-medium text-zinc-500">URL</label>
+                <input
+                  type="text"
+                  value={form.url}
+                  onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
+                  className="mt-1 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                  placeholder="https://example.com/mcp/sse"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-zinc-500">Headers</label>
+                <div className="mt-1">
+                  <KeyValueEditor
+                    pairs={form.headers}
+                    onChange={(headers) => setForm((f) => ({ ...f, headers }))}
+                    keyPlaceholder="Header name"
+                    valuePlaceholder="Header value"
+                    maskValues
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Default & Active toggles */}
+          <div className="flex items-center gap-6">
+            <label className="flex items-center gap-2 text-sm text-zinc-700">
+              <input
+                type="checkbox"
+                checked={form.is_default}
+                onChange={(e) => setForm((f) => ({ ...f, is_default: e.target.checked }))}
+                className="rounded border-zinc-300"
+              />
+              Auto-enable in all conversations and projects
+            </label>
+            <label className="flex items-center gap-2 text-sm text-zinc-700">
+              <input
+                type="checkbox"
+                checked={form.active}
+                onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))}
+                className="rounded border-zinc-300"
+              />
+              Active
+            </label>
+          </div>
+
+          {error && <p className="text-sm text-red-500">{error}</p>}
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={save}
+              disabled={saving}
+              className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-50 hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-200 dark:text-zinc-800 dark:hover:bg-zinc-300"
+            >
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+              Save
+            </button>
+            <button
+              onClick={cancel}
+              className="rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Server list */}
+      {servers.length === 0 && !isEditing ? (
+        <div className="flex h-32 flex-col items-center justify-center gap-2">
+          <Server className="h-8 w-8 text-zinc-300" />
+          <p className="text-sm text-zinc-400">No MCP servers configured.</p>
+          <p className="text-xs text-zinc-400">Add one to connect external tools to your conversations.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {servers.map((s) => (
+            <div
+              key={s.id}
+              className={clsx(
+                'flex items-center gap-3 rounded-lg border px-4 py-3 transition-colors',
+                s.is_default ? 'border-amber-200 bg-amber-50/50' : 'border-zinc-200 bg-zinc-50',
+                !s.active && 'opacity-50',
+              )}
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-zinc-900">{s.name}</span>
+                  <span
+                    className={clsx(
+                      'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
+                      s.server_type === 'stdio'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'bg-purple-100 text-purple-700',
+                    )}
+                  >
+                    {s.server_type}
+                  </span>
+                  {s.is_default && (
+                    <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                  )}
+                </div>
+                <p className="text-xs text-zinc-400 truncate mt-0.5">
+                  {s.server_type === 'stdio'
+                    ? (s.config as MCPServerStdioConfig).command + (((s.config as MCPServerStdioConfig).args || []).length > 0 ? ' ' + ((s.config as MCPServerStdioConfig).args || []).join(' ') : '')
+                    : (s.config as MCPServerSSEConfig).url}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Default toggle */}
+                <button
+                  onClick={() => handleToggleDefault(s)}
+                  className={clsx(
+                    'rounded p-1.5 transition-colors',
+                    s.is_default
+                      ? 'text-amber-500 hover:bg-amber-100'
+                      : 'text-zinc-300 hover:bg-zinc-100 hover:text-amber-400',
+                  )}
+                  title={s.is_default ? 'Remove default' : 'Set as default'}
+                >
+                  <Star className={clsx('h-3.5 w-3.5', s.is_default && 'fill-current')} />
+                </button>
+
+                {/* Active toggle */}
+                <button
+                  onClick={() => handleToggleActive(s)}
+                  className={clsx(
+                    'relative h-6 w-11 rounded-full transition-colors',
+                    s.active ? 'bg-emerald-500' : 'bg-zinc-300',
+                  )}
+                  title={s.active ? 'Deactivate' : 'Activate'}
+                >
+                  <span
+                    className={clsx(
+                      'absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform',
+                      s.active && 'translate-x-5',
+                    )}
+                  />
+                </button>
+
+                {/* Edit */}
+                <button
+                  onClick={() => startEdit(s)}
+                  className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
+                  title="Edit"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+
+                {/* Delete */}
+                {deleteConfirm === s.id ? (
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-red-500">Remove?</span>
+                    <button
+                      onClick={() => handleDelete(s.id)}
+                      className="rounded p-1.5 text-red-500 hover:bg-red-50"
+                      title="Confirm delete"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setDeleteConfirm(null)}
+                      className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100"
+                      title="Cancel"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setDeleteConfirm(s.id)}
+                    className="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
+                    title="Delete"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {error && !isEditing && <p className="text-sm text-red-500">{error}</p>}
+    </div>
+  )
+}
+
 // ── Runner Tab ──
 
 function RunnerTab() {
@@ -1489,6 +2077,7 @@ export default function SettingsPage() {
         {activeTab === 'personas' && <PersonasTab />}
         {activeTab === 'tags' && <TagsTab />}
         {activeTab === 'memories' && <MemoriesTab />}
+        {activeTab === 'mcp-servers' && <MCPServersTab />}
         {activeTab === 'voice' && <VoiceTab />}
       </div>
     </div>
