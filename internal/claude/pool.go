@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -90,6 +91,16 @@ type Session struct {
 	// dead is set when the process exits or is killed. Once dead, the
 	// session must be removed and a new one created.
 	dead bool
+
+	// exitMsg is a human-readable description of how the process exited
+	// (e.g. "exit code 42" or "killed by signal killed (possible OOM kill)").
+	// Populated by the monitor goroutine under m.mu before exited is closed.
+	exitMsg string
+
+	// exited is closed by the monitor goroutine after cmd.Wait() returns
+	// and dead/exitMsg are populated. SendMessage waits on this briefly
+	// after the scanner EOFs so it can report accurate exit details.
+	exited chan struct{}
 
 	sessionPrefix string
 
@@ -210,6 +221,7 @@ func (m *SessionManager) startSession(cfg RunConfig, threadID int64, threadTitle
 		threadTitle:   threadTitle,
 		sessionPrefix: sessionPrefix,
 		startedAt:     time.Now(),
+		exited:        make(chan struct{}),
 	}
 
 	// Set up the stdout scanner for NDJSON parsing
@@ -227,15 +239,34 @@ func (m *SessionManager) startSession(cfg RunConfig, threadID int64, threadTitle
 		}
 	}()
 
-	// Monitor process exit in background to mark session dead
+	// Monitor process exit in background to mark session dead, capture
+	// exit info, and proactively close stdout so any in-flight SendMessage
+	// scanner returns instead of hanging.
 	go func() {
-		_ = cmd.Wait()
+		waitErr := cmd.Wait()
+		desc := describeExit(waitErr, cmd.ProcessState)
+
 		m.mu.Lock()
-		defer m.mu.Unlock()
-		if !s.dead {
+		alreadyDead := s.dead
+		if !alreadyDead {
 			s.dead = true
-			log.Printf("[session] process exited for thread %d (session %s)", threadID, sessionPrefix)
+			s.exitMsg = desc
 		}
+		m.mu.Unlock()
+
+		if !alreadyDead {
+			log.Printf("[session] process exited unexpectedly for thread %d (session %s): %s",
+				threadID, sessionPrefix, desc)
+			if stderrContent := s.stderrBuf.String(); stderrContent != "" {
+				log.Printf("[session:%s] full stderr:\n%s", sessionPrefix, stderrContent)
+			}
+		}
+
+		// Close stdout to unblock any SendMessage scanner that is still
+		// waiting on a line. Close order matters for the race where the
+		// OS hasn't already EOF'd the pipe.
+		_ = stdout.Close()
+		close(s.exited)
 	}()
 
 	// Set idle timer
@@ -327,11 +358,23 @@ func (m *SessionManager) SendMessage(s *Session, prompt string) <-chan StreamEve
 			return
 		}
 
-		// If scanner ended without a result event, process likely died
+		// If scanner ended without a result event, process likely died.
+		// Wait briefly for the monitor goroutine to populate exit info so
+		// the error message can include the exit code or signal name.
 		if !gotResultError {
-			// Check if the process is still alive
-			if s.dead {
+			select {
+			case <-s.exited:
+			case <-time.After(500 * time.Millisecond):
+			}
+			m.mu.Lock()
+			isDead := s.dead
+			exitMsg := s.exitMsg
+			m.mu.Unlock()
+			if isDead {
 				errMsg := "claude process exited unexpectedly"
+				if exitMsg != "" {
+					errMsg += " (" + exitMsg + ")"
+				}
 				if detail := s.stderrBuf.String(); detail != "" {
 					errMsg += "\n" + detail
 				}
@@ -638,4 +681,31 @@ func buildStreamArgs(cfg RunConfig) []string {
 	}
 
 	return args
+}
+
+// describeExit renders the outcome of cmd.Wait() into a short human-readable
+// string: either "exit code N" or "killed by signal NAME (possible OOM kill)"
+// when the process was terminated by SIGKILL. Used for diagnostics when a
+// persistent session dies unexpectedly.
+func describeExit(waitErr error, state *os.ProcessState) string {
+	if state == nil {
+		if waitErr != nil {
+			return "wait error: " + waitErr.Error()
+		}
+		return "process state unavailable"
+	}
+	if ws, ok := state.Sys().(syscall.WaitStatus); ok {
+		if ws.Signaled() {
+			sig := ws.Signal()
+			msg := "killed by signal " + sig.String()
+			if sig == syscall.SIGKILL {
+				msg += " (possible OOM kill)"
+			}
+			return msg
+		}
+		if ws.Exited() {
+			return fmt.Sprintf("exit code %d", ws.ExitStatus())
+		}
+	}
+	return fmt.Sprintf("exit code %d", state.ExitCode())
 }

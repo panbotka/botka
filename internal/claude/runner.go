@@ -485,7 +485,7 @@ type stderrBuffer struct {
 	lines []string
 }
 
-const maxStderrLines = 20
+const maxStderrLines = 50
 
 // Add appends a line to the buffer, evicting the oldest if full.
 func (b *stderrBuffer) Add(line string) {

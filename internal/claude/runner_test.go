@@ -300,16 +300,27 @@ func TestStderrBuffer_Add(t *testing.T) {
 
 func TestStderrBuffer_Eviction(t *testing.T) {
 	b := &stderrBuffer{}
-	for i := 0; i < 25; i++ {
+	const fill = maxStderrLines + 10
+	for i := 0; i < fill; i++ {
 		b.Add(fmt.Sprintf("line%d", i))
 	}
 	lines := strings.Split(b.String(), "\n")
 	if len(lines) != maxStderrLines {
 		t.Errorf("got %d lines, want %d", len(lines), maxStderrLines)
 	}
-	// Should have evicted early lines
-	if lines[0] != "line5" {
-		t.Errorf("first line = %q, want %q", lines[0], "line5")
+	// Should have evicted the first (fill - maxStderrLines) lines.
+	wantFirst := fmt.Sprintf("line%d", fill-maxStderrLines)
+	if lines[0] != wantFirst {
+		t.Errorf("first line = %q, want %q", lines[0], wantFirst)
+	}
+}
+
+func TestStderrBuffer_MinimumSize(t *testing.T) {
+	// Claude Code can emit long crash traces; the buffer must hold enough
+	// context for the "process exited unexpectedly" diagnostics to be
+	// actually useful rather than truncating mid-stacktrace.
+	if maxStderrLines < 50 {
+		t.Errorf("maxStderrLines = %d, want at least 50", maxStderrLines)
 	}
 }
 

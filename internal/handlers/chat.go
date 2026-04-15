@@ -51,11 +51,23 @@ const maxUploadSize = 10 << 20 // 10 MB
 
 // isTransientError reports whether the given error message is a known transient
 // Claude Code error that can be resolved by retrying with a fresh session.
+// Recognized classes:
+//   - empty message (likely a race; retry safely)
+//   - "error in input stream" (Claude Code's generic NDJSON parse hiccup)
+//   - "claude process exited unexpectedly" (persistent session crash, possibly
+//     OOM; a fresh session should succeed)
 func isTransientError(msg string) bool {
 	if msg == "" {
 		return true
 	}
-	return strings.Contains(strings.ToLower(msg), "error in input stream")
+	low := strings.ToLower(msg)
+	if strings.Contains(low, "error in input stream") {
+		return true
+	}
+	if strings.Contains(low, "claude process exited unexpectedly") {
+		return true
+	}
+	return false
 }
 
 // ChatHandler handles chat message sending and streaming.
