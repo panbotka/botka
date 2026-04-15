@@ -83,6 +83,7 @@ type RunConfig struct {
 	Model            string // AI model to use
 	SystemPromptFile string // path to assembled context file
 	Name             string // display name for the session
+	MCPConfigPath    string // path to generated .mcp.json file; empty means no MCP servers
 
 	// Remote, when non-nil, causes this invocation to run on a remote host
 	// via SSH. The runner wakes the host (via Waker), then exec's "ssh"
@@ -120,6 +121,10 @@ func buildRunArgs(cfg RunConfig) []string {
 
 	if cfg.Name != "" {
 		args = append(args, "--name", cfg.Name)
+	}
+
+	if cfg.MCPConfigPath != "" {
+		args = append(args, "--mcp-config", cfg.MCPConfigPath)
 	}
 	return args
 }

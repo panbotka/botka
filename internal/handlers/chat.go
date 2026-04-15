@@ -512,10 +512,26 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 		}
 	}
 
+	// Resolve MCP servers for this thread/project context.
+	var mcpHash string
+	mcpServers, err := models.ResolveMCPServers(h.db, &threadID, thread.ProjectID)
+	if err != nil {
+		log.Printf("[chat] failed to resolve MCP servers for thread %d: %v", threadID, err)
+	}
+	if len(mcpServers) > 0 {
+		mcpHash = claude.MCPServerHash(mcpServers)
+		mcpPath, mcpErr := claude.GenerateMCPConfig(mcpServers, h.contextCfg.ContextDir, fmt.Sprintf("thread-%d", threadID))
+		if mcpErr != nil {
+			log.Printf("[chat] failed to generate MCP config for thread %d: %v", threadID, mcpErr)
+		} else {
+			cfg.MCPConfigPath = mcpPath
+		}
+	}
+
 	// Get or create a persistent session for this thread.
 	// The session stays alive across messages — no need for pre-warming or
 	// per-message process spawns. Registry is managed by SessionManager.
-	session, isNew := claude.Sessions.GetOrCreate(cfg, threadID, thread.Title)
+	session, isNew := claude.Sessions.GetOrCreate(cfg, threadID, thread.Title, mcpHash)
 	if session == nil {
 		// Failed to start process — fall back to one-shot Run
 		log.Printf("[chat] failed to create session for thread %d, falling back to Run", threadID)

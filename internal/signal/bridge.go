@@ -355,7 +355,23 @@ func (b *Bridge) runClaude(ctx context.Context, thread *models.Thread, prompt st
 		}
 	}
 
-	session, _ := claude.Sessions.GetOrCreate(cfg, thread.ID, thread.Title)
+	// Resolve MCP servers for this thread/project.
+	var mcpHash string
+	mcpServers, mcpErr := models.ResolveMCPServers(b.cfg.DB, &thread.ID, thread.ProjectID)
+	if mcpErr != nil {
+		log.Printf("[signalbridge] failed to resolve MCP servers for thread %d: %v", thread.ID, mcpErr)
+	}
+	if len(mcpServers) > 0 {
+		mcpHash = claude.MCPServerHash(mcpServers)
+		mcpPath, genErr := claude.GenerateMCPConfig(mcpServers, b.cfg.ContextCfg.ContextDir, fmt.Sprintf("thread-%d", thread.ID))
+		if genErr != nil {
+			log.Printf("[signalbridge] failed to generate MCP config for thread %d: %v", thread.ID, genErr)
+		} else {
+			cfg.MCPConfigPath = mcpPath
+		}
+	}
+
+	session, _ := claude.Sessions.GetOrCreate(cfg, thread.ID, thread.Title, mcpHash)
 	var stream <-chan claude.StreamEvent
 	if session == nil {
 		log.Printf("[signalbridge] session pool unavailable for thread %d, using one-shot Run", thread.ID)

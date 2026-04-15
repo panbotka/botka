@@ -94,6 +94,9 @@ func run() error {
 	}
 	slog.Info("project discovery complete", "count", len(discovered))
 
+	// Clean up stale MCP config files from previous runs.
+	claude.CleanupMCPConfigs(cfg.ClaudeContextDir)
+
 	// Box waker: shared between chat, signal bridge, and task runner so a
 	// single SSH probe covers any path that needs the remote Box host awake.
 	boxWaker := box.NewWaker(cfg.BoxSSHHost, cfg.BoxSSHUser, cfg.BoxWOLCommand)

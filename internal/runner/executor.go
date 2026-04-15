@@ -75,8 +75,10 @@ const (
 )
 
 // Execute runs a single task against a project, managing the full lifecycle.
+// mcpConfigPath is the path to a generated .mcp.json file; empty means no MCP servers.
 func (e *Executor) Execute(
 	ctx context.Context, task *models.Task, project *models.Project, buffer *Buffer,
+	mcpConfigPath string,
 ) (*ExecutionResult, error) {
 	pr := newProjectRunner(project, e.waker, e.sshTarget, e.remoteClaudePath)
 	if pr.isRemote() && e.sshTarget == "" {
@@ -98,7 +100,7 @@ func (e *Executor) Execute(
 	execCtx, cancel := context.WithTimeout(ctx, execTimeout)
 	defer cancel()
 
-	out, err := e.spawnClaude(execCtx, pr, task, buffer)
+	out, err := e.spawnClaude(execCtx, pr, task, buffer, mcpConfigPath)
 	if err != nil {
 		return nil, err
 	}
@@ -286,10 +288,14 @@ func buildTaskSSHArgs(sshTarget, remoteDir, claudePath string, claudeArgs []stri
 
 func (e *Executor) spawnClaude(
 	ctx context.Context, pr *projectRunner, task *models.Task, buffer *Buffer,
+	mcpConfigPath string,
 ) (*spawnOutput, error) {
 	claudeArgs := []string{
 		"--dangerously-skip-permissions", "--verbose",
 		"--output-format", "stream-json",
+	}
+	if mcpConfigPath != "" {
+		claudeArgs = append(claudeArgs, "--mcp-config", mcpConfigPath)
 	}
 	systemPrompt := nonInteractivePrompt
 	if isBotkaProject(pr.project) {

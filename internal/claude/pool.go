@@ -68,6 +68,8 @@ type Session struct {
 	timer     *time.Timer
 	cfg       RunConfig
 
+	mcpHash     string // hash of resolved MCP servers at spawn time
+	mcpCfgPath  string // path to generated MCP config file for cleanup
 	threadID    int64
 	threadTitle string
 
@@ -112,32 +114,32 @@ func NewSessionManager(ttl time.Duration) *SessionManager {
 
 // GetOrCreate returns the existing persistent session for a thread, or creates
 // a new one. If the existing session's config doesn't match (model, workdir,
-// session ID changed), it kills the old session and creates a fresh one.
+// session ID, or MCP server hash changed), it kills the old session and creates
+// a fresh one. The mcpHash parameter is the hash of the resolved MCP servers;
+// pass an empty string when no MCP servers are configured.
 // Returns the session and true if it was newly created.
-func (m *SessionManager) GetOrCreate(cfg RunConfig, threadID int64, threadTitle string) (*Session, bool) {
+func (m *SessionManager) GetOrCreate(cfg RunConfig, threadID int64, threadTitle, mcpHash string) (*Session, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if s, ok := m.sessions[threadID]; ok && !s.dead {
-		// Check config compatibility
 		if s.cfg.SessionID == cfg.SessionID &&
 			s.cfg.Model == cfg.Model &&
-			s.cfg.WorkDir == cfg.WorkDir {
-			// Reset idle timer
+			s.cfg.WorkDir == cfg.WorkDir &&
+			s.mcpHash == mcpHash {
 			s.timer.Stop()
 			s.timer = time.AfterFunc(m.ttl, func() { m.idleTimeout(threadID) })
 			return s, false
 		}
-		// Config mismatch — kill old session
 		log.Printf("[session] config mismatch for thread %d, killing old session", threadID)
 		s.timer.Stop()
 		s.cancel()
 		s.dead = true
+		RemoveMCPConfig(s.mcpCfgPath)
 		delete(m.sessions, threadID)
 	}
 
-	// Start a new persistent process
-	s := m.startSession(cfg, threadID, threadTitle)
+	s := m.startSession(cfg, threadID, threadTitle, mcpHash)
 	if s == nil {
 		return nil, true
 	}
@@ -147,7 +149,7 @@ func (m *SessionManager) GetOrCreate(cfg RunConfig, threadID int64, threadTitle 
 
 // startSession spawns a new Claude Code process with stream-json I/O.
 // When cfg.Remote is set, the process is spawned on the remote host via SSH.
-func (m *SessionManager) startSession(cfg RunConfig, threadID int64, threadTitle string) *Session {
+func (m *SessionManager) startSession(cfg RunConfig, threadID int64, threadTitle, mcpHash string) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	args := buildStreamArgs(cfg)
@@ -202,6 +204,8 @@ func (m *SessionManager) startSession(cfg RunConfig, threadID int64, threadTitle
 		stderrBuf:     &stderrBuffer{},
 		cancel:        cancel,
 		cfg:           cfg,
+		mcpHash:       mcpHash,
+		mcpCfgPath:    cfg.MCPConfigPath,
 		threadID:      threadID,
 		threadTitle:   threadTitle,
 		sessionPrefix: sessionPrefix,
@@ -354,6 +358,7 @@ func (m *SessionManager) markDead(s *Session) {
 	if !s.dead {
 		s.dead = true
 		s.cancel()
+		RemoveMCPConfig(s.mcpCfgPath)
 		if current, ok := m.sessions[s.threadID]; ok && current == s {
 			delete(m.sessions, s.threadID)
 		}
@@ -373,6 +378,7 @@ func (m *SessionManager) idleTimeout(threadID int64) {
 	log.Printf("[session] idle timeout for thread %d, killing session %s", threadID, s.sessionPrefix)
 	s.dead = true
 	s.cancel()
+	RemoveMCPConfig(s.mcpCfgPath)
 	delete(m.sessions, threadID)
 	Registry.Unregister(threadID)
 }
@@ -386,6 +392,7 @@ func (m *SessionManager) Evict(threadID int64) {
 		s.timer.Stop()
 		s.dead = true
 		s.cancel()
+		RemoveMCPConfig(s.mcpCfgPath)
 		Registry.Unregister(threadID)
 		delete(m.sessions, threadID)
 		log.Printf("[session] evicted session for thread %d", threadID)
@@ -401,6 +408,7 @@ func (m *SessionManager) Shutdown() {
 		s.timer.Stop()
 		s.dead = true
 		s.cancel()
+		RemoveMCPConfig(s.mcpCfgPath)
 		Registry.Unregister(id)
 		delete(m.sessions, id)
 	}
@@ -623,6 +631,10 @@ func buildStreamArgs(cfg RunConfig) []string {
 
 	if cfg.Name != "" {
 		args = append(args, "--name", cfg.Name)
+	}
+
+	if cfg.MCPConfigPath != "" {
+		args = append(args, "--mcp-config", cfg.MCPConfigPath)
 	}
 
 	return args

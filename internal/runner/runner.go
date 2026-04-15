@@ -26,6 +26,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"botka/internal/box"
+	"botka/internal/claude"
 	"botka/internal/config"
 	"botka/internal/models"
 )
@@ -611,6 +612,20 @@ func (r *Runner) executeTask(
 		}
 	}()
 
+	// Resolve MCP servers for this project and generate config file.
+	var mcpConfigPath string
+	mcpServers, mcpErr := models.ResolveMCPServers(r.db, nil, &task.ProjectID)
+	if mcpErr != nil {
+		slog.Warn("failed to resolve MCP servers", "task_id", task.ID, "error", mcpErr)
+	}
+	if len(mcpServers) > 0 {
+		mcpConfigPath, mcpErr = claude.GenerateMCPConfig(mcpServers, r.config.ClaudeContextDir, fmt.Sprintf("task-%s", task.ID))
+		if mcpErr != nil {
+			slog.Warn("failed to generate MCP config", "task_id", task.ID, "error", mcpErr)
+		}
+	}
+	defer claude.RemoveMCPConfig(mcpConfigPath)
+
 	// Capture git HEAD SHA before execution for potential revert.
 	headSHA := CaptureGitHEAD(&task.Project, r.executor.waker, r.executor.sshTarget)
 	if headSHA != "" {
@@ -618,7 +633,7 @@ func (r *Runner) executeTask(
 		r.db.Model(exec).Update("git_head_sha", headSHA)
 	}
 
-	result, err := r.executor.Execute(ctx, task, &task.Project, buf)
+	result, err := r.executor.Execute(ctx, task, &task.Project, buf, mcpConfigPath)
 	if err != nil {
 		slog.Error("executor error", "task_id", task.ID, "error", err)
 		result = &ExecutionResult{
