@@ -285,6 +285,9 @@ func setupRouter(
 	boxHandler := handlers.NewBoxHandler(db, cfg.BoxHost, cfg.BoxSSHUser, cfg.BoxWOLCommand)
 	handlers.RegisterBoxRoutes(v1, boxHandler)
 
+	mcpServerHandler := handlers.NewMCPServerHandler(db)
+	handlers.RegisterMCPServerRoutes(v1, mcpServerHandler)
+
 	settingsHandler := handlers.NewSettingsHandler(db)
 	settingsHandler.SetOnChange(func(key, value string) {
 		if key == "max_workers" {
