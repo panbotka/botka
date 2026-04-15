@@ -288,6 +288,9 @@ func setupRouter(
 	mcpServerHandler := handlers.NewMCPServerHandler(db)
 	handlers.RegisterMCPServerRoutes(v1, mcpServerHandler)
 
+	mcpAssignHandler := handlers.NewMCPServerAssignmentHandler(db)
+	handlers.RegisterMCPServerAssignmentRoutes(v1, mcpAssignHandler)
+
 	settingsHandler := handlers.NewSettingsHandler(db)
 	settingsHandler.SetOnChange(func(key, value string) {
 		if key == "max_workers" {

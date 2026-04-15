@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // MCPServerType represents the transport type of an MCP server.
@@ -86,4 +87,61 @@ type ProjectMCPServer struct {
 // TableName returns the database table name for the ProjectMCPServer model.
 func (ProjectMCPServer) TableName() string {
 	return "project_mcp_servers"
+}
+
+// ResolveMCPServers returns the active MCP servers for a given context.
+// It starts with all default servers, then adds explicitly assigned servers
+// for the given thread and/or project. Results are deduplicated by server ID.
+func ResolveMCPServers(db *gorm.DB, threadID *int64, projectID *uuid.UUID) ([]MCPServer, error) {
+	seen := make(map[int64]bool)
+	var result []MCPServer
+
+	var defaults []MCPServer
+	if err := db.Where("active = ? AND is_default = ?", true, true).Find(&defaults).Error; err != nil {
+		return nil, err
+	}
+	for _, s := range defaults {
+		seen[s.ID] = true
+		result = append(result, s)
+	}
+
+	if threadID != nil {
+		var threadIDs []int64
+		if err := db.Model(&ThreadMCPServer{}).Where("thread_id = ?", *threadID).Pluck("mcp_server_id", &threadIDs).Error; err != nil {
+			return nil, err
+		}
+		if len(threadIDs) > 0 {
+			var servers []MCPServer
+			if err := db.Where("id IN ? AND active = ?", threadIDs, true).Find(&servers).Error; err != nil {
+				return nil, err
+			}
+			for _, s := range servers {
+				if !seen[s.ID] {
+					seen[s.ID] = true
+					result = append(result, s)
+				}
+			}
+		}
+	}
+
+	if projectID != nil {
+		var projIDs []int64
+		if err := db.Model(&ProjectMCPServer{}).Where("project_id = ?", *projectID).Pluck("mcp_server_id", &projIDs).Error; err != nil {
+			return nil, err
+		}
+		if len(projIDs) > 0 {
+			var servers []MCPServer
+			if err := db.Where("id IN ? AND active = ?", projIDs, true).Find(&servers).Error; err != nil {
+				return nil, err
+			}
+			for _, s := range servers {
+				if !seen[s.ID] {
+					seen[s.ID] = true
+					result = append(result, s)
+				}
+			}
+		}
+	}
+
+	return result, nil
 }
