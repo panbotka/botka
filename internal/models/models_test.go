@@ -33,6 +33,9 @@ func TestTableNames(t *testing.T) {
 		{name: "ThreadSource", model: &ThreadSource{}, want: "thread_sources"},
 		{name: "SignalBridge", model: &SignalBridge{}, want: "signal_bridges"},
 		{name: "WebAuthnCredential", model: &WebAuthnCredential{}, want: "webauthn_credentials"},
+		{name: "MCPServer", model: &MCPServer{}, want: "mcp_servers"},
+		{name: "ThreadMCPServer", model: &ThreadMCPServer{}, want: "thread_mcp_servers"},
+		{name: "ProjectMCPServer", model: &ProjectMCPServer{}, want: "project_mcp_servers"},
 	}
 
 	for _, tt := range tests {
