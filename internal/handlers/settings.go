@@ -3,11 +3,13 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
 	"botka/internal/models"
+	"botka/internal/runner"
 )
 
 // SettingsHandler handles server-side configuration endpoints.
@@ -31,6 +33,7 @@ func RegisterSettingsRoutes(rg *gin.RouterGroup, h *SettingsHandler) {
 	rg.GET("/settings", h.Get)
 	rg.PUT("/settings", h.Update)
 	rg.DELETE("/settings/task-outputs", h.PurgeTaskOutputs)
+	rg.DELETE("/settings/cron-executions", h.PurgeCronExecutions)
 }
 
 // Get returns all settings as a key→value map. The max_workers value is
@@ -106,4 +109,27 @@ func (h *SettingsHandler) PurgeTaskOutputs(c *gin.Context) {
 	}
 
 	respondOK(c, gin.H{"purged": result.RowsAffected})
+}
+
+// PurgeCronExecutions deletes cron execution records older than the given
+// retention period (default: 30 days). Accepts an optional "days" query param.
+func (h *SettingsHandler) PurgeCronExecutions(c *gin.Context) {
+	days := 30
+	if d := c.Query("days"); d != "" {
+		n, err := strconv.Atoi(d)
+		if err != nil || n < 1 {
+			respondError(c, http.StatusBadRequest, "days must be a positive integer")
+			return
+		}
+		days = n
+	}
+
+	retention := time.Duration(days) * 24 * time.Hour
+	purged, err := runner.PurgeCronExecutions(h.db, retention)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "failed to purge cron executions")
+		return
+	}
+
+	respondOK(c, gin.H{"purged": purged, "retention_days": days})
 }

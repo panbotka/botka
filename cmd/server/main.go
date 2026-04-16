@@ -123,6 +123,11 @@ func run() error {
 	taskRunner.RestoreState()
 	defer taskRunner.Shutdown()
 
+	// Cron scheduler: runs prompts on cron schedules in project contexts.
+	cronScheduler := runner.NewCronScheduler(db, cfg, usageMon)
+	cronScheduler.Start()
+	defer cronScheduler.Stop()
+
 	// Signal bridge: relays messages between Signal group chats and Botka
 	// threads. The bridge shares the Claude session manager with the chat
 	// handler so incoming Signal messages and UI chat messages serialize on

@@ -36,6 +36,8 @@ func TestTableNames(t *testing.T) {
 		{name: "MCPServer", model: &MCPServer{}, want: "mcp_servers"},
 		{name: "ThreadMCPServer", model: &ThreadMCPServer{}, want: "thread_mcp_servers"},
 		{name: "ProjectMCPServer", model: &ProjectMCPServer{}, want: "project_mcp_servers"},
+		{name: "CronJob", model: &CronJob{}, want: "cron_jobs"},
+		{name: "CronExecution", model: &CronExecution{}, want: "cron_executions"},
 	}
 
 	for _, tt := range tests {
