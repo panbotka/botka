@@ -1,4 +1,4 @@
-import type { Project, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus } from '../types'
+import type { Project, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -974,6 +974,68 @@ export function setProjectMCPServers(projectId: string, serverIds: number[]): Pr
   })
 }
 
+// Cron Jobs
+
+export function listCronJobs(): Promise<CronJob[]> {
+  return requestData<CronJob[]>('/cron-jobs')
+}
+
+export function getCronJob(id: number): Promise<CronJob> {
+  return requestData<CronJob>(`/cron-jobs/${id}`)
+}
+
+export interface CreateCronJobInput {
+  name: string
+  schedule: string
+  prompt: string
+  project_id: string
+  enabled?: boolean
+  timeout_minutes?: number
+  model?: string | null
+}
+
+export function createCronJob(data: CreateCronJobInput): Promise<CronJob> {
+  return requestData<CronJob>('/cron-jobs', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export interface UpdateCronJobInput {
+  name?: string
+  schedule?: string
+  prompt?: string
+  enabled?: boolean
+  timeout_minutes?: number
+  model?: string | null
+}
+
+export function updateCronJob(id: number, data: UpdateCronJobInput): Promise<CronJob> {
+  return requestData<CronJob>(`/cron-jobs/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
+export function deleteCronJob(id: number): Promise<void> {
+  return request<void>(`/cron-jobs/${id}`, { method: 'DELETE' })
+}
+
+export function listCronExecutions(
+  jobId: number,
+  params?: { limit?: number; offset?: number },
+): Promise<{ data: CronExecution[]; total: number }> {
+  const search = new URLSearchParams()
+  if (params?.limit != null) search.set('limit', String(params.limit))
+  if (params?.offset != null) search.set('offset', String(params.offset))
+  const qs = search.toString()
+  return request(`/cron-jobs/${jobId}/executions${qs ? `?${qs}` : ''}`)
+}
+
+export function triggerCronJob(id: number): Promise<{ execution_id: number }> {
+  return requestData<{ execution_id: number }>(`/cron-jobs/${id}/run`, { method: 'POST' })
+}
+
 // Convenience object for use in hooks that call api.methodName()
 export const api = {
   // Projects
@@ -1081,4 +1143,12 @@ export const api = {
   shutdownBox,
   startBoxService,
   stopBoxService,
+  // Cron Jobs
+  listCronJobs,
+  getCronJob,
+  createCronJob,
+  updateCronJob,
+  deleteCronJob,
+  listCronExecutions,
+  triggerCronJob,
 }

@@ -398,6 +398,40 @@ export interface MCPServerWithStatus {
   enabled: boolean
 }
 
+// ── Cron Jobs ──
+
+export type CronExecutionStatus = 'running' | 'success' | 'failed' | 'timeout'
+
+export interface CronJob {
+  id: number
+  name: string
+  schedule: string
+  prompt: string
+  project_id: string
+  project?: Project
+  enabled: boolean
+  timeout_minutes: number
+  model: string | null
+  last_run_at: string | null
+  last_status: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CronExecution {
+  id: number
+  cron_job_id: number
+  status: CronExecutionStatus
+  output: string | null
+  error_message: string | null
+  cost_usd: number
+  input_tokens: number
+  output_tokens: number
+  duration_ms: number
+  started_at: string
+  finished_at: string | null
+}
+
 // Cost analytics types
 
 export interface ModelTokens {

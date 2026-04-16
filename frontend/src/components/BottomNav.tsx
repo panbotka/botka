@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, MessageSquare, ListTodo, Server, Settings, HelpCircle } from 'lucide-react'
+import { LayoutDashboard, MessageSquare, ListTodo, Timer, Server, Settings, HelpCircle } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useAuth } from '../context/AuthContext'
 
@@ -7,6 +7,7 @@ const allTabs = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard', adminOnly: true },
   { path: '/chat', icon: MessageSquare, label: 'Chat', adminOnly: false },
   { path: '/tasks', icon: ListTodo, label: 'Tasks', adminOnly: true },
+  { path: '/cron-jobs', icon: Timer, label: 'Cron', adminOnly: true },
   { path: '/box', icon: Server, label: 'Box', adminOnly: true },
   { path: '/settings', icon: Settings, label: 'Settings', adminOnly: true },
   { path: '/help', icon: HelpCircle, label: 'Help', adminOnly: false },

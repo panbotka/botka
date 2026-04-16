@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   MessageSquare,
   ListTodo,
+  Timer,
   Settings,
   HelpCircle,
   Loader2,
@@ -23,6 +24,7 @@ const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const ChatPage = lazy(() => import('./pages/ChatPage'))
 const TasksPage = lazy(() => import('./pages/TasksPage'))
 const TaskDetailPage = lazy(() => import('./pages/TaskDetailPage'))
+const CronJobsPage = lazy(() => import('./pages/CronJobsPage'))
 const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const HelpPage = lazy(() => import('./pages/HelpPage'))
@@ -33,6 +35,7 @@ const allNavItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', adminOnly: true },
   { to: '/chat', icon: MessageSquare, label: 'Chat', adminOnly: false },
   { to: '/tasks', icon: ListTodo, label: 'Tasks', adminOnly: true },
+  { to: '/cron-jobs', icon: Timer, label: 'Cron Jobs', adminOnly: true },
   { to: '/box', icon: Server, label: 'Box', adminOnly: true },
   { to: '/settings', icon: Settings, label: 'Settings', adminOnly: true },
   { to: '/help', icon: HelpCircle, label: 'Help', adminOnly: false },
@@ -147,6 +150,7 @@ function AuthenticatedApp() {
               <Route path="/chat/*" element={<ChatPage />} />
               <Route path="/tasks" element={<TasksPage />} />
               <Route path="/tasks/:id" element={<TaskDetailPage />} />
+              <Route path="/cron-jobs" element={<CronJobsPage />} />
               <Route path="/projects" element={<Navigate to="/settings?tab=projects" replace />} />
               <Route path="/projects/:id" element={<ProjectDetailPage />} />
               <Route path="/cost" element={<Navigate to="/" replace />} />
