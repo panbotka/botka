@@ -33,7 +33,7 @@ func (CronJob) TableName() string {
 type CronExecution struct {
 	ID           int64      `json:"id" gorm:"primaryKey"`
 	CronJobID    int64      `json:"cron_job_id" gorm:"not null"`
-	CronJob      *CronJob   `json:"cron_job,omitempty"`
+	CronJob      *CronJob   `json:"cron_job,omitempty" gorm:"constraint:OnDelete:CASCADE"`
 	Status       string     `json:"status" gorm:"not null;default:running"`
 	Output       *string    `json:"output"`
 	ErrorMessage *string    `json:"error_message"`

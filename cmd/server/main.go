@@ -124,7 +124,10 @@ func run() error {
 	defer taskRunner.Shutdown()
 
 	// Cron scheduler: runs prompts on cron schedules in project contexts.
-	cronScheduler := runner.NewCronScheduler(db, cfg, usageMon)
+	cronScheduler, err := runner.NewCronScheduler(db, cfg, usageMon)
+	if err != nil {
+		return fmt.Errorf("create cron scheduler: %w", err)
+	}
 	cronScheduler.Start()
 	defer cronScheduler.Stop()
 
@@ -152,7 +155,7 @@ func run() error {
 	defer bridgeCancel()
 	signalBridge.Start(bridgeCtx)
 
-	router := setupRouter(db, cfg, taskRunner, signalClient, signalBridge, boxWaker, boxSSHTarget)
+	router := setupRouter(db, cfg, taskRunner, cronScheduler, signalClient, signalBridge, boxWaker, boxSSHTarget)
 
 	return startServer(router, cfg.Port)
 }
@@ -186,6 +189,7 @@ func runMCP() error {
 // setupRouter creates the Gin router with API, MCP, and frontend routes.
 func setupRouter(
 	db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner,
+	cronScheduler *runner.CronScheduler,
 	signalClient *signal.Client, signalBridge *signal.Bridge,
 	boxWaker *box.Waker, boxSSHTarget string,
 ) *gin.Engine {
@@ -231,6 +235,9 @@ func setupRouter(
 
 	taskHandler := handlers.NewTaskHandler(db, taskRunner.TaskEvents)
 	handlers.RegisterTaskRoutes(v1, taskHandler)
+
+	cronHandler := handlers.NewCronHandler(db, cronScheduler)
+	handlers.RegisterCronRoutes(v1, cronHandler)
 
 	runnerHandler := handlers.NewRunnerHandler(taskRunner)
 	handlers.RegisterRunnerRoutes(v1, runnerHandler)

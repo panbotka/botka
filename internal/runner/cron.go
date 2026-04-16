@@ -1,13 +1,21 @@
 package runner
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
 	"log/slog"
+	"os/exec"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/robfig/cron/v3"
 	"gorm.io/gorm"
 
+	"botka/internal/claude"
 	"botka/internal/config"
 	"botka/internal/models"
 )
@@ -18,23 +26,30 @@ const cronTickInterval = 30 * time.Second
 // executions when they are due. It prevents overlapping runs of the same job
 // and respects API rate limits via the shared UsageMonitor.
 type CronScheduler struct {
-	db       *gorm.DB
-	cfg      *config.Config
-	usageMon *UsageMonitor
-	stop     chan struct{}
-	wg       sync.WaitGroup
-	running  map[int64]bool // track running jobs to prevent overlap
-	mu       sync.Mutex
+	db         *gorm.DB
+	cfg        *config.Config
+	claudePath string
+	usageMon   *UsageMonitor
+	stop       chan struct{}
+	wg         sync.WaitGroup
+	running    map[int64]bool // track running jobs to prevent overlap
+	mu         sync.Mutex
 }
 
-// NewCronScheduler creates a new CronScheduler.
-func NewCronScheduler(db *gorm.DB, cfg *config.Config, usageMon *UsageMonitor) *CronScheduler {
-	return &CronScheduler{
-		db:       db,
-		cfg:      cfg,
-		usageMon: usageMon,
-		running:  make(map[int64]bool),
+// NewCronScheduler creates a new CronScheduler. It resolves the Claude CLI
+// binary path from the config.
+func NewCronScheduler(db *gorm.DB, cfg *config.Config, usageMon *UsageMonitor) (*CronScheduler, error) {
+	claudePath, err := exec.LookPath(cfg.ClaudePath)
+	if err != nil {
+		return nil, fmt.Errorf("claude CLI not found at %q: %w", cfg.ClaudePath, err)
 	}
+	return &CronScheduler{
+		db:         db,
+		cfg:        cfg,
+		claudePath: claudePath,
+		usageMon:   usageMon,
+		running:    make(map[int64]bool),
+	}, nil
 }
 
 // Start begins the cron scheduler loop in a background goroutine.
@@ -63,6 +78,53 @@ func (cs *CronScheduler) Stop() {
 
 	cs.wg.Wait()
 	slog.Info("cron scheduler stopped")
+}
+
+// TriggerJob manually triggers a cron job execution, regardless of schedule or
+// enabled status. Returns the execution ID for the caller to track progress.
+// The actual Claude execution runs asynchronously in a goroutine.
+func (cs *CronScheduler) TriggerJob(jobID int64) (int64, error) {
+	var job models.CronJob
+	if err := cs.db.Preload("Project").First(&job, jobID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, fmt.Errorf("cron job %d not found", jobID)
+		}
+		return 0, fmt.Errorf("failed to load cron job: %w", err)
+	}
+
+	cs.mu.Lock()
+	if cs.running[job.ID] {
+		cs.mu.Unlock()
+		return 0, fmt.Errorf("job %d is already running", job.ID)
+	}
+	cs.running[job.ID] = true
+	cs.mu.Unlock()
+
+	// Create execution record synchronously so we can return its ID.
+	execution := models.CronExecution{
+		CronJobID: job.ID,
+		Status:    "running",
+		StartedAt: time.Now(),
+	}
+	if err := cs.db.Create(&execution).Error; err != nil {
+		cs.mu.Lock()
+		delete(cs.running, job.ID)
+		cs.mu.Unlock()
+		return 0, fmt.Errorf("failed to create execution: %w", err)
+	}
+
+	cs.wg.Add(1)
+	go func() {
+		defer cs.wg.Done()
+		defer func() {
+			cs.mu.Lock()
+			delete(cs.running, job.ID)
+			cs.mu.Unlock()
+		}()
+		cs.runExecution(&job, &execution)
+	}()
+
+	return execution.ID, nil
 }
 
 func (cs *CronScheduler) loop(stopCh <-chan struct{}) {
@@ -149,9 +211,8 @@ func (cs *CronScheduler) shouldRun(job *models.CronJob, sched cron.Schedule, now
 	return next.Equal(nowMinute)
 }
 
-// executeCronJob is a placeholder that creates a CronExecution record with
-// status "success" and a dummy output. The actual Claude execution will be
-// implemented in a follow-up task.
+// executeCronJob creates a CronExecution record and runs the Claude process.
+// Called by the scheduler tick path.
 func (cs *CronScheduler) executeCronJob(job *models.CronJob) {
 	defer cs.wg.Done()
 	defer func() {
@@ -160,21 +221,161 @@ func (cs *CronScheduler) executeCronJob(job *models.CronJob) {
 		cs.mu.Unlock()
 	}()
 
-	now := time.Now()
-	output := "placeholder: execution not yet implemented"
-	status := "success"
-
-	exec := models.CronExecution{
-		CronJobID:  job.ID,
-		Status:     status,
-		Output:     &output,
-		StartedAt:  now,
-		FinishedAt: &now,
+	execution := models.CronExecution{
+		CronJobID: job.ID,
+		Status:    "running",
+		StartedAt: time.Now(),
 	}
-
-	if err := cs.db.Create(&exec).Error; err != nil {
+	if err := cs.db.Create(&execution).Error; err != nil {
 		slog.Error("[cron] failed to create execution record", "job_id", job.ID, "error", err)
 		return
+	}
+
+	cs.runExecution(job, &execution)
+}
+
+// runExecution runs the Claude process for a cron job and updates the execution
+// and job records with the results.
+func (cs *CronScheduler) runExecution(job *models.CronJob, execution *models.CronExecution) {
+	projectPath := ""
+	if job.Project != nil {
+		projectPath = job.Project.Path
+	}
+
+	slog.Info(fmt.Sprintf("[cron] executing job %d (%s) in %s", job.ID, job.Name, projectPath))
+
+	timeout := time.Duration(job.TimeoutMinutes) * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	args := []string{
+		"-p", job.Prompt,
+		"--dangerously-skip-permissions", "--verbose",
+		"--output-format", "stream-json",
+	}
+	if job.Model != nil && *job.Model != "" {
+		args = append(args, "--model", *job.Model)
+	}
+
+	cmd := exec.CommandContext(ctx, cs.claudePath, args...) //nolint:gosec // args are controlled
+	cmd.Dir = projectPath
+	cmd.Env = claude.SanitizedEnv()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
+	cmd.WaitDelay = gracefulStopTimeout
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		cs.finishExecution(job, execution, "failed", "", fmt.Sprintf("stdout pipe: %v", err), 0, 0, 0, 0)
+		return
+	}
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
+
+	if err := cmd.Start(); err != nil {
+		cs.finishExecution(job, execution, "failed", "", fmt.Sprintf("start claude: %v", err), 0, 0, 0, 0)
+		return
+	}
+
+	var lastResult *Event
+	var lastText string
+	parseErr := ParseStream(io.Reader(stdout), func(ev Event) {
+		switch ev.Type {
+		case EventResult:
+			evCopy := ev
+			lastResult = &evCopy
+		case EventAssistantText:
+			lastText = ev.Text
+		}
+	})
+
+	waitErr := cmd.Wait()
+	stderrStr := stderrBuf.String()
+
+	// Classify the outcome.
+	if ctx.Err() != nil {
+		// Timeout — kill the process group.
+		errMsg := "execution timed out"
+		if stderrStr != "" {
+			errMsg = fmt.Sprintf("execution timed out: %s", truncate(stderrStr, maxErrLen))
+		}
+		cs.finishExecution(job, execution, "timeout", lastText, errMsg, 0, 0, 0, 0)
+		slog.Warn("[cron] job timed out", "job_id", job.ID, "timeout", timeout)
+		return
+	}
+
+	if parseErr != nil {
+		slog.Warn("[cron] stream parse error", "job_id", job.ID, "error", parseErr)
+	}
+
+	if lastResult == nil {
+		// No result event — process crashed.
+		errMsg := truncate(stderrStr, maxErrLen)
+		if errMsg == "" {
+			errMsg = "claude process exited without result"
+		}
+		cs.finishExecution(job, execution, "failed", lastText, errMsg, 0, 0, 0, 0)
+		return
+	}
+
+	var exitErr *exec.ExitError
+	exitCode := 0
+	if errors.As(waitErr, &exitErr) {
+		exitCode = exitErr.ExitCode()
+	} else if waitErr != nil {
+		cs.finishExecution(job, execution, "failed", lastText,
+			fmt.Sprintf("wait for claude: %v", waitErr),
+			lastResult.CostUSD, int(lastResult.InputTokens), int(lastResult.OutputTokens), int(lastResult.DurationMs))
+		return
+	}
+
+	if exitCode != 0 || lastResult.IsError {
+		errMsg := truncate(stderrStr, maxErrLen)
+		if errMsg == "" {
+			errMsg = "claude process exited with error"
+		}
+		cs.finishExecution(job, execution, "failed", lastText, errMsg,
+			lastResult.CostUSD, int(lastResult.InputTokens), int(lastResult.OutputTokens), int(lastResult.DurationMs))
+		return
+	}
+
+	// Success.
+	cs.finishExecution(job, execution, "success", lastText, "",
+		lastResult.CostUSD, int(lastResult.InputTokens), int(lastResult.OutputTokens), int(lastResult.DurationMs))
+
+	slog.Info(fmt.Sprintf("[cron] job %d completed: success (%.4f USD, %dms)",
+		job.ID, lastResult.CostUSD, lastResult.DurationMs))
+}
+
+// finishExecution updates the CronExecution and CronJob records with the final
+// status and results.
+func (cs *CronScheduler) finishExecution(
+	job *models.CronJob, execution *models.CronExecution,
+	status, output, errMsg string,
+	costUSD float64, inputTokens, outputTokens, durationMs int,
+) {
+	now := time.Now()
+	updates := map[string]interface{}{
+		"status":      status,
+		"finished_at": now,
+		"cost_usd":    costUSD,
+		"duration_ms": durationMs,
+	}
+	if output != "" {
+		updates["output"] = output
+	}
+	if errMsg != "" {
+		updates["error_message"] = errMsg
+	}
+	if inputTokens > 0 {
+		updates["input_tokens"] = inputTokens
+	}
+	if outputTokens > 0 {
+		updates["output_tokens"] = outputTokens
+	}
+
+	if err := cs.db.Model(execution).Updates(updates).Error; err != nil {
+		slog.Error("[cron] failed to update execution", "job_id", job.ID, "error", err)
 	}
 
 	// Update denormalized fields on the job.
@@ -182,8 +383,6 @@ func (cs *CronScheduler) executeCronJob(job *models.CronJob) {
 		"last_run_at": now,
 		"last_status": status,
 	})
-
-	slog.Info("[cron] job completed", "job_id", job.ID, "name", job.Name)
 }
 
 // PurgeCronExecutions deletes cron execution records older than the given

@@ -33,9 +33,11 @@ type Event struct {
 	Input    string // raw JSON
 
 	// Result
-	CostUSD    float64
-	DurationMs int64
-	IsError    bool
+	CostUSD      float64
+	DurationMs   int64
+	InputTokens  int64
+	OutputTokens int64
+	IsError      bool
 
 	// SystemError
 	Message string
@@ -51,6 +53,8 @@ type streamLine struct {
 	CostUSD       float64 `json:"cost_usd"`
 	DurationMs    int64   `json:"duration_ms"`
 	DurationAPIMs int64   `json:"duration_api_ms"`
+	InputTokens   int64   `json:"input_tokens"`
+	OutputTokens  int64   `json:"output_tokens"`
 }
 
 // streamMessage represents the nested message object in assistant lines.
@@ -94,10 +98,12 @@ func ParseStream(reader io.Reader, onEvent func(Event)) error {
 			parseAssistantMessage(sl.Message, onEvent)
 		case "result":
 			onEvent(Event{
-				Type:       EventResult,
-				CostUSD:    sl.CostUSD,
-				DurationMs: sl.DurationMs,
-				IsError:    sl.Subtype != "success",
+				Type:         EventResult,
+				CostUSD:      sl.CostUSD,
+				DurationMs:   sl.DurationMs,
+				InputTokens:  sl.InputTokens,
+				OutputTokens: sl.OutputTokens,
+				IsError:      sl.Subtype != "success",
 			})
 		case "system":
 			parseSystemMessage(sl.Message, onEvent)
