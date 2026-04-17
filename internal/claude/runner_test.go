@@ -253,6 +253,86 @@ func TestRun_WithMockCommand(t *testing.T) {
 	}
 }
 
+func TestRun_LargeNDJSONLine(t *testing.T) {
+	// Regression guard: Claude can emit a single NDJSON event larger than
+	// the old 1MB bufio.Scanner buffer (e.g. a big tool_result payload).
+	// The stdout reader must accept such lines without error.
+	dir := t.TempDir()
+
+	largeText := strings.Repeat("x", 2<<20) // 2 MiB
+	userEvent := map[string]any{
+		"type": "user",
+		"message": map[string]any{
+			"content": []map[string]any{
+				{
+					"type":        "tool_result",
+					"tool_use_id": "tool_big",
+					"content":     largeText,
+				},
+			},
+		},
+	}
+	userBytes, err := json.Marshal(userEvent)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resultEvent := map[string]any{
+		"type": "result", "subtype": "success", "result": "done",
+		"is_error": false, "duration_ms": 1, "num_turns": 1,
+		"total_cost_usd": 0.0,
+		"usage":          map[string]any{"input_tokens": 1, "output_tokens": 1},
+	}
+	resultBytes, _ := json.Marshal(resultEvent)
+
+	dataFile := filepath.Join(dir, "events.ndjson")
+	payload := append(userBytes, '\n')
+	payload = append(payload, resultBytes...)
+	payload = append(payload, '\n')
+	if err := os.WriteFile(dataFile, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	script := filepath.Join(dir, "mock-claude-large")
+	scriptContent := "#!/bin/sh\ncat " + dataFile + "\n"
+	if err := os.WriteFile(script, []byte(scriptContent), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := RunConfig{
+		ClaudePath: script,
+		WorkDir:    dir,
+		SessionID:  "large-test",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	ch := Run(ctx, cfg, "test")
+
+	var gotToolResult, gotResult bool
+	for evt := range ch {
+		if evt.Kind == KindError {
+			t.Fatalf("unexpected error event: %q", evt.ErrorMsg)
+		}
+		if evt.Kind == KindToolResult {
+			gotToolResult = true
+			if len(evt.ToolContent) != len(largeText) {
+				t.Errorf("tool content size mismatch: got %d, want %d", len(evt.ToolContent), len(largeText))
+			}
+		}
+		if evt.Kind == KindResult {
+			gotResult = true
+		}
+	}
+	if !gotToolResult {
+		t.Error("did not receive tool_result event parsed from >1MB line")
+	}
+	if !gotResult {
+		t.Error("did not receive result event")
+	}
+}
+
 func TestRun_ContextCancellation(t *testing.T) {
 	// Mock a script that traps signals and exits on them
 	dir := t.TempDir()

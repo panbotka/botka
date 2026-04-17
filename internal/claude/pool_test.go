@@ -120,6 +120,73 @@ kill -KILL $$
 	}
 }
 
+func TestSession_LargeNDJSONLine(t *testing.T) {
+	// Regression guard: a single NDJSON event larger than 1MB (e.g. a big
+	// tool_result payload) must be read without error. The old
+	// bufio.Scanner buffer rejected such lines with "token too long".
+	dir := t.TempDir()
+
+	// Build the >1MB tool_result event and the final result event.
+	largeText := strings.Repeat("y", 2<<20) // 2 MiB
+	largeEvent := `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool_big","content":"` + largeText + `"}]}}`
+	resultEvent := `{"type":"result","subtype":"success","result":"ok","is_error":false,"duration_ms":1,"num_turns":1,"total_cost_usd":0.0,"usage":{"input_tokens":1,"output_tokens":1}}`
+
+	eventsFile := filepath.Join(dir, "events.ndjson")
+	if err := os.WriteFile(eventsFile, []byte(largeEvent+"\n"+resultEvent+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Emit init, consume one input line, print the prepared events, then
+	// stay alive — a real Claude session remains running after delivering
+	// a result so the session can accept the next message.
+	body := `printf '{"type":"system","subtype":"init","session_id":"large-test"}\n'
+read line
+cat ` + eventsFile + `
+sleep 30
+`
+	script := writeFakeClaude(t, dir, body)
+
+	mgr := NewSessionManager(5 * time.Minute)
+	defer mgr.Shutdown()
+
+	cfg := RunConfig{
+		ClaudePath: script,
+		WorkDir:    dir,
+		SessionID:  "large-test",
+	}
+	s, _ := mgr.GetOrCreate(cfg, 100, "large-test-thread", "")
+	if s == nil {
+		t.Fatal("failed to start session")
+	}
+
+	events := drain(t, mgr.SendMessage(s, "hello"), 10*time.Second)
+	if len(events) == 0 {
+		t.Fatal("no events received")
+	}
+
+	var gotToolResult, gotResult bool
+	for _, evt := range events {
+		if evt.Kind == KindError {
+			t.Fatalf("unexpected error event: %q", evt.ErrorMsg)
+		}
+		if evt.Kind == KindToolResult {
+			gotToolResult = true
+			if len(evt.ToolContent) != len(largeText) {
+				t.Errorf("tool content size mismatch: got %d, want %d", len(evt.ToolContent), len(largeText))
+			}
+		}
+		if evt.Kind == KindResult {
+			gotResult = true
+		}
+	}
+	if !gotToolResult {
+		t.Error("did not receive tool_result event parsed from >1MB line")
+	}
+	if !gotResult {
+		t.Error("did not receive result event")
+	}
+}
+
 func TestSession_ScannerUnblockedOnExit(t *testing.T) {
 	// Regression guard: when the process exits without printing a result
 	// event, the SendMessage scanner must not hang waiting for more output.

@@ -64,7 +64,7 @@ type Session struct {
 	stdout    io.ReadCloser
 	stderr    io.ReadCloser
 	stderrBuf *stderrBuffer
-	scanner   *bufio.Scanner
+	reader    *bufio.Reader
 	cancel    context.CancelFunc
 	timer     *time.Timer
 	cfg       RunConfig
@@ -224,14 +224,15 @@ func (m *SessionManager) startSession(cfg RunConfig, threadID int64, threadTitle
 		exited:        make(chan struct{}),
 	}
 
-	// Set up the stdout scanner for NDJSON parsing
-	s.scanner = bufio.NewScanner(stdout)
-	s.scanner.Buffer(make([]byte, 0), 1<<20) // 1MB buffer
+	// Set up the stdout reader for NDJSON parsing. bufio.Reader.ReadBytes
+	// accepts lines of any size, unlike bufio.Scanner which would reject
+	// tool_result payloads larger than its buffer.
+	s.reader = bufio.NewReader(stdout)
 
 	// Drain stderr in background
 	go func() {
 		scanner := bufio.NewScanner(stderr)
-		scanner.Buffer(make([]byte, 0), 1<<20)
+		scanner.Buffer(make([]byte, 0), 16<<20)
 		for scanner.Scan() {
 			line := scanner.Text()
 			log.Printf("[session:%s] stderr: %s", sessionPrefix, line)
@@ -330,30 +331,41 @@ func (m *SessionManager) SendMessage(s *Session, prompt string) <-chan StreamEve
 			return
 		}
 
-		// Read events from stdout until result event
+		// Read events from stdout until result event.
 		var gotResultError bool
-		for s.scanner.Scan() {
-			line := s.scanner.Bytes()
-			if len(line) == 0 {
-				continue
+		var readErr error
+		for {
+			line, err := s.reader.ReadBytes('\n')
+			if n := len(line); n > 0 && line[n-1] == '\n' {
+				line = line[:n-1]
 			}
-
-			event := parseEvent(line)
-			if event.Kind == KindIgnored {
-				continue
+			var sawResult bool
+			if len(line) > 0 {
+				event := parseEvent(line)
+				if event.Kind != KindIgnored {
+					if event.Kind == KindResult && event.IsError {
+						gotResultError = true
+					}
+					ch <- event
+					if event.Kind == KindResult {
+						// Turn complete — process is idle, ready for next message
+						sawResult = true
+					}
+				}
 			}
-			if event.Kind == KindResult && event.IsError {
-				gotResultError = true
+			if sawResult {
+				break
 			}
-			ch <- event
-			if event.Kind == KindResult {
-				// Turn complete — process is idle, ready for next message
+			if err != nil {
+				if err != io.EOF {
+					readErr = err
+				}
 				break
 			}
 		}
 
-		if err := s.scanner.Err(); err != nil {
-			ch <- StreamEvent{Kind: KindError, ErrorMsg: fmt.Sprintf("read stdout: %v", err)}
+		if readErr != nil {
+			ch <- StreamEvent{Kind: KindError, ErrorMsg: fmt.Sprintf("read stdout: %v", readErr)}
 			m.markDead(s)
 			return
 		}

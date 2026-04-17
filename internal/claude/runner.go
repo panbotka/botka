@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -203,7 +204,7 @@ func Run(ctx context.Context, cfg RunConfig, prompt string) <-chan StreamEvent {
 		var stderrBuf stderrBuffer
 		go func() {
 			scanner := bufio.NewScanner(stderr)
-			scanner.Buffer(make([]byte, 0), 1<<20)
+			scanner.Buffer(make([]byte, 0), 16<<20)
 			for scanner.Scan() {
 				line := scanner.Text()
 				log.Printf("[claude:%s] stderr: %s", sessionPrefix, line)
@@ -211,29 +212,31 @@ func Run(ctx context.Context, cfg RunConfig, prompt string) <-chan StreamEvent {
 			}
 		}()
 
-		// Read stdout NDJSON events
-		scanner := bufio.NewScanner(stdout)
-		scanner.Buffer(make([]byte, 0), 1<<20) // 1MB buffer for large events
-
+		// Read stdout NDJSON events. bufio.Reader.ReadBytes accepts lines of
+		// any size — unlike bufio.Scanner, which would reject tool_result
+		// payloads larger than its buffer.
+		reader := bufio.NewReader(stdout)
 		var gotResultError bool
-		for scanner.Scan() {
-			line := scanner.Bytes()
-			if len(line) == 0 {
-				continue
+		for {
+			line, err := reader.ReadBytes('\n')
+			if n := len(line); n > 0 && line[n-1] == '\n' {
+				line = line[:n-1]
 			}
-
-			event := parseEvent(line)
-			if event.Kind == KindIgnored {
-				continue
+			if len(line) > 0 {
+				event := parseEvent(line)
+				if event.Kind != KindIgnored {
+					if event.Kind == KindResult && event.IsError {
+						gotResultError = true
+					}
+					ch <- event
+				}
 			}
-			if event.Kind == KindResult && event.IsError {
-				gotResultError = true
+			if err != nil {
+				if err != io.EOF {
+					ch <- StreamEvent{Kind: KindError, ErrorMsg: fmt.Sprintf("read stdout: %v", err)}
+				}
+				break
 			}
-			ch <- event
-		}
-
-		if err := scanner.Err(); err != nil {
-			ch <- StreamEvent{Kind: KindError, ErrorMsg: fmt.Sprintf("read stdout: %v", err)}
 		}
 
 		if err := cmd.Wait(); err != nil {
