@@ -187,6 +187,15 @@ body {
 }
 
 /* Markdown content styling */
+.markdown-content {
+  overflow-wrap: anywhere;
+}
+.markdown-content p,
+.markdown-content li,
+.markdown-content td,
+.markdown-content code {
+  overflow-wrap: anywhere;
+}
 .markdown-content p {
   @apply my-2.5;
   line-height: 1.7;

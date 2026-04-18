@@ -13,7 +13,7 @@ export default function CodeBlock({ language, code }: Props) {
   const { resolvedTheme } = useSettings();
   const isLight = resolvedTheme === 'light';
   const [copied, setCopied] = useState(false);
-  const [wordWrap, setWordWrap] = useState(false);
+  const [wordWrap, setWordWrap] = useState(true);
 
   const lineCount = code.split('\n').length;
   const showLineNumbers = lineCount > 10;
@@ -34,7 +34,8 @@ export default function CodeBlock({ language, code }: Props) {
           {lineCount > 5 && (
             <button
               onClick={() => setWordWrap(w => !w)}
-              className="md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-150
+              className="[@media(hover:hover)]:md:opacity-0 [@media(hover:hover)]:md:group-hover:opacity-100
+                         transition-opacity duration-150
                          hover:text-zinc-700 cursor-pointer"
               title={wordWrap ? 'Disable word wrap' : 'Enable word wrap'}
             >
@@ -43,7 +44,8 @@ export default function CodeBlock({ language, code }: Props) {
           )}
           <button
             onClick={handleCopy}
-            className="md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-150
+            className="[@media(hover:hover)]:md:opacity-0 [@media(hover:hover)]:md:group-hover:opacity-100
+                       transition-opacity duration-150
                        hover:text-zinc-700 cursor-pointer min-w-[52px] text-right"
           >
             {copied ? '✓ Copied' : 'Copy'}
