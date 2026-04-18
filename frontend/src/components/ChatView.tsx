@@ -779,7 +779,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overscroll-contain px-4 py-6 transition-colors duration-200" style={{ backgroundColor: getThreadBackground(thread?.color, resolvedTheme) }}>
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-6 transition-colors duration-200" style={{ backgroundColor: getThreadBackground(thread?.color, resolvedTheme) }}>
         <div className="max-w-3xl mx-auto">
           {loading && (
             <div className="flex justify-center py-12">

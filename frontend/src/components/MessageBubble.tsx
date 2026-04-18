@@ -293,7 +293,7 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
 
       <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} max-w-[85%] md:max-w-[75%] min-w-0`}>
         <div
-          className={`rounded-2xl px-4 py-3 break-words overflow-hidden ${
+          className={`rounded-2xl px-4 py-3 break-words overflow-hidden min-w-0 max-w-full ${
             isUser
               ? isPending ? 'bg-zinc-100 text-zinc-400' : 'bg-emerald-600 text-white'
               : 'text-zinc-900'
@@ -330,7 +330,7 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
             </div>
           ) : isUser ? (
             <>
-              <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{linkifyText(message.content)}</p>
+              <p className="whitespace-pre-wrap text-[15px] leading-relaxed min-w-0 max-w-full">{linkifyText(message.content)}</p>
               <AttachmentPreviews
                 imageAttachments={imageAttachments}
                 pdfAttachments={pdfAttachments}
@@ -341,7 +341,7 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
               />
             </>
           ) : (
-            <div className="text-[15px]" style={{ lineHeight: 1.7 }}>
+            <div className="text-[15px] min-w-0 max-w-full" style={{ lineHeight: 1.7 }}>
               {message.thinking && (
                 <ThinkingSection
                   content={message.thinking}

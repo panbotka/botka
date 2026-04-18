@@ -68,7 +68,7 @@ export default function TaskOutputView({ events, isLive }: Props) {
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="overflow-y-auto space-y-1 p-4"
+        className="overflow-y-auto overflow-x-hidden space-y-1 p-4 min-w-0"
         style={{ maxHeight: '600px' }}
       >
         {hasMore && (
@@ -131,7 +131,7 @@ function EventGroup({ group }: { group: EventGroup }) {
   switch (group.type) {
     case 'text':
       return (
-        <div className="prose prose-sm prose-zinc max-w-none min-w-0 break-words">
+        <div className="prose prose-sm prose-zinc max-w-none max-w-full min-w-0 break-words">
           <MarkdownContent content={group.text} />
         </div>
       )
