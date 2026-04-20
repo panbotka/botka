@@ -12,7 +12,7 @@ export function clearDraft(threadId: number): void {
   draftsMap.delete(threadId);
 }
 
-export const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+export const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
 const ALLOWED_MIME_TYPES = [
   'image/png', 'image/jpeg', 'image/gif', 'image/webp',
   'application/pdf', 'text/plain', 'text/markdown', 'text/calendar',

@@ -195,7 +195,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
 
     for (const file of Array.from(droppedFiles)) {
       if (file.size > MAX_FILE_SIZE) {
-        errors.push(`${file.name}: file too large (max 10 MB)`);
+        errors.push(`${file.name}: file too large (max 500 MB)`);
       } else if (!isAllowedFile(file)) {
         errors.push(`Unsupported file type: ${getFileExtension(file)}`);
       } else {

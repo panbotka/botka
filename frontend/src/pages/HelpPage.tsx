@@ -215,7 +215,7 @@ export default function HelpPage() {
           <li>
             Supported types: images, PDFs, text, Markdown, calendar files, and ZIPs.
           </li>
-          <li>Maximum file size: 10 MB per file.</li>
+          <li>Maximum file size: 500 MB per file.</li>
         </ul>
       </Section>
 

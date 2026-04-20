@@ -47,7 +47,10 @@ var extToMime = map[string]string{
 	".csv":  "text/csv",
 }
 
-const maxUploadSize = 10 << 20 // 10 MB
+// maxUploadSize caps the size of uploaded chat attachments and AI-generated
+// files captured from disk. It is a var (not const) so tests can override it
+// to exercise the boundary without allocating hundreds of megabytes.
+var maxUploadSize int64 = 500 << 20 // 500 MB
 
 // isTransientError reports whether the given error message is a known transient
 // Claude Code error that can be resolved by retrying with a fresh session.
