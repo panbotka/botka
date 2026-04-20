@@ -9,6 +9,8 @@ import {
   HelpCircle,
   Loader2,
   Server,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useIsMobile } from './hooks/useIsMobile'
@@ -122,6 +124,7 @@ function AuthenticatedApp() {
 
   const [searchOpen, setSearchOpen] = useState(false)
   const closeSearch = useCallback(() => setSearchOpen(false), [])
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   // Global Cmd+K / Ctrl+K shortcut
   useEffect(() => {
@@ -137,8 +140,37 @@ function AuthenticatedApp() {
 
   return (
     <SSEProvider>
-      <div className="flex h-dvh bg-zinc-50" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
-        {!isMobile && <AppSidebar />}
+      <div className="relative flex h-dvh bg-zinc-50" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+        {!isMobile && (
+          <>
+            <div
+              className={clsx(
+                'h-full flex-shrink-0 overflow-hidden transition-[width] duration-200 ease-in-out',
+                sidebarCollapsed ? 'w-0' : 'w-56',
+              )}
+            >
+              <div className="h-full w-56">
+                <AppSidebar />
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed((prev) => !prev)}
+              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              className={clsx(
+                'absolute top-4 z-30 flex h-6 w-6 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 shadow-sm transition-[left] duration-200 ease-in-out hover:bg-zinc-100 hover:text-zinc-900',
+                sidebarCollapsed ? 'left-1.5' : 'left-[218px]',
+              )}
+              style={{ top: 'calc(env(safe-area-inset-top, 0px) + 1rem)' }}
+            >
+              {sidebarCollapsed ? (
+                <ChevronRight className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronLeft className="h-3.5 w-3.5" />
+              )}
+            </button>
+          </>
+        )}
         <main className={clsx(
           'flex-1',
           isChat ? 'overflow-hidden' : 'overflow-auto p-6',
