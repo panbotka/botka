@@ -8,7 +8,7 @@ import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import ChatView from '../components/ChatView'
 import ThreadSidebar from '../components/ThreadSidebar'
-import ProcessBar from '../components/ProcessBar'
+import ChatTabsBar from '../components/ChatTabsBar'
 import ProjectPicker, { isBoxProject } from '../components/ProjectPicker'
 import CommandButtons from '../components/CommandButtons'
 import BoxRunningIndicator from '../components/BoxRunningIndicator'
@@ -202,6 +202,12 @@ export default function ChatPage() {
   if (isMobile) {
     return (
       <div className="h-full flex flex-col">
+        <ChatTabsBar
+          processes={processes}
+          activeThreadId={activeThreadId}
+          onSelect={(id) => selectThread(id)}
+          onKill={killProcess}
+        />
         {showMobileChat ? (
           <div className="flex-1 flex flex-col min-w-0 min-h-0">
             {/* Mobile chat header */}
@@ -241,7 +247,6 @@ export default function ChatPage() {
                 </>
               )}
             </header>
-            <ProcessBar processes={processes} onKill={killProcess} />
             <ChatView
               threadId={activeThreadId}
               thread={activeThread}
@@ -291,6 +296,12 @@ export default function ChatPage() {
       <ThreadSidebar {...sidebarProps} />
 
       <div className="flex-1 flex flex-col min-w-0">
+        <ChatTabsBar
+          processes={processes}
+          activeThreadId={activeThreadId}
+          onSelect={(id) => selectThread(id)}
+          onKill={killProcess}
+        />
         {activeThreadId ? (
           <>
             {/* Desktop chat header */}
@@ -324,7 +335,6 @@ export default function ChatPage() {
                 </>
               )}
             </header>
-            <ProcessBar processes={processes} onKill={killProcess} />
             <ChatView
               threadId={activeThreadId}
               thread={activeThread}
