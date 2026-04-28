@@ -12,7 +12,8 @@ import ChatTabsBar from '../components/ChatTabsBar'
 import ProjectPicker, { isBoxProject } from '../components/ProjectPicker'
 import CommandButtons from '../components/CommandButtons'
 import BoxRunningIndicator from '../components/BoxRunningIndicator'
-import { MessageSquare, ArrowLeft } from 'lucide-react'
+import ThreadSettingsPanel from '../components/ThreadSettingsPanel'
+import { MessageSquare, ArrowLeft, Settings } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 function parseThreadIdFromPath(pathname: string): number | null {
@@ -38,6 +39,7 @@ export default function ChatPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [pendingStarterMessage, setPendingStarterMessage] = useState<string | null>(null)
   const [threadNotFound, setThreadNotFound] = useState(false)
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false)
 
   const showArchivedRef = useRef(showArchived)
   useEffect(() => { showArchivedRef.current = showArchived }, [showArchived])
@@ -53,6 +55,7 @@ export default function ChatPage() {
     const id = parseThreadIdFromPath(location.pathname)
     setActiveThreadId(id)
     setThreadNotFound(false)
+    setSettingsPanelOpen(false)
   }, [location.pathname])
 
   // Navigate to a thread
@@ -244,6 +247,17 @@ export default function ChatPage() {
                   <span className="text-[11px] text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md flex-shrink-0">
                     {activeThread.model || 'Default'}
                   </span>
+                  {!isExternal && (
+                    <button
+                      onClick={() => setSettingsPanelOpen(true)}
+                      aria-label="Thread settings"
+                      title="Thread settings"
+                      className="text-zinc-500 hover:text-zinc-800 cursor-pointer transition-colors
+                                 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-200/60 flex-shrink-0"
+                    >
+                      <Settings className="w-4 h-4" />
+                    </button>
+                  )}
                 </>
               )}
             </header>
@@ -256,6 +270,14 @@ export default function ChatPage() {
               pendingStarterMessage={pendingStarterMessage}
               onStarterMessageConsumed={() => setPendingStarterMessage(null)}
             />
+            {settingsPanelOpen && activeThread && (
+              <ThreadSettingsPanel
+                thread={activeThread}
+                tags={tags}
+                onClose={() => setSettingsPanelOpen(false)}
+                onThreadsChange={handleThreadsChange}
+              />
+            )}
           </div>
         ) : (
           <>
@@ -332,6 +354,17 @@ export default function ChatPage() {
                   <span className="text-[11px] text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md flex-shrink-0">
                     {activeThread.model || 'Default'}
                   </span>
+                  {!isExternal && (
+                    <button
+                      onClick={() => setSettingsPanelOpen(true)}
+                      aria-label="Thread settings"
+                      title="Thread settings"
+                      className="text-zinc-500 hover:text-zinc-800 cursor-pointer transition-colors
+                                 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-200/60 flex-shrink-0"
+                    >
+                      <Settings className="w-4 h-4" />
+                    </button>
+                  )}
                 </>
               )}
             </header>
@@ -344,6 +377,14 @@ export default function ChatPage() {
               pendingStarterMessage={pendingStarterMessage}
               onStarterMessageConsumed={() => setPendingStarterMessage(null)}
             />
+            {settingsPanelOpen && activeThread && (
+              <ThreadSettingsPanel
+                thread={activeThread}
+                tags={tags}
+                onClose={() => setSettingsPanelOpen(false)}
+                onThreadsChange={handleThreadsChange}
+              />
+            )}
           </>
         ) : (
           /* Empty state — no thread selected */
