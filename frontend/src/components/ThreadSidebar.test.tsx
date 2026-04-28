@@ -255,3 +255,49 @@ describe('ThreadSidebar global search', () => {
     expect(screen.queryByText('Threads')).not.toBeInTheDocument()
   })
 })
+
+describe('ThreadSidebar prefix syntax', () => {
+  const workTag = { id: 1, name: 'work', color: '#3b82f6', created_at: '2026-01-01T00:00:00Z' }
+  const homeTag = { id: 2, name: 'home', color: '#10b981', created_at: '2026-01-01T00:00:00Z' }
+
+  it('typing tag:work filters the rendered thread list locally without calling the API', async () => {
+    const threads = [
+      makeThread({ id: 1, title: 'Work thread', tags: [workTag] }),
+      makeThread({ id: 2, title: 'Home thread', tags: [homeTag] }),
+      makeThread({ id: 3, title: 'No tags thread' }),
+    ]
+    renderSidebar({ threads, tags: [workTag, homeTag] })
+
+    expect(screen.getByText('Work thread')).toBeInTheDocument()
+    expect(screen.getByText('Home thread')).toBeInTheDocument()
+    expect(screen.getByText('No tags thread')).toBeInTheDocument()
+
+    await typeSearch('tag:work')
+
+    expect(globalSearchMock).not.toHaveBeenCalled()
+    expect(screen.getByText('Work thread')).toBeInTheDocument()
+    expect(screen.queryByText('Home thread')).not.toBeInTheDocument()
+    expect(screen.queryByText('No tags thread')).not.toBeInTheDocument()
+  })
+
+  it('renders an active filter chip and removes the filter when × is clicked', async () => {
+    const threads = [
+      makeThread({ id: 1, title: 'Work thread', tags: [workTag] }),
+      makeThread({ id: 2, title: 'Home thread', tags: [homeTag] }),
+    ]
+    renderSidebar({ threads, tags: [workTag, homeTag] })
+
+    await typeSearch('tag:work')
+    const chip = screen.getByLabelText('Remove filter tag: work')
+    expect(chip).toBeInTheDocument()
+    expect(screen.queryByText('Home thread')).not.toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(chip)
+    })
+
+    expect(screen.getByText('Work thread')).toBeInTheDocument()
+    expect(screen.getByText('Home thread')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Remove filter tag: work')).not.toBeInTheDocument()
+  })
+})

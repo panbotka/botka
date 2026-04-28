@@ -13,6 +13,12 @@ import {
   ListTodo, FileText,
 } from 'lucide-react'
 import { THREAD_COLORS } from '../utils/threadColors'
+import {
+  parseSearchQuery,
+  matchesPrefixFilters,
+  removeFilter,
+  filterChipLabel,
+} from '../utils/searchQuery'
 
 // How many results per section we show inline before collapsing into "+N more".
 const SIDEBAR_SECTION_LIMIT = 10
@@ -138,11 +144,17 @@ export default function ThreadSidebar({
     if (debounceRef.current) clearTimeout(debounceRef.current)
   }, [])
 
+  const parsedQuery = useMemo(() => parseSearchQuery(searchQuery), [searchQuery])
+  const hasPrefix = parsedQuery.filters.length > 0
+  const freeText = parsedQuery.freeText
+
   // Debounced global search across threads, messages, projects, and tasks.
+  // Only the free-text portion of the input is sent to the API; prefix
+  // filters are applied client-side either to the local thread list (when
+  // the input is prefix-only) or to the API thread results (when mixed).
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    const q = searchQuery.trim()
-    if (q.length < 2) {
+    if (freeText.length < 2) {
       setSearchResults(null)
       setSearchLoading(false)
       return
@@ -150,7 +162,7 @@ export default function ThreadSidebar({
     setSearchLoading(true)
     debounceRef.current = setTimeout(async () => {
       try {
-        const results = await globalSearch(q, SIDEBAR_SEARCH_FETCH_LIMIT)
+        const results = await globalSearch(freeText, SIDEBAR_SEARCH_FETCH_LIMIT)
         setSearchResults(results)
       } catch {
         setSearchResults({ threads: [], messages: [], projects: [], tasks: [] })
@@ -160,7 +172,7 @@ export default function ThreadSidebar({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-  }, [searchQuery])
+  }, [freeText])
 
   const handleRename = async (id: number) => {
     if (!editTitle.trim()) {
@@ -245,17 +257,25 @@ export default function ThreadSidebar({
     clearSearch()
   }
 
-  const isSearching = searchQuery.trim().length >= 2
+  const isSearching = freeText.length >= 2
+  // Prefix-only mode: prefix filters are active but no API search is happening.
+  // We filter the local thread list rather than render search results.
+  const isLocalFiltering = hasPrefix && !isSearching
+  const archivedPrefixForced = parsedQuery.filters.some(
+    f => f.key === 'archived' && f.value === 'true',
+  )
+  const archivedSectionVisible = showArchived || (isLocalFiltering && archivedPrefixForced)
   const hasTagFilter = selectedTagIds.length > 0
   const hasProjectFilter = selectedProjectId !== null
+
+  const projectMap = useMemo(() => new Map(projects.map(p => [p.id, p])), [projects])
 
   const matchesFilters = useCallback((thread: Thread) => {
     if (hasTagFilter && !(thread.tags || []).some(t => selectedTagIds.includes(t.id))) return false
     if (hasProjectFilter && thread.project_id !== selectedProjectId) return false
+    if (isLocalFiltering && !matchesPrefixFilters(thread, parsedQuery, projectMap)) return false
     return true
-  }, [hasTagFilter, selectedTagIds, hasProjectFilter, selectedProjectId])
-
-  const projectMap = useMemo(() => new Map(projects.map(p => [p.id, p])), [projects])
+  }, [hasTagFilter, selectedTagIds, hasProjectFilter, selectedProjectId, isLocalFiltering, parsedQuery, projectMap])
 
   const pinnedThreads = useMemo(() => threads.filter(t => t.pinned && !t.archived && matchesFilters(t)), [threads, matchesFilters])
   const regularThreads = useMemo(() => threads.filter(t => !t.pinned && !t.archived && matchesFilters(t)), [threads, matchesFilters])
@@ -482,6 +502,27 @@ export default function ThreadSidebar({
     </div>
   )
 
+  // Removable chip row for prefix filters parsed out of the search input.
+  const activeFiltersRow = hasPrefix && (
+    <div className="px-3 pb-2 flex flex-wrap gap-1.5">
+      {parsedQuery.filters.map((f, i) => (
+        <button
+          key={`${f.key}-${i}-${f.rawText}`}
+          type="button"
+          onClick={() => setSearchQuery(removeFilter(searchQuery, f))}
+          className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border
+                     bg-zinc-200/60 border-zinc-300 text-zinc-800 hover:bg-zinc-300/60
+                     transition-all duration-150 cursor-pointer"
+          title={`Remove filter ${filterChipLabel(f)}`}
+          aria-label={`Remove filter ${filterChipLabel(f)}`}
+        >
+          <span>{filterChipLabel(f)}</span>
+          <X className="w-3 h-3" />
+        </button>
+      ))}
+    </div>
+  )
+
   // Tag + project filter bar
   const filterBar = (tags.length > 0 || projects.length > 0) && !isSearching && (
     <div className="px-3 pb-2 flex gap-1.5 overflow-x-auto scrollbar-hide">
@@ -687,6 +728,20 @@ export default function ThreadSidebar({
     </button>
   )
 
+  // In mixed mode (free-text + prefix), the API returns threads matching the
+  // free-text part; we then narrow to those that also match prefix filters.
+  // Threads not in the local list are dropped because we need their tags /
+  // project_id / persona_name to evaluate prefix filters.
+  const visibleSearchThreads = useMemo(() => {
+    if (!searchResults) return []
+    if (!hasPrefix) return searchResults.threads
+    return searchResults.threads.filter(res => {
+      const localThread = threadById.get(res.id)
+      if (!localThread) return false
+      return matchesPrefixFilters(localThread, parsedQuery, projectMap)
+    })
+  }, [searchResults, hasPrefix, threadById, parsedQuery, projectMap])
+
   // Search results view
   const searchResultsView = isSearching && (() => {
     if (searchLoading) {
@@ -694,7 +749,7 @@ export default function ThreadSidebar({
     }
     if (!searchResults) return null
 
-    const threadCount = searchResults.threads.length
+    const threadCount = visibleSearchThreads.length
     const messageCount = searchResults.messages.length
     const projectCount = searchResults.projects.length
     const taskCount = searchResults.tasks.length
@@ -709,7 +764,7 @@ export default function ThreadSidebar({
         {threadCount > 0 && (
           <>
             {renderSectionHeader('Threads')}
-            {searchResults.threads.slice(0, SIDEBAR_SECTION_LIMIT).map(renderThreadResult)}
+            {visibleSearchThreads.slice(0, SIDEBAR_SECTION_LIMIT).map(renderThreadResult)}
             {renderMoreLink('Threads', threadCount)}
           </>
         )}
@@ -753,7 +808,7 @@ export default function ThreadSidebar({
         </>
       )}
       {regularThreads.map(renderThread)}
-      {showArchived && archivedThreads.length > 0 && (
+      {archivedSectionVisible && archivedThreads.length > 0 && (
         <>
           <div className="my-1.5 mx-3 border-t border-zinc-100" />
           <div className="px-3 py-1.5 text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
@@ -780,6 +835,7 @@ export default function ThreadSidebar({
           </div>
           {searchInput}
           {filterBar}
+          {activeFiltersRow}
           <div className="flex-1 overflow-y-auto px-2 pb-4">
             {isSearching ? searchResultsView : threadListView}
           </div>
@@ -865,6 +921,7 @@ export default function ThreadSidebar({
 
         {searchInput}
         {filterBar}
+        {activeFiltersRow}
 
         {/* Thread list */}
         <div className="flex-1 overflow-y-auto px-2 pb-2">
