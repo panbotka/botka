@@ -16,6 +16,7 @@ func TestKeepalivePing_SkipsWhenStopped(t *testing.T) {
 	called := false
 	r := &Runner{
 		state:  models.StateStopped,
+		config: &config.Config{},
 		pingFn: func() error { called = true; return nil },
 	}
 
@@ -32,6 +33,7 @@ func TestKeepalivePing_RunsWhenRunning(t *testing.T) {
 	called := false
 	r := &Runner{
 		state:  models.StateRunning,
+		config: &config.Config{},
 		pingFn: func() error { called = true; return nil },
 	}
 
@@ -48,6 +50,7 @@ func TestKeepalivePing_RunsWhenPaused(t *testing.T) {
 	called := false
 	r := &Runner{
 		state:  models.StatePaused,
+		config: &config.Config{},
 		pingFn: func() error { called = true; return nil },
 	}
 
@@ -63,11 +66,114 @@ func TestKeepalivePing_HandlesError(t *testing.T) {
 
 	r := &Runner{
 		state:  models.StateRunning,
+		config: &config.Config{},
 		pingFn: func() error { return errors.New("connection refused") },
 	}
 
 	// Should not panic; errors are logged and swallowed.
 	r.keepalivePing()
+}
+
+func TestKeepalivePing_SkipsOnRecentTaskActivity(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	r := &Runner{
+		state:  models.StateRunning,
+		config: &config.Config{KeepaliveActivityThreshold: 50 * time.Minute},
+		pingFn: func() error { called = true; return nil },
+		activityFn: func() (time.Time, error) {
+			return time.Now().Add(-12 * time.Minute), nil
+		},
+	}
+
+	r.keepalivePing()
+
+	if called {
+		t.Error("expected ping to be skipped after recent task activity")
+	}
+}
+
+func TestKeepalivePing_SkipsOnRecentMessageActivity(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	r := &Runner{
+		state:  models.StateRunning,
+		config: &config.Config{KeepaliveActivityThreshold: 50 * time.Minute},
+		pingFn: func() error { called = true; return nil },
+		activityFn: func() (time.Time, error) {
+			// Simulate a recent chat message inside the threshold window.
+			return time.Now().Add(-5 * time.Minute), nil
+		},
+	}
+
+	r.keepalivePing()
+
+	if called {
+		t.Error("expected ping to be skipped after recent message activity")
+	}
+}
+
+func TestKeepalivePing_RunsWhenActivityIsOld(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	r := &Runner{
+		state:  models.StateRunning,
+		config: &config.Config{KeepaliveActivityThreshold: 50 * time.Minute},
+		pingFn: func() error { called = true; return nil },
+		activityFn: func() (time.Time, error) {
+			return time.Now().Add(-2 * time.Hour), nil
+		},
+	}
+
+	r.keepalivePing()
+
+	if !called {
+		t.Error("expected ping to run when most recent activity is older than threshold")
+	}
+}
+
+func TestKeepalivePing_RunsWhenActivityCheckErrors(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	r := &Runner{
+		state:  models.StateRunning,
+		config: &config.Config{KeepaliveActivityThreshold: 50 * time.Minute},
+		pingFn: func() error { called = true; return nil },
+		activityFn: func() (time.Time, error) {
+			return time.Time{}, errors.New("db unavailable")
+		},
+	}
+
+	r.keepalivePing()
+
+	if !called {
+		t.Error("expected ping to fall through and run when activity check fails")
+	}
+}
+
+func TestKeepalivePing_RunsWhenTablesEmpty(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	r := &Runner{
+		state:  models.StateRunning,
+		config: &config.Config{KeepaliveActivityThreshold: 50 * time.Minute},
+		pingFn: func() error { called = true; return nil },
+		activityFn: func() (time.Time, error) {
+			// Both tables empty: zero time, no error.
+			return time.Time{}, nil
+		},
+	}
+
+	r.keepalivePing()
+
+	if !called {
+		t.Error("expected ping to run when both tables are empty")
+	}
 }
 
 func TestKeepaliveLoop_StopsOnClose(t *testing.T) {

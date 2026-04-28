@@ -13,34 +13,35 @@ import (
 
 // Config holds all application configuration values.
 type Config struct {
-	Port                 string
-	DatabaseURL          string
-	ProjectsDir          string
-	ClaudePath           string
-	ClaudeUsageCmd       string
-	MaxWorkers           int
-	UsageThreshold5h     float64
-	UsageThreshold7d     float64
-	OpenClawURL          string
-	OpenClawToken        string
-	OpenClawWorkspace    string
-	ClaudeContextDir     string
-	ClaudeDefaultWorkDir string
-	WhisperEnabled       bool
-	UploadDir            string
-	AIModel              string
-	AvailableModels      []string
-	WebAuthnOrigin       string
-	WebAuthnRPID         string
-	SessionMaxAge        time.Duration
-	MCPToken             string
-	BoxHost              string
-	BoxSSHUser           string
-	BoxSSHHost           string
-	BoxWOLCommand        string
-	KeepaliveEnabled     bool
-	KeepaliveInterval    time.Duration
-	SignalCLIURL         string
+	Port                       string
+	DatabaseURL                string
+	ProjectsDir                string
+	ClaudePath                 string
+	ClaudeUsageCmd             string
+	MaxWorkers                 int
+	UsageThreshold5h           float64
+	UsageThreshold7d           float64
+	OpenClawURL                string
+	OpenClawToken              string
+	OpenClawWorkspace          string
+	ClaudeContextDir           string
+	ClaudeDefaultWorkDir       string
+	WhisperEnabled             bool
+	UploadDir                  string
+	AIModel                    string
+	AvailableModels            []string
+	WebAuthnOrigin             string
+	WebAuthnRPID               string
+	SessionMaxAge              time.Duration
+	MCPToken                   string
+	BoxHost                    string
+	BoxSSHUser                 string
+	BoxSSHHost                 string
+	BoxWOLCommand              string
+	KeepaliveEnabled           bool
+	KeepaliveInterval          time.Duration
+	KeepaliveActivityThreshold time.Duration
+	SignalCLIURL               string
 }
 
 // Load reads configuration from the .env file and environment variables.
@@ -79,6 +80,11 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("parsing KEEPALIVE_INTERVAL: %w", err)
 	}
 
+	keepaliveActivityThreshold, err := time.ParseDuration(getEnv("KEEPALIVE_ACTIVITY_THRESHOLD", "50m"))
+	if err != nil {
+		return nil, fmt.Errorf("parsing KEEPALIVE_ACTIVITY_THRESHOLD: %w", err)
+	}
+
 	availableModels := getEnvCSV("AVAILABLE_MODELS", []string{"sonnet", "opus", "haiku"})
 
 	sessionMaxAge, err := time.ParseDuration(getEnv("SESSION_MAX_AGE", "720h"))
@@ -98,34 +104,35 @@ func Load() (*Config, error) {
 	}
 
 	return &Config{
-		Port:                 getEnv("PORT", "5110"),
-		DatabaseURL:          getEnv("DATABASE_URL", "postgres://botka:botka@localhost:5432/botka?sslmode=disable"),
-		ProjectsDir:          getEnv("PROJECTS_DIR", "/home/pi/projects"),
-		ClaudePath:           getEnv("CLAUDE_PATH", "claude"),
-		ClaudeUsageCmd:       getEnv("CLAUDE_USAGE_CMD", "/home/pi/bin/claude-usage"),
-		MaxWorkers:           maxWorkers,
-		UsageThreshold5h:     threshold5h,
-		UsageThreshold7d:     threshold7d,
-		OpenClawURL:          getEnv("OPENCLAW_URL", "http://localhost:18789"),
-		OpenClawToken:        getEnv("OPENCLAW_TOKEN", ""),
-		OpenClawWorkspace:    getEnv("OPENCLAW_WORKSPACE", "/home/pi/.openclaw/workspace"),
-		ClaudeContextDir:     getEnv("CLAUDE_CONTEXT_DIR", "./data/context"),
-		ClaudeDefaultWorkDir: getEnv("CLAUDE_DEFAULT_WORK_DIR", "/home/pi"),
-		WhisperEnabled:       whisperEnabled,
-		UploadDir:            getEnv("UPLOAD_DIR", "./data/uploads"),
-		AIModel:              getEnv("AI_MODEL", "sonnet"),
-		AvailableModels:      availableModels,
-		WebAuthnOrigin:       webAuthnOrigin,
-		WebAuthnRPID:         webAuthnRPID,
-		SessionMaxAge:        sessionMaxAge,
-		MCPToken:             getEnv("MCP_TOKEN", ""),
-		BoxHost:              getEnv("BOX_HOST", "100.127.79.1"),
-		BoxSSHUser:           getEnv("BOX_SSH_USER", "box"),
-		BoxSSHHost:           getEnv("BOX_SSH_HOST", "box"),
-		BoxWOLCommand:        getEnv("BOX_WOL_COMMAND", "/home/pi/bin/boxon"),
-		KeepaliveEnabled:     keepaliveEnabled,
-		KeepaliveInterval:    keepaliveInterval,
-		SignalCLIURL:         getEnv("SIGNAL_CLI_URL", "http://127.0.0.1:5107"),
+		Port:                       getEnv("PORT", "5110"),
+		DatabaseURL:                getEnv("DATABASE_URL", "postgres://botka:botka@localhost:5432/botka?sslmode=disable"),
+		ProjectsDir:                getEnv("PROJECTS_DIR", "/home/pi/projects"),
+		ClaudePath:                 getEnv("CLAUDE_PATH", "claude"),
+		ClaudeUsageCmd:             getEnv("CLAUDE_USAGE_CMD", "/home/pi/bin/claude-usage"),
+		MaxWorkers:                 maxWorkers,
+		UsageThreshold5h:           threshold5h,
+		UsageThreshold7d:           threshold7d,
+		OpenClawURL:                getEnv("OPENCLAW_URL", "http://localhost:18789"),
+		OpenClawToken:              getEnv("OPENCLAW_TOKEN", ""),
+		OpenClawWorkspace:          getEnv("OPENCLAW_WORKSPACE", "/home/pi/.openclaw/workspace"),
+		ClaudeContextDir:           getEnv("CLAUDE_CONTEXT_DIR", "./data/context"),
+		ClaudeDefaultWorkDir:       getEnv("CLAUDE_DEFAULT_WORK_DIR", "/home/pi"),
+		WhisperEnabled:             whisperEnabled,
+		UploadDir:                  getEnv("UPLOAD_DIR", "./data/uploads"),
+		AIModel:                    getEnv("AI_MODEL", "sonnet"),
+		AvailableModels:            availableModels,
+		WebAuthnOrigin:             webAuthnOrigin,
+		WebAuthnRPID:               webAuthnRPID,
+		SessionMaxAge:              sessionMaxAge,
+		MCPToken:                   getEnv("MCP_TOKEN", ""),
+		BoxHost:                    getEnv("BOX_HOST", "100.127.79.1"),
+		BoxSSHUser:                 getEnv("BOX_SSH_USER", "box"),
+		BoxSSHHost:                 getEnv("BOX_SSH_HOST", "box"),
+		BoxWOLCommand:              getEnv("BOX_WOL_COMMAND", "/home/pi/bin/boxon"),
+		KeepaliveEnabled:           keepaliveEnabled,
+		KeepaliveInterval:          keepaliveInterval,
+		KeepaliveActivityThreshold: keepaliveActivityThreshold,
+		SignalCLIURL:               getEnv("SIGNAL_CLI_URL", "http://127.0.0.1:5107"),
 	}, nil
 }
 

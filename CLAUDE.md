@@ -209,6 +209,7 @@ Exposes 19 tools across categories: task management (create_task, list_tasks, ge
 | `BOX_WOL_COMMAND` | `/home/pi/bin/boxon` | Wake-on-LAN command for Box server |
 | `KEEPALIVE_ENABLED` | `true` | Enable periodic Claude Code ping to keep 5h rate limit window active |
 | `KEEPALIVE_INTERVAL` | `60m` | Interval between keepalive pings (Go duration) |
+| `KEEPALIVE_ACTIVITY_THRESHOLD` | `50m` | Skip the keepalive ping when a task started or a chat message was created within this window — real activity already keeps the 5h window alive (Go duration; set to `0` to always ping) |
 | `SIGNAL_CLI_URL` | `http://127.0.0.1:5107` | Base URL of signal-cli daemon HTTP JSON-RPC endpoint |
 
 ## Task Agent Safety

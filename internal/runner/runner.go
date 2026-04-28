@@ -91,7 +91,8 @@ type Runner struct {
 	wg             sync.WaitGroup
 	retryNotBefore map[uuid.UUID]time.Time // key: task ID
 	TaskEvents     *TaskEventHub
-	pingFn         func() error // overridable for testing; nil uses defaultPing
+	pingFn         func() error              // overridable for testing; nil uses defaultPing
+	activityFn     func() (time.Time, error) // overridable for testing; nil queries the database
 }
 
 // NewRunner creates a new Runner instance and loads persisted state from the database.
