@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import type { Persona, Tag, Thread, Project, GlobalSearchResults } from '../types'
+import type { Persona, Thread, Project, GlobalSearchResults } from '../types'
 import { formatDate as formatDateOnly } from '../utils/dateFormat'
 import { api, globalSearch, ApiError } from '../api/client'
 import { downloadExport } from '../utils/exportThread'
@@ -47,14 +47,8 @@ interface Props {
   onThreadsChange: () => void
   showArchived: boolean
   onToggleArchived: () => void
-  tags: Tag[]
-  selectedTagIds: number[]
-  onToggleTagFilter: (tagId: number) => void
-  onClearTagFilter: () => void
   personas: Persona[]
   projects: Project[]
-  selectedProjectId: string | null
-  onSelectProject: (id: string | null) => void
   activeProcessThreadIds: Set<number>
   mobile?: boolean
   readOnly?: boolean
@@ -70,14 +64,8 @@ export default function ThreadSidebar({
   onThreadsChange,
   showArchived,
   onToggleArchived,
-  tags,
-  selectedTagIds,
-  onToggleTagFilter,
-  onClearTagFilter,
   personas,
   projects,
-  selectedProjectId,
-  onSelectProject,
   activeProcessThreadIds,
   mobile,
   readOnly,
@@ -265,17 +253,13 @@ export default function ThreadSidebar({
     f => f.key === 'archived' && f.value === 'true',
   )
   const archivedSectionVisible = showArchived || (isLocalFiltering && archivedPrefixForced)
-  const hasTagFilter = selectedTagIds.length > 0
-  const hasProjectFilter = selectedProjectId !== null
 
   const projectMap = useMemo(() => new Map(projects.map(p => [p.id, p])), [projects])
 
   const matchesFilters = useCallback((thread: Thread) => {
-    if (hasTagFilter && !(thread.tags || []).some(t => selectedTagIds.includes(t.id))) return false
-    if (hasProjectFilter && thread.project_id !== selectedProjectId) return false
     if (isLocalFiltering && !matchesPrefixFilters(thread, parsedQuery, projectMap)) return false
     return true
-  }, [hasTagFilter, selectedTagIds, hasProjectFilter, selectedProjectId, isLocalFiltering, parsedQuery, projectMap])
+  }, [isLocalFiltering, parsedQuery, projectMap])
 
   const pinnedThreads = useMemo(() => threads.filter(t => t.pinned && !t.archived && matchesFilters(t)), [threads, matchesFilters])
   const regularThreads = useMemo(() => threads.filter(t => !t.pinned && !t.archived && matchesFilters(t)), [threads, matchesFilters])
@@ -518,57 +502,6 @@ export default function ThreadSidebar({
         >
           <span>{filterChipLabel(f)}</span>
           <X className="w-3 h-3" />
-        </button>
-      ))}
-    </div>
-  )
-
-  // Tag + project filter bar
-  const filterBar = (tags.length > 0 || projects.length > 0) && !isSearching && (
-    <div className="px-3 pb-2 flex gap-1.5 overflow-x-auto scrollbar-hide">
-      <button
-        onClick={() => { onClearTagFilter(); onSelectProject(null) }}
-        className={`flex-shrink-0 px-2.5 py-1 text-xs rounded-lg border transition-all duration-150 cursor-pointer
-          ${!hasTagFilter && !hasProjectFilter
-            ? 'bg-zinc-200/60 border-zinc-300 text-zinc-800'
-            : 'bg-transparent border-zinc-200 text-zinc-500 hover:text-zinc-700 hover:border-zinc-300'
-          }`}
-      >
-        All
-      </button>
-      {tags.map(tag => {
-        const isSelected = selectedTagIds.includes(tag.id)
-        return (
-          <button
-            key={tag.id}
-            onClick={() => onToggleTagFilter(tag.id)}
-            className={`flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border transition-all duration-150 cursor-pointer
-              ${isSelected
-                ? 'border-zinc-300 text-zinc-800'
-                : 'bg-transparent border-zinc-200 text-zinc-500 hover:text-zinc-700 hover:border-zinc-300'
-              }`}
-            style={isSelected ? { backgroundColor: tag.color + '20', borderColor: tag.color + '60' } : {}}
-          >
-            <span
-              className="w-2 h-2 rounded-full flex-shrink-0"
-              style={{ backgroundColor: tag.color }}
-            />
-            {tag.name}
-          </button>
-        )
-      })}
-      {projects.filter(p => p.active).map(project => (
-        <button
-          key={project.id}
-          onClick={() => onSelectProject(selectedProjectId === project.id ? null : project.id)}
-          className={`flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border transition-all duration-150 cursor-pointer
-            ${selectedProjectId === project.id
-              ? 'bg-zinc-200/60 border-zinc-300 text-zinc-800'
-              : 'bg-transparent border-zinc-200 text-zinc-500 hover:text-zinc-700 hover:border-zinc-300'
-            }`}
-        >
-          <FolderGit2 className="w-3 h-3" />
-          {project.name}
         </button>
       ))}
     </div>
@@ -834,7 +767,6 @@ export default function ThreadSidebar({
             <h1 className="text-xl font-bold text-zinc-900">Chats</h1>
           </div>
           {searchInput}
-          {filterBar}
           {activeFiltersRow}
           <div className="flex-1 overflow-y-auto px-2 pb-4">
             {isSearching ? searchResultsView : threadListView}
@@ -859,27 +791,29 @@ export default function ThreadSidebar({
         <div className="p-3 pb-2 flex items-center justify-between relative" ref={personaDropdownRef}>
           <h1 className="text-base font-semibold text-zinc-900">Chats</h1>
           {!readOnly && (
-            <div className="flex items-center gap-0.5">
+            <div className="flex items-stretch rounded-lg overflow-hidden bg-amber-500 text-white
+                            shadow-sm shadow-amber-500/20">
               <button
                 onClick={() => { onNewThread(); clearSearch(); setPersonaDropdownOpen(false) }}
-                className="w-8 h-8 flex items-center justify-center rounded-lg
-                           text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/60
-                           transition-all cursor-pointer"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium
+                           hover:bg-amber-400 transition-colors cursor-pointer"
                 title="New chat"
               >
-                <Plus className="w-5 h-5" />
+                <Plus className="w-4 h-4" />
+                <span>New</span>
               </button>
               {personas.length > 0 && (
                 <button
                   onClick={() => setPersonaDropdownOpen(!personaDropdownOpen)}
-                  className={`w-8 h-8 flex items-center justify-center rounded-lg
-                             transition-all cursor-pointer
-                             ${personaDropdownOpen
-                               ? 'bg-zinc-200/60 text-zinc-800'
-                               : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/60'}`}
+                  className={`flex items-center justify-center px-1.5 border-l border-amber-400/60
+                             transition-colors cursor-pointer
+                             ${personaDropdownOpen ? 'bg-amber-600' : 'hover:bg-amber-600'}`}
                   title="Start with persona"
+                  aria-label="Start with persona"
+                  aria-expanded={personaDropdownOpen}
+                  aria-haspopup="menu"
                 >
-                  <ChevronDown className="w-4 h-4" />
+                  <ChevronDown className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
@@ -920,7 +854,6 @@ export default function ThreadSidebar({
         </div>
 
         {searchInput}
-        {filterBar}
         {activeFiltersRow}
 
         {/* Thread list */}

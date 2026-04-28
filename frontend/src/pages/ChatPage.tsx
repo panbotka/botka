@@ -33,10 +33,8 @@ export default function ChatPage() {
   )
   const [showArchived, setShowArchived] = useState(false)
   const [tags, setTags] = useState<Tag[]>([])
-  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
   const [personas, setPersonas] = useState<Persona[]>([])
   const [projects, setProjects] = useState<Project[]>([])
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [pendingStarterMessage, setPendingStarterMessage] = useState<string | null>(null)
   const [threadNotFound, setThreadNotFound] = useState(false)
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false)
@@ -183,18 +181,8 @@ export default function ChatPage() {
     onThreadsChange: handleThreadsChange,
     showArchived,
     onToggleArchived: handleToggleArchived,
-    tags,
-    selectedTagIds,
-    onToggleTagFilter: (tagId: number) => {
-      setSelectedTagIds(prev =>
-        prev.includes(tagId) ? prev.filter(id => id !== tagId) : [...prev, tagId],
-      )
-    },
-    onClearTagFilter: () => setSelectedTagIds([]),
     personas,
     projects,
-    selectedProjectId,
-    onSelectProject: setSelectedProjectId,
     activeProcessThreadIds,
     readOnly: isExternal,
     onNavigate: navigate,

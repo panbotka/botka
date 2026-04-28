@@ -72,14 +72,8 @@ function renderSidebar(props: Partial<React.ComponentProps<typeof ThreadSidebar>
     onThreadsChange: vi.fn(),
     showArchived: false,
     onToggleArchived: vi.fn(),
-    tags: [],
-    selectedTagIds: [],
-    onToggleTagFilter: vi.fn(),
-    onClearTagFilter: vi.fn(),
     personas: [],
     projects: [],
-    selectedProjectId: null,
-    onSelectProject: vi.fn(),
     activeProcessThreadIds: new Set<number>(),
   }
   return render(<ThreadSidebar {...defaults} {...props} />)
@@ -144,9 +138,9 @@ describe('ThreadSidebar action menu', () => {
 
   it('does not include the removed entries (Change model, Sources, Custom Context, Signal Bridge, MCP Servers, Color, Tags)', () => {
     renderSidebar({
-      threads: [makeThread()],
-      // Even with tags passed in, the menu should not show a Tags submenu.
-      tags: [{ id: 1, name: 'work', color: '#3b82f6', created_at: '2026-01-01T00:00:00Z' }],
+      threads: [makeThread({
+        tags: [{ id: 1, name: 'work', color: '#3b82f6', created_at: '2026-01-01T00:00:00Z' }],
+      })],
     })
     fireEvent.click(screen.getByTitle('Actions'))
 
@@ -266,7 +260,7 @@ describe('ThreadSidebar prefix syntax', () => {
       makeThread({ id: 2, title: 'Home thread', tags: [homeTag] }),
       makeThread({ id: 3, title: 'No tags thread' }),
     ]
-    renderSidebar({ threads, tags: [workTag, homeTag] })
+    renderSidebar({ threads })
 
     expect(screen.getByText('Work thread')).toBeInTheDocument()
     expect(screen.getByText('Home thread')).toBeInTheDocument()
@@ -285,7 +279,7 @@ describe('ThreadSidebar prefix syntax', () => {
       makeThread({ id: 1, title: 'Work thread', tags: [workTag] }),
       makeThread({ id: 2, title: 'Home thread', tags: [homeTag] }),
     ]
-    renderSidebar({ threads, tags: [workTag, homeTag] })
+    renderSidebar({ threads })
 
     await typeSearch('tag:work')
     const chip = screen.getByLabelText('Remove filter tag: work')
@@ -299,5 +293,71 @@ describe('ThreadSidebar prefix syntax', () => {
     expect(screen.getByText('Work thread')).toBeInTheDocument()
     expect(screen.getByText('Home thread')).toBeInTheDocument()
     expect(screen.queryByLabelText('Remove filter tag: work')).not.toBeInTheDocument()
+  })
+})
+
+describe('ThreadSidebar new-chat split-button', () => {
+  function makePersona(overrides: Partial<import('../types').Persona> = {}): import('../types').Persona {
+    return {
+      id: 1,
+      name: 'Default',
+      system_prompt: '',
+      default_model: '',
+      icon: '🤖',
+      starter_message: '',
+      sort_order: 0,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      ...overrides,
+    }
+  }
+
+  it('primary click triggers onNewThread() with no persona id', () => {
+    const onNewThread = vi.fn()
+    renderSidebar({ onNewThread, personas: [makePersona({ id: 5, name: 'Coder', icon: '💻' })] })
+
+    fireEvent.click(screen.getByTitle('New chat'))
+
+    expect(onNewThread).toHaveBeenCalledTimes(1)
+    expect(onNewThread).toHaveBeenCalledWith()
+  })
+
+  it('chevron click opens persona menu and selecting a persona calls onNewThread(personaId)', () => {
+    const onNewThread = vi.fn()
+    const personas = [
+      makePersona({ id: 5, name: 'Coder', icon: '💻' }),
+      makePersona({ id: 6, name: 'Writer', icon: '✍️' }),
+    ]
+    renderSidebar({ onNewThread, personas })
+
+    // Menu starts hidden.
+    expect(screen.queryByText('Empty chat')).not.toBeInTheDocument()
+    expect(screen.queryByText('Coder')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTitle('Start with persona'))
+
+    // Menu visible: empty-chat row plus each persona.
+    expect(screen.getByText('Empty chat')).toBeInTheDocument()
+    expect(screen.getByText('Coder')).toBeInTheDocument()
+    expect(screen.getByText('Writer')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Coder'))
+
+    expect(onNewThread).toHaveBeenCalledTimes(1)
+    expect(onNewThread).toHaveBeenCalledWith(5)
+  })
+
+  it('hides the chevron when there are no personas', () => {
+    renderSidebar({ personas: [] })
+
+    expect(screen.getByTitle('New chat')).toBeInTheDocument()
+    expect(screen.queryByTitle('Start with persona')).not.toBeInTheDocument()
+  })
+
+  it('hides the entire split-button in readOnly mode', () => {
+    renderSidebar({ readOnly: true, personas: [makePersona()] })
+
+    expect(screen.queryByTitle('New chat')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Start with persona')).not.toBeInTheDocument()
   })
 })
