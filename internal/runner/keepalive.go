@@ -142,6 +142,13 @@ func (r *Runner) keepalivePing() {
 		return
 	}
 
+	if r.usageMon != nil {
+		if limited, reason := r.usageMon.IsRateLimited(); limited {
+			slog.Info("keepalive skipped: rate limited", "reason", reason)
+			return
+		}
+	}
+
 	threshold := r.config.KeepaliveActivityThreshold
 	if threshold > 0 {
 		latest, err := r.recentActivity()

@@ -74,6 +74,90 @@ func TestKeepalivePing_HandlesError(t *testing.T) {
 	r.keepalivePing()
 }
 
+func TestKeepalivePing_SkipsWhenRateLimited(t *testing.T) {
+	t.Parallel()
+
+	mon := NewUsageMonitor("", 0.90, 0.95)
+	mon.lastPollOK = true
+	mon.info = UsageInfo{FiveHourPct: 0.95, SevenDayPct: 0.50}
+
+	called := false
+	r := &Runner{
+		state:    models.StateRunning,
+		config:   &config.Config{},
+		usageMon: mon,
+		pingFn:   func() error { called = true; return nil },
+	}
+
+	r.keepalivePing()
+
+	if called {
+		t.Error("expected ping to be skipped when usage monitor reports rate limited")
+	}
+}
+
+func TestKeepalivePing_RunsWhenNotRateLimited(t *testing.T) {
+	t.Parallel()
+
+	mon := NewUsageMonitor("", 0.90, 0.95)
+	mon.lastPollOK = true
+	mon.info = UsageInfo{FiveHourPct: 0.50, SevenDayPct: 0.60}
+
+	called := false
+	r := &Runner{
+		state:    models.StateRunning,
+		config:   &config.Config{},
+		usageMon: mon,
+		pingFn:   func() error { called = true; return nil },
+	}
+
+	r.keepalivePing()
+
+	if !called {
+		t.Error("expected ping to run when usage monitor reports not rate limited")
+	}
+}
+
+func TestKeepalivePing_RunsWhenUsageMonNil(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	r := &Runner{
+		state:    models.StateRunning,
+		config:   &config.Config{},
+		usageMon: nil,
+		pingFn:   func() error { called = true; return nil },
+	}
+
+	r.keepalivePing()
+
+	if !called {
+		t.Error("expected ping to run when usage monitor is nil")
+	}
+}
+
+func TestKeepalivePing_StoppedTakesPrecedenceOverRateLimit(t *testing.T) {
+	t.Parallel()
+
+	mon := NewUsageMonitor("", 0.90, 0.95)
+	mon.lastPollOK = true
+	mon.info = UsageInfo{FiveHourPct: 0.95, SevenDayPct: 0.50}
+
+	called := false
+	r := &Runner{
+		state:    models.StateStopped,
+		config:   &config.Config{},
+		usageMon: mon,
+		pingFn:   func() error { called = true; return nil },
+	}
+
+	r.keepalivePing()
+
+	if called {
+		t.Error("expected ping to be skipped when stopped (regardless of rate limit)")
+	}
+}
+
 func TestKeepalivePing_SkipsOnRecentTaskActivity(t *testing.T) {
 	t.Parallel()
 
