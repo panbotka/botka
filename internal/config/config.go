@@ -41,6 +41,7 @@ type Config struct {
 	KeepaliveEnabled           bool
 	KeepaliveInterval          time.Duration
 	KeepaliveActivityThreshold time.Duration
+	KeepaliveLeadTime          time.Duration
 	SignalCLIURL               string
 }
 
@@ -83,6 +84,11 @@ func Load() (*Config, error) {
 	keepaliveActivityThreshold, err := time.ParseDuration(getEnv("KEEPALIVE_ACTIVITY_THRESHOLD", "50m"))
 	if err != nil {
 		return nil, fmt.Errorf("parsing KEEPALIVE_ACTIVITY_THRESHOLD: %w", err)
+	}
+
+	keepaliveLeadTime, err := time.ParseDuration(getEnv("KEEPALIVE_LEAD_TIME", "15m"))
+	if err != nil {
+		return nil, fmt.Errorf("parsing KEEPALIVE_LEAD_TIME: %w", err)
 	}
 
 	availableModels := getEnvCSV("AVAILABLE_MODELS", []string{"sonnet", "opus", "haiku"})
@@ -132,6 +138,7 @@ func Load() (*Config, error) {
 		KeepaliveEnabled:           keepaliveEnabled,
 		KeepaliveInterval:          keepaliveInterval,
 		KeepaliveActivityThreshold: keepaliveActivityThreshold,
+		KeepaliveLeadTime:          keepaliveLeadTime,
 		SignalCLIURL:               getEnv("SIGNAL_CLI_URL", "http://127.0.0.1:5107"),
 	}, nil
 }

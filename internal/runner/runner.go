@@ -93,6 +93,7 @@ type Runner struct {
 	TaskEvents     *TaskEventHub
 	pingFn         func() error              // overridable for testing; nil uses defaultPing
 	activityFn     func() (time.Time, error) // overridable for testing; nil queries the database
+	resetsAtFn     func() time.Time          // overridable for testing; nil reads from usageMon
 }
 
 // NewRunner creates a new Runner instance and loads persisted state from the database.

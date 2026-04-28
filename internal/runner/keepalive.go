@@ -13,29 +13,116 @@ import (
 	"botka/internal/models"
 )
 
-const keepaliveTimeout = 2 * time.Minute
+const (
+	keepaliveTimeout = 2 * time.Minute
+	// keepaliveWindowLength is the assumed Anthropic 5-hour rate-limit window
+	// length. Used to project the next ping time after one has just fired.
+	keepaliveWindowLength = 5 * time.Hour
+	// keepaliveMinDelay is the threshold below which a computed delay is
+	// treated as "ping immediately". One minute is enough slack for clock
+	// skew and short delays in the usage monitor's poll cycle.
+	keepaliveMinDelay = time.Minute
+)
 
 // keepaliveLoop periodically runs a minimal Claude Code session to keep the
 // Anthropic API 5h rate limit window active. Runs in a dedicated goroutine
-// alongside the scheduler loop and does not consume worker slots.
+// alongside the scheduler loop and does not consume worker slots. Pings are
+// scheduled to fire KEEPALIVE_LEAD_TIME before the current window resets, so
+// the surviving window is refreshed just before it would expire. When no
+// usage data is available yet, falls back to the legacy fixed-interval
+// behavior driven by KEEPALIVE_INTERVAL.
 func (r *Runner) keepaliveLoop(stopCh <-chan struct{}) {
 	defer r.wg.Done()
 
-	interval := r.config.KeepaliveInterval
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	leadTime := r.config.KeepaliveLeadTime
+	fallback := r.config.KeepaliveInterval
 
-	slog.Info("keepalive loop started", "interval", interval)
+	slog.Info("keepalive loop started", "lead_time", leadTime, "fallback_interval", fallback)
+
+	var lastTarget time.Time
+	target, delay := r.computeKeepaliveSchedule(leadTime, fallback, lastTarget)
+	logKeepaliveSchedule(target, delay)
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
 
 	for {
 		select {
 		case <-stopCh:
 			slog.Info("keepalive loop stopped")
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			r.keepalivePing()
+			lastTarget = target
+			target, delay = r.computeKeepaliveSchedule(leadTime, fallback, lastTarget)
+			logKeepaliveSchedule(target, delay)
+			timer.Reset(delay)
 		}
 	}
+}
+
+// computeKeepaliveSchedule returns the target time of the next ping and the
+// delay until then. It reads the current 5h reset time from the usage monitor
+// and schedules the ping leadTime before reset.
+//
+// Behavior:
+//   - If the reset time is unknown (zero), fall back to the fixed interval and
+//     return a zero target — this is the cold-start path when the usage monitor
+//     hasn't polled yet.
+//   - If `resetsAt - leadTime` is in the past or within keepaliveMinDelay,
+//     return a zero delay so the loop pings immediately.
+//   - If we already pinged at or after the computed target (lastTarget is at
+//     or past target), advance to the next window so we don't tight-loop on a
+//     stale resetsAt.
+//
+// Always computes the deadline freshly from time.Now() and resetsAt to avoid
+// timer drift across iterations.
+func (r *Runner) computeKeepaliveSchedule(leadTime, fallback time.Duration, lastTarget time.Time) (time.Time, time.Duration) {
+	resetsAt := r.currentResetsAt()
+	if resetsAt.IsZero() {
+		return time.Time{}, fallback
+	}
+
+	target := resetsAt.Add(-leadTime)
+
+	// We've already pinged at or past this target — usage monitor hasn't
+	// reflected the new window yet. Project to the next window so the loop
+	// doesn't fire repeatedly off the same resetsAt.
+	if !lastTarget.IsZero() && !target.After(lastTarget) {
+		target = lastTarget.Add(keepaliveWindowLength)
+	}
+
+	delay := time.Until(target)
+	if delay < keepaliveMinDelay {
+		delay = 0
+	}
+	return target, delay
+}
+
+// currentResetsAt returns the current 5h reset time, using resetsAtFn for
+// tests when set, otherwise reading from the usage monitor. Returns zero
+// when no usage monitor is wired up (e.g. unit tests that don't need it).
+func (r *Runner) currentResetsAt() time.Time {
+	if r.resetsAtFn != nil {
+		return r.resetsAtFn()
+	}
+	if r.usageMon == nil {
+		return time.Time{}
+	}
+	return r.usageMon.ResetsAt()
+}
+
+// logKeepaliveSchedule emits an info log describing when the next ping will
+// fire. The target is zero when we're in the fixed-interval fallback path.
+func logKeepaliveSchedule(target time.Time, delay time.Duration) {
+	if target.IsZero() {
+		slog.Info("keepalive: next ping scheduled (fallback)",
+			"at", time.Now().Add(delay).Format(time.RFC3339),
+			"delay", delay)
+		return
+	}
+	slog.Info("keepalive: next ping scheduled",
+		"at", target.Format(time.RFC3339),
+		"delay", delay)
 }
 
 // keepalivePing runs a minimal Claude Code session if the runner is not stopped

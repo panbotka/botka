@@ -208,8 +208,9 @@ Exposes 19 tools across categories: task management (create_task, list_tasks, ge
 | `BOX_SSH_HOST` | `box` | SSH hostname/alias used when spawning Claude Code on Box for `box:`-prefixed project paths |
 | `BOX_WOL_COMMAND` | `/home/pi/bin/boxon` | Wake-on-LAN command for Box server |
 | `KEEPALIVE_ENABLED` | `true` | Enable periodic Claude Code ping to keep 5h rate limit window active |
-| `KEEPALIVE_INTERVAL` | `60m` | Interval between keepalive pings (Go duration) |
+| `KEEPALIVE_INTERVAL` | `60m` | Fallback interval between keepalive pings, used only on cold start before the usage monitor reports a `resets_at` (Go duration) |
 | `KEEPALIVE_ACTIVITY_THRESHOLD` | `50m` | Skip the keepalive ping when a task started or a chat message was created within this window — real activity already keeps the 5h window alive (Go duration; set to `0` to always ping) |
+| `KEEPALIVE_LEAD_TIME` | `15m` | How long before the current 5h window's `resets_at` to fire the keepalive ping. The ping is dynamically scheduled at `resets_at - lead_time`; if that's already in the past or within ~1 minute, ping immediately and reschedule for the next window (Go duration) |
 | `SIGNAL_CLI_URL` | `http://127.0.0.1:5107` | Base URL of signal-cli daemon HTTP JSON-RPC endpoint |
 
 ## Task Agent Safety
