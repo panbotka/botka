@@ -42,6 +42,8 @@ func setupTestDB(t *testing.T) *gorm.DB {
 			Logger:                 logger.Default.LogMode(logger.Silent),
 		})
 		if dbErr == nil {
+			// Ensure unaccent extension is available for diacritic-insensitive search.
+			sharedDB.Exec("CREATE EXTENSION IF NOT EXISTS unaccent")
 			// Drop all tables and recreate to avoid migration conflicts
 			sharedDB.Exec("DROP TABLE IF EXISTS cron_executions, cron_jobs, thread_mcp_servers, project_mcp_servers, mcp_servers, thread_access, webauthn_credentials, sessions, users, thread_sources, signal_bridges, thread_tags, branch_selections, attachments, messages, task_executions, tasks, threads, projects, personas, tags, memories, runner_state, fork_points CASCADE")
 			dbErr = sharedDB.AutoMigrate(

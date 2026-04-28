@@ -47,8 +47,10 @@ type searchResult struct {
 	Matches []searchMatch      `json:"matches"`
 }
 
-// Search performs diacritic-insensitive substring search across messages
-// using PostgreSQL's unaccent extension.
+// Search performs diacritic-insensitive substring search across messages,
+// thread titles, tag names, and persona names using PostgreSQL's unaccent
+// extension. Threads matched only by title/tag/persona are returned with an
+// empty matches array; threads matched by message body include snippets.
 func (h *SearchHandler) Search(c *gin.Context) {
 	q := strings.TrimSpace(c.Query("q"))
 	if len(q) < 2 {
@@ -110,9 +112,65 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		})
 	}
 
+	// Thread-level matches: title, tag name, persona name. De-duplicated
+	// against message matches above; threads matched here without an
+	// existing message match get an empty Matches array.
+	type threadRow struct {
+		ID       int64
+		Title    string
+		Model    *string
+		TCreated time.Time
+		TUpdated time.Time
+	}
+	var threadRows []threadRow
+	err = h.db.Raw(`
+		SELECT t.id, t.title, t.model, t.created_at AS t_created, t.updated_at AS t_updated
+		FROM threads t
+		WHERE (
+			unaccent(lower(t.title)) LIKE '%' || unaccent(lower(?)) || '%'
+			OR EXISTS (
+				SELECT 1 FROM thread_tags tt
+				JOIN tags tg ON tg.id = tt.tag_id
+				WHERE tt.thread_id = t.id
+				  AND unaccent(lower(tg.name)) LIKE '%' || unaccent(lower(?)) || '%'
+			)
+			OR EXISTS (
+				SELECT 1 FROM personas p
+				WHERE p.id = t.persona_id
+				  AND unaccent(lower(p.name)) LIKE '%' || unaccent(lower(?)) || '%'
+			)
+		)
+		ORDER BY t.updated_at DESC
+		LIMIT 50`, q, q, q).Scan(&threadRows).Error
+	if err != nil {
+		slog.Error("search error (threads)", "error", err)
+		respondError(c, http.StatusInternalServerError, "search failed")
+		return
+	}
+	for _, tr := range threadRows {
+		if _, exists := threadMap[tr.ID]; exists {
+			continue
+		}
+		threadMap[tr.ID] = &searchResult{
+			Thread: searchResultThread{
+				ID:        tr.ID,
+				Title:     tr.Title,
+				Model:     tr.Model,
+				CreatedAt: tr.TCreated,
+				UpdatedAt: tr.TUpdated,
+			},
+			Matches: []searchMatch{},
+		}
+		order = append(order, tr.ID)
+	}
+
 	results := make([]searchResult, 0, len(order))
 	for _, id := range order {
-		results = append(results, *threadMap[id])
+		r := threadMap[id]
+		if r.Matches == nil {
+			r.Matches = []searchMatch{}
+		}
+		results = append(results, *r)
 	}
 
 	respondOK(c, results)
@@ -221,14 +279,27 @@ func (h *SearchHandler) GlobalSearch(c *gin.Context) {
 		}
 	}
 
-	// Threads: search title
+	// Threads: search title, tag name, persona name
 	{
 		var rows []globalThreadResult
 		err := h.db.Raw(`
-			SELECT id, title, updated_at
-			FROM threads
-			WHERE unaccent(lower(title)) LIKE '%' || unaccent(lower($1)) || '%'
-			ORDER BY updated_at DESC
+			SELECT t.id, t.title, t.updated_at
+			FROM threads t
+			WHERE (
+				unaccent(lower(t.title)) LIKE '%' || unaccent(lower($1)) || '%'
+				OR EXISTS (
+					SELECT 1 FROM thread_tags tt
+					JOIN tags tg ON tg.id = tt.tag_id
+					WHERE tt.thread_id = t.id
+					  AND unaccent(lower(tg.name)) LIKE '%' || unaccent(lower($1)) || '%'
+				)
+				OR EXISTS (
+					SELECT 1 FROM personas p
+					WHERE p.id = t.persona_id
+					  AND unaccent(lower(p.name)) LIKE '%' || unaccent(lower($1)) || '%'
+				)
+			)
+			ORDER BY t.updated_at DESC
 			LIMIT $2`, q, limit).Scan(&rows).Error
 		if err != nil {
 			slog.Error("global search: threads", "error", err)
