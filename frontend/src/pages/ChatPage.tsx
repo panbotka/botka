@@ -197,6 +197,7 @@ export default function ChatPage() {
     onSelectProject: setSelectedProjectId,
     activeProcessThreadIds,
     readOnly: isExternal,
+    onNavigate: navigate,
   }
 
   const showMobileChat = isMobile && activeThreadId !== null

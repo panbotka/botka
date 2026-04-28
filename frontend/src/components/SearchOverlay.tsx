@@ -8,6 +8,7 @@ import type { GlobalSearchResults } from '../types'
 interface Props {
   open: boolean
   onClose: () => void
+  initialQuery?: string
 }
 
 type ResultItem = {
@@ -81,7 +82,7 @@ const sectionIcons: Record<ResultItem['type'], typeof ListTodo> = {
   message: FileText,
 }
 
-export default function SearchOverlay({ open, onClose }: Props) {
+export default function SearchOverlay({ open, onClose, initialQuery }: Props) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ResultItem[]>([])
   const [loading, setLoading] = useState(false)
@@ -94,12 +95,12 @@ export default function SearchOverlay({ open, onClose }: Props) {
   // Focus input on open
   useEffect(() => {
     if (open) {
-      setQuery('')
+      setQuery(initialQuery ?? '')
       setResults([])
       setSelectedIndex(0)
       setTimeout(() => inputRef.current?.focus(), 0)
     }
-  }, [open])
+  }, [open, initialQuery])
 
   // Debounced search
   const doSearch = useCallback((q: string) => {

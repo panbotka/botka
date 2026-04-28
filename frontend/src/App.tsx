@@ -123,7 +123,11 @@ function AuthenticatedApp() {
   const hideBottomNav = isMobile && isActiveChatThread
 
   const [searchOpen, setSearchOpen] = useState(false)
-  const closeSearch = useCallback(() => setSearchOpen(false), [])
+  const [searchInitialQuery, setSearchInitialQuery] = useState<string | undefined>(undefined)
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false)
+    setSearchInitialQuery(undefined)
+  }, [])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   // Global Cmd+K / Ctrl+K shortcut
@@ -131,11 +135,23 @@ function AuthenticatedApp() {
     function handler(e: KeyboardEvent) {
       if (e.key === 'k' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
         e.preventDefault()
+        setSearchInitialQuery(undefined)
         setSearchOpen((prev) => !prev)
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
+  }, [])
+
+  // Listen for "open global search prefilled" events dispatched from sidebar etc.
+  useEffect(() => {
+    function handler(e: Event) {
+      const ce = e as CustomEvent<{ query?: string }>
+      setSearchInitialQuery(ce.detail?.query ?? '')
+      setSearchOpen(true)
+    }
+    window.addEventListener('botka:open-search', handler as EventListener)
+    return () => window.removeEventListener('botka:open-search', handler as EventListener)
   }, [])
 
   return (
@@ -195,7 +211,7 @@ function AuthenticatedApp() {
         {isMobile && !hideBottomNav && <BottomNav />}
         <OfflineIndicator />
         <UpdateBanner />
-        <SearchOverlay open={searchOpen} onClose={closeSearch} />
+        <SearchOverlay open={searchOpen} onClose={closeSearch} initialQuery={searchInitialQuery} />
       </div>
     </SSEProvider>
   )

@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
-import type { Thread } from '../types'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import type { Thread, GlobalSearchResults } from '../types'
 
 // ── Mocks ───────────────────────────────────────────────────────────────────
+
+const globalSearchMock = vi.fn<(q: string, limit?: number) => Promise<GlobalSearchResults>>()
 
 vi.mock('../api/client', () => ({
   api: {
@@ -14,7 +16,7 @@ vi.mock('../api/client', () => ({
     unarchiveThread: vi.fn(),
     getThread: vi.fn().mockResolvedValue({ messages: [] }),
   },
-  searchMessages: vi.fn().mockResolvedValue([]),
+  globalSearch: (q: string, limit?: number) => globalSearchMock(q, limit),
   ApiError: class ApiError extends Error {
     status: number
     constructor(status: number, message: string) {
@@ -85,7 +87,24 @@ function renderSidebar(props: Partial<React.ComponentProps<typeof ThreadSidebar>
 
 beforeEach(() => {
   vi.clearAllMocks()
+  globalSearchMock.mockReset()
+  globalSearchMock.mockResolvedValue({ threads: [], messages: [], projects: [], tasks: [] })
 })
+
+function emptyResults(): GlobalSearchResults {
+  return { threads: [], messages: [], projects: [], tasks: [] }
+}
+
+async function typeSearch(value: string) {
+  const input = screen.getByPlaceholderText('Search messages...') as HTMLInputElement
+  await act(async () => {
+    fireEvent.change(input, { target: { value } })
+  })
+  // Wait past the 300ms debounce so the search effect fires.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 350))
+  })
+}
 
 // ── Tests ───────────────────────────────────────────────────────────────────
 
@@ -145,5 +164,94 @@ describe('ThreadSidebar action menu', () => {
   it('hides the menu trigger entirely when readOnly', () => {
     renderSidebar({ readOnly: true })
     expect(screen.queryByTitle('Actions')).not.toBeInTheDocument()
+  })
+})
+
+describe('ThreadSidebar global search', () => {
+  it('renders all four section headers when results contain every category', async () => {
+    globalSearchMock.mockResolvedValue({
+      threads: [{ id: 42, title: 'Hello world', updated_at: '2026-04-01T00:00:00Z' }],
+      messages: [{
+        id: 1, thread_id: 42, thread_title: 'Hello world',
+        snippet: 'matched <mark>hello</mark> snippet', created_at: '2026-04-01T00:00:00Z',
+      }],
+      projects: [{ id: 'p1', name: 'Hello cargo', path: '/tmp/hello' }],
+      tasks: [{
+        id: 't1', title: 'Hello task', status: 'pending',
+        project_name: 'Other project', updated_at: '2026-04-01T00:00:00Z',
+      }],
+    })
+
+    renderSidebar()
+    await typeSearch('hello')
+
+    await waitFor(() => {
+      expect(globalSearchMock).toHaveBeenCalledWith('hello', expect.any(Number))
+    })
+
+    expect(screen.getByText('Threads')).toBeInTheDocument()
+    expect(screen.getByText('Messages')).toBeInTheDocument()
+    expect(screen.getByText('Projects')).toBeInTheDocument()
+    expect(screen.getByText('Tasks')).toBeInTheDocument()
+    expect(screen.getByText('Hello task')).toBeInTheDocument()
+    expect(screen.getByText('Hello cargo')).toBeInTheDocument()
+  })
+
+  it('reverts to the thread list when the search input is empty', async () => {
+    renderSidebar({ threads: [makeThread({ id: 7, title: 'Local thread' })] })
+
+    // Empty input shows the thread list.
+    expect(screen.getByText('Local thread')).toBeInTheDocument()
+    expect(globalSearchMock).not.toHaveBeenCalled()
+
+    // A single character is below the minimum and must not trigger a search.
+    await typeSearch('a')
+    expect(globalSearchMock).not.toHaveBeenCalled()
+    expect(screen.getByText('Local thread')).toBeInTheDocument()
+
+    // Clearing back to empty restores the thread list and section headers stay gone.
+    await typeSearch('')
+    expect(screen.getByText('Local thread')).toBeInTheDocument()
+    expect(screen.queryByText('Threads')).not.toBeInTheDocument()
+    expect(screen.queryByText('Messages')).not.toBeInTheDocument()
+  })
+
+  it('shows "+N more" when a section returns more than 10 results', async () => {
+    const manyThreads = Array.from({ length: 13 }, (_, i) => ({
+      id: 100 + i,
+      title: `Thread ${i}`,
+      updated_at: '2026-04-01T00:00:00Z',
+    }))
+    globalSearchMock.mockResolvedValue({
+      threads: manyThreads,
+      messages: [],
+      projects: [],
+      tasks: [],
+    })
+
+    renderSidebar()
+    await typeSearch('thread')
+
+    await waitFor(() => {
+      expect(screen.getByText('Threads')).toBeInTheDocument()
+    })
+
+    // 10 visible, 3 collapsed into the "+N more" affordance.
+    expect(screen.getByText('Thread 0')).toBeInTheDocument()
+    expect(screen.getByText('Thread 9')).toBeInTheDocument()
+    expect(screen.queryByText('Thread 10')).not.toBeInTheDocument()
+    expect(screen.getByText(/\+3 more threads/i)).toBeInTheDocument()
+  })
+
+  it('shows "No results found" when every category is empty', async () => {
+    globalSearchMock.mockResolvedValue(emptyResults())
+
+    renderSidebar()
+    await typeSearch('zzznomatch')
+
+    await waitFor(() => {
+      expect(screen.getByText('No results found')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Threads')).not.toBeInTheDocument()
   })
 })

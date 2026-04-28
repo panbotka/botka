@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import type { Persona, Tag, Thread, Project, SearchResult } from '../types'
+import type { Persona, Tag, Thread, Project, GlobalSearchResults } from '../types'
 import { formatDate as formatDateOnly } from '../utils/dateFormat'
-import { api, searchMessages, ApiError } from '../api/client'
+import { api, globalSearch, ApiError } from '../api/client'
 import { downloadExport } from '../utils/exportThread'
 import { clearDraft } from './ChatInput'
 import { useStreamingThreadIds } from '../context/SSEContext'
@@ -10,8 +10,28 @@ import {
   Plus, Search, Pin, Archive, MoreVertical, Pencil,
   Trash2, Download,
   X, ChevronDown, FolderGit2, MessageSquare, Server,
+  ListTodo, FileText,
 } from 'lucide-react'
 import { THREAD_COLORS } from '../utils/threadColors'
+
+// How many results per section we show inline before collapsing into "+N more".
+const SIDEBAR_SECTION_LIMIT = 10
+// Backend max is 20; request enough to know when "+N more" should appear.
+const SIDEBAR_SEARCH_FETCH_LIMIT = 20
+
+function taskStatusBadgeClass(status: string): string {
+  switch (status) {
+    case 'pending':       return 'bg-zinc-100 text-zinc-600'
+    case 'queued':        return 'bg-blue-50 text-blue-700'
+    case 'running':       return 'bg-amber-50 text-amber-700'
+    case 'done':          return 'bg-emerald-50 text-emerald-700'
+    case 'failed':        return 'bg-red-50 text-red-700'
+    case 'needs_review':  return 'bg-orange-50 text-orange-700'
+    case 'cancelled':     return 'bg-zinc-50 text-zinc-400 line-through'
+    case 'deleted':       return 'bg-zinc-50 text-zinc-400 line-through'
+    default:              return 'bg-zinc-100 text-zinc-600'
+  }
+}
 
 interface Props {
   threads: Thread[]
@@ -32,6 +52,8 @@ interface Props {
   activeProcessThreadIds: Set<number>
   mobile?: boolean
   readOnly?: boolean
+  /** Optional callback to navigate to a path (used for cross-category search results). */
+  onNavigate?: (path: string) => void
 }
 
 export default function ThreadSidebar({
@@ -53,6 +75,7 @@ export default function ThreadSidebar({
   activeProcessThreadIds,
   mobile,
   readOnly,
+  onNavigate,
 }: Props) {
   const streamingThreadIds = useStreamingThreadIds()
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -63,7 +86,7 @@ export default function ThreadSidebar({
   const menuRef = useRef<HTMLDivElement>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
+  const [searchResults, setSearchResults] = useState<GlobalSearchResults | null>(null)
   const [searchLoading, setSearchLoading] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -115,7 +138,7 @@ export default function ThreadSidebar({
     if (debounceRef.current) clearTimeout(debounceRef.current)
   }, [])
 
-  // Debounced message search
+  // Debounced global search across threads, messages, projects, and tasks.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     const q = searchQuery.trim()
@@ -127,10 +150,10 @@ export default function ThreadSidebar({
     setSearchLoading(true)
     debounceRef.current = setTimeout(async () => {
       try {
-        const results = await searchMessages(q)
+        const results = await globalSearch(q, SIDEBAR_SEARCH_FETCH_LIMIT)
         setSearchResults(results)
       } catch {
-        setSearchResults([])
+        setSearchResults({ threads: [], messages: [], projects: [], tasks: [] })
       }
       setSearchLoading(false)
     }, 300)
@@ -205,8 +228,20 @@ export default function ThreadSidebar({
     return formatDateOnly(d)
   }
 
-  const handleSelectSearchResult = (threadId: number) => {
+  const handleSelectSearchThread = (threadId: number) => {
     onSelectThread(threadId)
+    clearSearch()
+  }
+
+  const handleNavigateSearchResult = (path: string) => {
+    if (onNavigate) {
+      onNavigate(path)
+    }
+    clearSearch()
+  }
+
+  const handleOpenGlobalSearch = (query: string) => {
+    window.dispatchEvent(new CustomEvent('botka:open-search', { detail: { query } }))
     clearSearch()
   }
 
@@ -498,34 +533,210 @@ export default function ThreadSidebar({
     </div>
   )
 
-  // Search results view
-  const searchResultsView = isSearching && (
-    searchLoading ? (
-      <div className="px-3 py-4 text-sm text-zinc-400 text-center">Searching...</div>
-    ) : searchResults && searchResults.length === 0 ? (
-      <div className="px-3 py-4 text-sm text-zinc-400 text-center">No results found</div>
-    ) : searchResults?.map((result) => (
-      <div key={result.thread.id} className="mb-1">
-        <button
-          onClick={() => handleSelectSearchResult(result.thread.id)}
-          className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-zinc-100
-                     transition-all duration-150 cursor-pointer"
-        >
-          <div className="text-sm text-zinc-900 truncate font-medium">
-            {result.thread.title}
-          </div>
-          {result.matches.slice(0, 2).map((match) => (
-            <div
-              key={match.message_id}
-              className="mt-1 text-xs text-zinc-500 line-clamp-2
-                         [&_mark]:bg-amber-100 [&_mark]:text-amber-800 [&_mark]:rounded-sm [&_mark]:px-0.5"
-              dangerouslySetInnerHTML={{ __html: match.snippet }}
-            />
-          ))}
-        </button>
-      </div>
-    ))
+  // Lookup map for enriching thread search results with local metadata
+  // (tags, project, persona_icon) — search response only has id/title/updated_at.
+  const threadById = useMemo(() => new Map(threads.map(t => [t.id, t])), [threads])
+
+  const trimmedQuery = searchQuery.trim()
+
+  const renderSectionHeader = (label: string) => (
+    <div className="px-3 py-1.5 text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
+      {label}
+    </div>
   )
+
+  const renderMoreLink = (sectionLabel: string, total: number) => {
+    if (total <= SIDEBAR_SECTION_LIMIT) return null
+    const extra = total - SIDEBAR_SECTION_LIMIT
+    return (
+      <button
+        type="button"
+        onClick={() => handleOpenGlobalSearch(trimmedQuery)}
+        className="w-full text-left px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-800
+                   hover:bg-zinc-100 rounded-lg transition-colors cursor-pointer"
+        aria-label={`Open global search for more ${sectionLabel.toLowerCase()}`}
+      >
+        +{extra} more {sectionLabel.toLowerCase()}…
+      </button>
+    )
+  }
+
+  const renderThreadResult = (
+    res: { id: number; title: string; updated_at: string },
+  ) => {
+    const localThread = threadById.get(res.id)
+    return (
+      <button
+        key={`thread-${res.id}`}
+        type="button"
+        onClick={() => handleSelectSearchThread(res.id)}
+        className="w-full text-left px-3 py-2 mb-0.5 rounded-xl hover:bg-zinc-100
+                   transition-all duration-150 cursor-pointer"
+      >
+        <div className="flex items-center justify-between gap-1.5">
+          <span className="text-sm font-medium text-zinc-900 truncate flex items-center gap-1">
+            {localThread?.persona_icon && <span className="flex-shrink-0">{localThread.persona_icon}</span>}
+            {res.title || 'New conversation'}
+          </span>
+          <span className="text-[11px] text-zinc-400 flex-shrink-0">
+            {formatDate(localThread?.last_message_at || res.updated_at)}
+          </span>
+        </div>
+        {(localThread?.tags && localThread.tags.length > 0) || (localThread?.project_id && projectMap.get(localThread.project_id)) ? (
+          <div className="flex items-center gap-1.5 mt-0.5">
+            {localThread?.tags && localThread.tags.length > 0 && (
+              <span className="flex items-center gap-0.5 flex-shrink-0">
+                {localThread.tags.slice(0, 3).map(tag => (
+                  <span
+                    key={tag.id}
+                    className="w-2 h-2 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: tag.color }}
+                    title={tag.name}
+                  />
+                ))}
+              </span>
+            )}
+            {localThread?.project_id && projectMap.get(localThread.project_id) && (
+              <span
+                className={`text-[10px] flex items-center gap-0.5 ${
+                  projectMap.get(localThread.project_id)!.path.startsWith('box:')
+                    ? 'text-sky-500'
+                    : 'text-zinc-400'
+                }`}
+              >
+                {projectMap.get(localThread.project_id)!.path.startsWith('box:') ? (
+                  <Server className="w-2.5 h-2.5" />
+                ) : (
+                  <FolderGit2 className="w-2.5 h-2.5" />
+                )}
+                <span className="truncate max-w-[80px]">{projectMap.get(localThread.project_id)!.name}</span>
+              </span>
+            )}
+          </div>
+        ) : null}
+      </button>
+    )
+  }
+
+  const renderMessageResult = (
+    res: { id: number; thread_id: number; thread_title: string; snippet: string },
+  ) => (
+    <button
+      key={`message-${res.id}`}
+      type="button"
+      onClick={() => handleSelectSearchThread(res.thread_id)}
+      className="w-full text-left px-3 py-2 mb-0.5 rounded-xl hover:bg-zinc-100
+                 transition-all duration-150 cursor-pointer"
+    >
+      <div className="flex items-center gap-1.5">
+        <FileText className="w-3 h-3 flex-shrink-0 text-zinc-400" />
+        <span className="text-sm text-zinc-900 truncate">
+          {res.thread_title || 'Untitled thread'}
+        </span>
+      </div>
+      <div
+        className="mt-0.5 ml-[18px] text-xs text-zinc-500 line-clamp-2
+                   [&_mark]:bg-amber-100 [&_mark]:text-amber-800 [&_mark]:rounded-sm [&_mark]:px-0.5"
+        dangerouslySetInnerHTML={{ __html: res.snippet }}
+      />
+    </button>
+  )
+
+  const renderProjectResult = (
+    res: { id: string; name: string; path: string },
+  ) => (
+    <button
+      key={`project-${res.id}`}
+      type="button"
+      onClick={() => handleNavigateSearchResult(`/projects/${res.id}`)}
+      className="w-full text-left px-3 py-2 mb-0.5 rounded-xl hover:bg-zinc-100
+                 transition-all duration-150 cursor-pointer"
+    >
+      <div className="flex items-center gap-1.5">
+        {res.path.startsWith('box:') ? (
+          <Server className="w-3 h-3 flex-shrink-0 text-sky-500" />
+        ) : (
+          <FolderGit2 className="w-3 h-3 flex-shrink-0 text-zinc-400" />
+        )}
+        <span className="text-sm text-zinc-900 truncate font-medium">{res.name}</span>
+      </div>
+      <div className="text-xs text-zinc-400 truncate ml-[18px]">{res.path}</div>
+    </button>
+  )
+
+  const renderTaskResult = (
+    res: { id: string; title: string; status: string; project_name: string },
+  ) => (
+    <button
+      key={`task-${res.id}`}
+      type="button"
+      onClick={() => handleNavigateSearchResult(`/tasks/${res.id}`)}
+      className="w-full text-left px-3 py-2 mb-0.5 rounded-xl hover:bg-zinc-100
+                 transition-all duration-150 cursor-pointer"
+    >
+      <div className="flex items-center gap-1.5">
+        <ListTodo className="w-3 h-3 flex-shrink-0 text-zinc-400" />
+        <span className="text-sm text-zinc-900 truncate font-medium flex-1">{res.title}</span>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${taskStatusBadgeClass(res.status)}`}>
+          {res.status}
+        </span>
+      </div>
+      {res.project_name && (
+        <div className="text-xs text-zinc-400 truncate ml-[18px]">{res.project_name}</div>
+      )}
+    </button>
+  )
+
+  // Search results view
+  const searchResultsView = isSearching && (() => {
+    if (searchLoading) {
+      return <div className="px-3 py-4 text-sm text-zinc-400 text-center">Searching...</div>
+    }
+    if (!searchResults) return null
+
+    const threadCount = searchResults.threads.length
+    const messageCount = searchResults.messages.length
+    const projectCount = searchResults.projects.length
+    const taskCount = searchResults.tasks.length
+    const totalCount = threadCount + messageCount + projectCount + taskCount
+
+    if (totalCount === 0) {
+      return <div className="px-3 py-4 text-sm text-zinc-400 text-center">No results found</div>
+    }
+
+    return (
+      <>
+        {threadCount > 0 && (
+          <>
+            {renderSectionHeader('Threads')}
+            {searchResults.threads.slice(0, SIDEBAR_SECTION_LIMIT).map(renderThreadResult)}
+            {renderMoreLink('Threads', threadCount)}
+          </>
+        )}
+        {messageCount > 0 && (
+          <>
+            {renderSectionHeader('Messages')}
+            {searchResults.messages.slice(0, SIDEBAR_SECTION_LIMIT).map(renderMessageResult)}
+            {renderMoreLink('Messages', messageCount)}
+          </>
+        )}
+        {projectCount > 0 && (
+          <>
+            {renderSectionHeader('Projects')}
+            {searchResults.projects.slice(0, SIDEBAR_SECTION_LIMIT).map(renderProjectResult)}
+            {renderMoreLink('Projects', projectCount)}
+          </>
+        )}
+        {taskCount > 0 && (
+          <>
+            {renderSectionHeader('Tasks')}
+            {searchResults.tasks.slice(0, SIDEBAR_SECTION_LIMIT).map(renderTaskResult)}
+            {renderMoreLink('Tasks', taskCount)}
+          </>
+        )}
+      </>
+    )
+  })()
 
   // Thread list view
   const threadListView = (
