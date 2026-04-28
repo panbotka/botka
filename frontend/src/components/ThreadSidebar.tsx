@@ -5,16 +5,11 @@ import { api, searchMessages, ApiError } from '../api/client'
 import { downloadExport } from '../utils/exportThread'
 import { clearDraft } from './ChatInput'
 import { useStreamingThreadIds } from '../context/SSEContext'
-import ModelPicker from './ModelPicker'
-import ThreadSourcesEditor from './ThreadSourcesEditor'
-import CustomContextEditor from './CustomContextEditor'
-import SignalBridgeEditor from './SignalBridgeEditor'
-import MCPServerToggle from './MCPServerToggle'
 import BoxStatusBadge from './BoxStatusBadge'
 import {
   Plus, Search, Pin, Archive, MoreVertical, Pencil,
-  Trash2, Download, Cpu, Tag as TagIcon, ChevronRight,
-  X, ChevronDown, FolderGit2, Globe, FileText, Palette, MessageSquare, Server, Plug,
+  Trash2, Download,
+  X, ChevronDown, FolderGit2, MessageSquare, Server,
 } from 'lucide-react'
 import { THREAD_COLORS } from '../utils/threadColors'
 
@@ -63,13 +58,6 @@ export default function ThreadSidebar({
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [menuOpenId, setMenuOpenId] = useState<number | null>(null)
-  const [modelPickerThread, setModelPickerThread] = useState<Thread | null>(null)
-  const [tagMenuThreadId, setTagMenuThreadId] = useState<number | null>(null)
-  const [colorMenuThreadId, setColorMenuThreadId] = useState<number | null>(null)
-  const [sourcesThreadId, setSourcesThreadId] = useState<number | null>(null)
-  const [customContextThread, setCustomContextThread] = useState<Thread | null>(null)
-  const [signalBridgeThreadId, setSignalBridgeThreadId] = useState<number | null>(null)
-  const [mcpServersThreadId, setMcpServersThreadId] = useState<number | null>(null)
   const [personaDropdownOpen, setPersonaDropdownOpen] = useState(false)
   const personaDropdownRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -86,15 +74,11 @@ export default function ThreadSidebar({
     const handleClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpenId(null)
-        setTagMenuThreadId(null)
-        setColorMenuThreadId(null)
       }
     }
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setMenuOpenId(null)
-        setTagMenuThreadId(null)
-        setColorMenuThreadId(null)
       }
     }
     document.addEventListener('mousedown', handleClick)
@@ -204,34 +188,6 @@ export default function ThreadSidebar({
       if (detail.messages.length === 0) return
       downloadExport(detail.messages, 'md', thread)
     } catch { /* ignore */ }
-  }
-
-  const handleToggleThreadTag = async (thread: Thread, tagId: number) => {
-    const currentTagIds = (thread.tags || []).map(t => t.id)
-    const newTagIds = currentTagIds.includes(tagId)
-      ? currentTagIds.filter(id => id !== tagId)
-      : [...currentTagIds, tagId]
-    try {
-      await api.updateThreadTags(thread.id, newTagIds)
-      onThreadsChange()
-    } catch { /* ignore */ }
-  }
-
-  const handleChangeModel = async (threadId: number, model: string) => {
-    try {
-      await api.updateModel(threadId, model)
-      onThreadsChange()
-    } catch { /* ignore */ }
-    setModelPickerThread(null)
-  }
-
-  const handleChangeColor = async (threadId: number, color: string) => {
-    try {
-      await api.updateThread(threadId, { color } as Partial<Thread>)
-      onThreadsChange()
-    } catch { /* ignore */ }
-    setColorMenuThreadId(null)
-    setMenuOpenId(null)
   }
 
   const formatDate = (dateStr: string) => {
@@ -436,137 +392,6 @@ export default function ThreadSidebar({
                     <Download className="w-4 h-4 flex-shrink-0 text-zinc-400" />
                     Export
                   </button>
-                  <button
-                    onClick={() => { setModelPickerThread(thread); setMenuOpenId(null) }}
-                    className="w-full flex items-center gap-3 px-3 py-2
-                               text-sm text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
-                  >
-                    <Cpu className="w-4 h-4 flex-shrink-0 text-zinc-400" />
-                    <div className="flex-1 min-w-0 text-left">
-                      <div>Change model</div>
-                      <div className="text-[11px] text-zinc-400 truncate">{thread.model || 'Default'}</div>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => { setSourcesThreadId(thread.id); setMenuOpenId(null) }}
-                    className="w-full flex items-center gap-3 px-3 py-2
-                               text-sm text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
-                  >
-                    <Globe className="w-4 h-4 flex-shrink-0 text-zinc-400" />
-                    Sources
-                  </button>
-                  <button
-                    onClick={() => { setCustomContextThread(thread); setMenuOpenId(null) }}
-                    className="w-full flex items-center gap-3 px-3 py-2
-                               text-sm text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
-                  >
-                    <FileText className="w-4 h-4 flex-shrink-0 text-zinc-400" />
-                    <div className="flex-1 min-w-0 text-left">
-                      <div>Custom Context</div>
-                      {thread.custom_context && (
-                        <div className="text-[11px] text-zinc-400 truncate">
-                          {thread.custom_context.length.toLocaleString()} chars
-                        </div>
-                      )}
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => { setSignalBridgeThreadId(thread.id); setMenuOpenId(null) }}
-                    className="w-full flex items-center gap-3 px-3 py-2
-                               text-sm text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
-                  >
-                    <MessageSquare className={`w-4 h-4 flex-shrink-0 ${thread.signal_bridge_active ? 'text-emerald-500' : 'text-zinc-400'}`} />
-                    <span className="flex-1 text-left">Signal Bridge</span>
-                    {thread.signal_bridge_active && (
-                      <span className="text-[10px] text-emerald-600">Active</span>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => { setMcpServersThreadId(thread.id); setMenuOpenId(null) }}
-                    className="w-full flex items-center gap-3 px-3 py-2
-                               text-sm text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
-                  >
-                    <Plug className="w-4 h-4 flex-shrink-0 text-zinc-400" />
-                    MCP Servers
-                  </button>
-                  <div>
-                    <button
-                      onClick={() => setColorMenuThreadId(colorMenuThreadId === thread.id ? null : thread.id)}
-                      className="w-full flex items-center gap-3 px-3 py-2
-                                 text-sm text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
-                    >
-                      <Palette className="w-4 h-4 flex-shrink-0 text-zinc-400" />
-                      <span className="flex-1 text-left">Color</span>
-                      {thread.color && (
-                        <span
-                          className="w-3 h-3 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: THREAD_COLORS.find(c => c.key === thread.color)?.swatch }}
-                        />
-                      )}
-                      <ChevronRight className={`w-3 h-3 text-zinc-400 transition-transform ${colorMenuThreadId === thread.id ? 'rotate-90' : ''}`} />
-                    </button>
-                    {colorMenuThreadId === thread.id && (
-                      <div className="px-3 pb-2 pt-1">
-                        <div className="grid grid-cols-4 gap-1.5">
-                          {THREAD_COLORS.map(color => {
-                            const isActive = (thread.color || '') === color.key
-                            return (
-                              <button
-                                key={color.key || 'none'}
-                                onClick={() => handleChangeColor(thread.id, color.key)}
-                                className={`w-8 h-8 rounded-lg border-2 transition-all cursor-pointer flex items-center justify-center
-                                  ${isActive ? 'border-zinc-500 scale-110' : 'border-zinc-200 hover:border-zinc-400'}`}
-                                style={{ backgroundColor: color.key ? color.swatch : undefined }}
-                                title={color.label}
-                              >
-                                {color.key === '' && (
-                                  <X className="w-3.5 h-3.5 text-zinc-400" />
-                                )}
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  {tags.length > 0 && (
-                    <div>
-                      <button
-                        onClick={() => setTagMenuThreadId(tagMenuThreadId === thread.id ? null : thread.id)}
-                        className="w-full flex items-center gap-3 px-3 py-2
-                                   text-sm text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
-                      >
-                        <TagIcon className="w-4 h-4 flex-shrink-0 text-zinc-400" />
-                        <span className="flex-1 text-left">Tags</span>
-                        <ChevronRight className={`w-3 h-3 text-zinc-400 transition-transform ${tagMenuThreadId === thread.id ? 'rotate-90' : ''}`} />
-                      </button>
-                      {tagMenuThreadId === thread.id && (
-                        <div className="pl-7 pb-1">
-                          {tags.map(tag => {
-                            const isActive = (thread.tags || []).some(t => t.id === tag.id)
-                            return (
-                              <button
-                                key={tag.id}
-                                onClick={() => handleToggleThreadTag(thread, tag.id)}
-                                className="w-full flex items-center gap-2.5 px-3 py-1.5
-                                           text-sm text-zinc-700 hover:bg-zinc-50
-                                           transition-colors cursor-pointer rounded-lg"
-                              >
-                                <span
-                                  className="w-3 h-3 rounded-full flex-shrink-0 border-2"
-                                  style={{
-                                    backgroundColor: isActive ? tag.color : 'transparent',
-                                    borderColor: tag.color,
-                                  }}
-                                />
-                                <span className="truncate">{tag.name}</span>
-                              </button>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
                   <div className="my-1 mx-2 border-t border-zinc-100" />
                   <button
                     onClick={() => {
@@ -734,32 +559,6 @@ export default function ThreadSidebar({
     </>
   )
 
-  // Model picker modal
-  const modelPickerModal = modelPickerThread && (
-    <>
-      <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[60]"
-           onClick={() => setModelPickerThread(null)} />
-      <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[60]
-                      w-full max-w-sm bg-zinc-100 border border-zinc-200
-                      rounded-2xl shadow-2xl p-5">
-        <h3 className="text-sm font-medium text-zinc-900 mb-1">Change model</h3>
-        <p className="text-xs text-zinc-500 mb-3 truncate">
-          {modelPickerThread.title}
-        </p>
-        <ModelPicker
-          value={modelPickerThread.model}
-          onChange={(model) => handleChangeModel(modelPickerThread.id, model)}
-        />
-        <button
-          onClick={() => setModelPickerThread(null)}
-          className="mt-3 text-sm text-zinc-500 hover:text-zinc-700 transition-colors cursor-pointer"
-        >
-          Cancel
-        </button>
-      </div>
-    </>
-  )
-
   // Mobile full-screen mode
   if (mobile) {
     return (
@@ -774,7 +573,6 @@ export default function ThreadSidebar({
             {isSearching ? searchResultsView : threadListView}
           </div>
         </div>
-        {modelPickerModal}
         {toast && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100]
                           bg-red-600 text-white text-sm px-4 py-2.5 rounded-xl
@@ -879,34 +677,6 @@ export default function ThreadSidebar({
           <BoxStatusBadge />
         </div>
       </aside>
-      {modelPickerModal}
-      {sourcesThreadId && (
-        <ThreadSourcesEditor
-          threadId={sourcesThreadId}
-          onClose={() => setSourcesThreadId(null)}
-        />
-      )}
-      {customContextThread && (
-        <CustomContextEditor
-          threadId={customContextThread.id}
-          initialContent={customContextThread.custom_context || ''}
-          onClose={() => setCustomContextThread(null)}
-          onSaved={onThreadsChange}
-        />
-      )}
-      {signalBridgeThreadId !== null && (
-        <SignalBridgeEditor
-          threadId={signalBridgeThreadId}
-          onClose={() => setSignalBridgeThreadId(null)}
-          onChange={onThreadsChange}
-        />
-      )}
-      {mcpServersThreadId !== null && (
-        <MCPServerToggle
-          scope={{ type: 'thread', id: mcpServersThreadId }}
-          onClose={() => setMcpServersThreadId(null)}
-        />
-      )}
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100]
                         bg-red-600 text-white text-sm px-4 py-2.5 rounded-xl
