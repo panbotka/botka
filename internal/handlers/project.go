@@ -23,19 +23,21 @@ type SyncFunc func(db *gorm.DB, discovered []projects.DiscoveredProject) error
 
 // ProjectHandler handles HTTP requests for project resources.
 type ProjectHandler struct {
-	db          *gorm.DB
-	projectsDir string
-	scanFn      ScanFunc
-	syncFn      SyncFunc
+	db           *gorm.DB
+	projectsDir  string
+	scanFn       ScanFunc
+	syncFn       SyncFunc
+	metricsCache *metricsCache
 }
 
 // NewProjectHandler creates a new ProjectHandler with the given dependencies.
 func NewProjectHandler(db *gorm.DB, projectsDir string, scanFn ScanFunc, syncFn SyncFunc) *ProjectHandler {
 	return &ProjectHandler{
-		db:          db,
-		projectsDir: projectsDir,
-		scanFn:      scanFn,
-		syncFn:      syncFn,
+		db:           db,
+		projectsDir:  projectsDir,
+		scanFn:       scanFn,
+		syncFn:       syncFn,
+		metricsCache: newMetricsCache(),
 	}
 }
 
@@ -49,6 +51,7 @@ func RegisterProjectRoutes(rg *gin.RouterGroup, h *ProjectHandler) {
 	rg.GET("/projects/:id/git-status", h.GetGitStatus)
 	rg.GET("/projects/:id/stats", h.GetStats)
 	rg.GET("/projects/:id/usage", h.GetUsage)
+	rg.GET("/projects/:id/metrics", h.GetMetrics)
 }
 
 // taskCounts holds per-status task counts for a project.

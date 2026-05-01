@@ -6,6 +6,7 @@ import {
   BarChart3,
   GitBranch,
   GitCommitHorizontal,
+  Activity,
   ListTodo,
   Settings,
   Loader2,
@@ -31,6 +32,7 @@ import {
   fetchProjectGitStatus,
   fetchProjectStats,
   fetchProjectUsage,
+  fetchProjectMetrics,
   fetchProjectCommands,
   runProjectCommand,
   killProjectCommand,
@@ -40,12 +42,13 @@ import {
 import MCPServerToggle from '../components/MCPServerToggle'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
-import type { Project, ProjectUsage, Task, BranchStrategy, GitCommit, GitStatus, ProjectStats, RunningCommandStatus } from '../types'
+import type { Project, ProjectUsage, ProjectMetrics, Task, BranchStrategy, GitCommit, GitStatus, ProjectStats, RunningCommandStatus } from '../types'
 
-type TabId = 'stats' | 'git-status' | 'git-history' | 'tasks' | 'settings'
+type TabId = 'stats' | 'metrics' | 'git-status' | 'git-history' | 'tasks' | 'settings'
 
 const tabs: { id: TabId; label: string; icon: typeof BarChart3 }[] = [
   { id: 'stats', label: 'Stats', icon: BarChart3 },
+  { id: 'metrics', label: 'Metrics', icon: Activity },
   { id: 'git-status', label: 'Git Status', icon: GitBranch },
   { id: 'git-history', label: 'Git History', icon: GitCommitHorizontal },
   { id: 'tasks', label: 'Tasks', icon: ListTodo },
@@ -247,6 +250,229 @@ function StatCard({
         <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
       </div>
       <p className={clsx('mt-2 text-2xl font-bold', color || 'text-zinc-900')}>{value}</p>
+    </div>
+  )
+}
+
+// ── Metrics Tab ──
+
+function formatLocalDay(utcDate: string): string {
+  // utcDate is "YYYY-MM-DD" in UTC. Construct a UTC midnight Date and format
+  // in the user's locale so the chart respects the user's timezone.
+  const d = new Date(`${utcDate}T00:00:00Z`)
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function MetricsTab({ projectId }: { projectId: string }) {
+  const [metrics, setMetrics] = useState<ProjectMetrics | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setLoading(true)
+    fetchProjectMetrics(projectId)
+      .then(setMetrics)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [projectId])
+
+  if (loading) return <TabLoader />
+  if (error) return <TabError message={error} />
+  if (!metrics) return null
+
+  if (!metrics.enough_data) {
+    return (
+      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-8 text-center">
+        <Activity className="mx-auto h-10 w-10 text-zinc-300" />
+        <p className="mt-3 text-sm font-medium text-zinc-600">Not enough data yet</p>
+        <p className="mt-1 text-xs text-zinc-400">
+          Metrics appear once this project has at least 5 tasks. Currently {metrics.total}.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <StatCard
+          icon={ListTodo}
+          label="Total Tasks"
+          value={String(metrics.total)}
+        />
+        <StatCard
+          icon={TrendingUp}
+          label="Success Rate (30d)"
+          value={metrics.success_rate_30d != null ? `${(metrics.success_rate_30d * 100).toFixed(0)}%` : '--'}
+          color={metrics.success_rate_30d != null && metrics.success_rate_30d >= 0.8
+            ? 'text-emerald-600'
+            : metrics.success_rate_30d != null
+              ? 'text-amber-600'
+              : undefined}
+        />
+        <StatCard
+          icon={Timer}
+          label="Avg Duration (30d)"
+          value={metrics.avg_duration_ms_30d != null ? formatDuration(metrics.avg_duration_ms_30d) : '--'}
+        />
+        <StatCard
+          icon={XCircle}
+          label="Failed (30d)"
+          value={String(metrics.top_failures.reduce((s, f) => s + f.count, 0))}
+        />
+      </div>
+
+      {/* Tasks per day */}
+      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-5">
+        <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          Tasks Per Day (30d)
+        </h3>
+        <TasksPerDayChart days={metrics.tasks_per_day} />
+      </div>
+
+      {/* Last 10 durations sparkline */}
+      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-5">
+        <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          Recent Task Durations
+        </h3>
+        <DurationSparkline durations={metrics.last_durations} />
+      </div>
+
+      {/* Top failure reasons */}
+      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-5">
+        <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          Top Failure Reasons (30d)
+        </h3>
+        {metrics.top_failures.length === 0 ? (
+          <p className="text-sm text-zinc-400">No failures in the last 30 days</p>
+        ) : (
+          <div className="space-y-2">
+            {metrics.top_failures.map((f, i) => {
+              const max = metrics.top_failures[0]?.count ?? 1
+              const pct = (f.count / max) * 100
+              return (
+                <div key={i} className="space-y-1">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="truncate text-sm text-zinc-700" title={f.reason}>
+                      {f.reason}
+                    </span>
+                    <span className="shrink-0 text-sm tabular-nums text-zinc-500">
+                      {f.count}
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-100">
+                    <div
+                      className="h-full rounded-full bg-red-500"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function TasksPerDayChart({ days }: { days: ProjectMetrics['tasks_per_day'] }) {
+  if (days.length === 0) return <p className="text-sm text-zinc-400">No data</p>
+  const max = Math.max(...days.map((d) => d.count), 1)
+  // Show only every Nth label so the axis stays readable.
+  const labelEvery = Math.max(1, Math.floor(days.length / 6))
+
+  return (
+    <div>
+      <div className="flex items-end gap-[2px]" style={{ height: 120 }}>
+        {days.map((d, i) => {
+          const heightPct = max > 0 ? (d.count / max) * 100 : 0
+          return (
+            <div key={d.date} className="group relative flex-1" style={{ height: '100%' }}>
+              <div
+                className={clsx(
+                  'absolute bottom-0 left-0 right-0 rounded-t transition-opacity group-hover:opacity-80',
+                  d.count > 0 ? 'bg-blue-500' : 'bg-zinc-200',
+                )}
+                style={{
+                  height: d.count > 0 ? `${Math.max(heightPct, 4)}%` : '2px',
+                  minHeight: d.count > 0 ? 2 : 1,
+                }}
+              />
+              <div className="pointer-events-none absolute -top-2 left-1/2 z-10 hidden -translate-x-1/2 -translate-y-full whitespace-nowrap rounded bg-zinc-800 px-2 py-1 text-xs text-white shadow-lg group-hover:block">
+                {formatLocalDay(d.date)}: {d.count} task{d.count !== 1 ? 's' : ''}
+              </div>
+              {/* Date label every Nth bar */}
+              {(i === days.length - 1 || i % labelEvery === 0) && (
+                <div className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] text-zinc-400">
+                  {formatLocalDay(d.date)}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <div className="mt-6 flex items-center justify-between text-xs text-zinc-400">
+        <span>{days.reduce((s, d) => s + d.count, 0)} total</span>
+        <span>peak {max}</span>
+      </div>
+    </div>
+  )
+}
+
+function DurationSparkline({ durations }: { durations: ProjectMetrics['last_durations'] }) {
+  if (durations.length < 2) {
+    return (
+      <p className="text-sm text-zinc-400">
+        {durations.length === 0 ? 'No completed tasks yet' : 'Need at least 2 completed tasks'}
+      </p>
+    )
+  }
+
+  const width = 600
+  const height = 80
+  const padding = 4
+  const max = Math.max(...durations.map((d) => d.duration_ms))
+  const min = Math.min(...durations.map((d) => d.duration_ms))
+  const range = Math.max(max - min, 1)
+  const stepX = (width - padding * 2) / (durations.length - 1)
+
+  const points = durations.map((d, i) => {
+    const x = padding + i * stepX
+    const y = padding + (height - padding * 2) * (1 - (d.duration_ms - min) / range)
+    return { x, y, d }
+  })
+
+  const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+  const areaPath = `${path} L${points[points.length - 1]!.x.toFixed(1)},${(height - padding).toFixed(1)} L${points[0]!.x.toFixed(1)},${(height - padding).toFixed(1)} Z`
+
+  return (
+    <div>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
+        className="w-full"
+        style={{ height }}
+        role="img"
+        aria-label="Recent task durations sparkline"
+      >
+        <path d={areaPath} fill="rgb(59 130 246 / 0.15)" />
+        <path d={path} fill="none" stroke="rgb(59 130 246)" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+        {points.map((p, i) => (
+          <g key={i}>
+            <circle cx={p.x} cy={p.y} r={2.5} fill="rgb(59 130 246)" />
+            <title>
+              {formatDuration(p.d.duration_ms)} on {new Date(p.d.completed_at).toLocaleString()}
+            </title>
+          </g>
+        ))}
+      </svg>
+      <div className="mt-1 flex justify-between text-xs text-zinc-400">
+        <span>min {formatDuration(min)}</span>
+        <span>{durations.length} runs</span>
+        <span>max {formatDuration(max)}</span>
+      </div>
     </div>
   )
 }
@@ -951,6 +1177,7 @@ export default function ProjectDetailPage() {
       {/* Tab content */}
       <div>
         {activeTab === 'stats' && <StatsTab projectId={project.id} />}
+        {activeTab === 'metrics' && <MetricsTab projectId={project.id} />}
         {activeTab === 'git-status' && <GitStatusTab projectId={project.id} />}
         {activeTab === 'git-history' && <GitHistoryTab projectId={project.id} />}
         {activeTab === 'tasks' && <TasksTab projectId={project.id} />}

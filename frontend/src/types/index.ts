@@ -136,6 +136,34 @@ export interface ProjectUsage {
   avg_cost_per_task_usd: number | null
 }
 
+export interface ProjectMetricsDay {
+  date: string  // UTC YYYY-MM-DD; convert to local time client-side
+  count: number
+}
+
+export interface ProjectMetricsFailure {
+  reason: string
+  count: number
+}
+
+export interface ProjectMetricsDuration {
+  task_id: string
+  duration_ms: number
+  completed_at: string  // UTC ISO timestamp
+}
+
+export interface ProjectMetrics {
+  enough_data: boolean
+  total: number
+  by_status: Record<string, number>
+  success_rate_30d: number | null
+  avg_duration_ms_30d: number | null
+  tasks_per_day: ProjectMetricsDay[]
+  top_failures: ProjectMetricsFailure[]
+  last_durations: ProjectMetricsDuration[]
+  generated_at: string  // UTC ISO timestamp
+}
+
 export interface TaskExecution {
   id: string
   task_id: string
