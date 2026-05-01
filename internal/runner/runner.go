@@ -676,6 +676,10 @@ func (r *Runner) finishTask(
 	r.accumulateTaskUsage(task, result)
 	r.applyResult(task, result)
 
+	if !result.ShouldRetry && result.RetryAfter == 0 && result.Status == models.TaskStatusFailed {
+		r.scheduleFailureSummary(task.ID, rawOutput)
+	}
+
 	buf.Close()
 	r.mu.Lock()
 	delete(r.executors, task.ProjectID)
@@ -735,9 +739,10 @@ func (r *Runner) applyResult(task *models.Task, result *ExecutionResult) {
 
 func (r *Runner) requeueTask(task *models.Task, errMsg string) {
 	r.db.Model(task).Updates(map[string]interface{}{
-		"status":         models.TaskStatusQueued,
-		"retry_count":    gorm.Expr("retry_count + 1"),
-		"failure_reason": errMsg,
+		"status":          models.TaskStatusQueued,
+		"retry_count":     gorm.Expr("retry_count + 1"),
+		"failure_reason":  errMsg,
+		"failure_summary": gorm.Expr("NULL"),
 	})
 	r.TaskEvents.Publish(TaskEvent{
 		TaskID:    task.ID,

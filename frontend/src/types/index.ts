@@ -91,6 +91,7 @@ export interface Task {
   project_name?: string
   project?: Project
   failure_reason: string | null
+  failure_summary?: string | null
   retry_count: number
   executions?: TaskExecution[]
   started_at: string | null

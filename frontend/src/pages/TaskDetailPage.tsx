@@ -19,12 +19,14 @@ import {
   ChevronRight,
   Play,
   Ban,
+  RefreshCw,
+  Sparkles,
 } from 'lucide-react'
 import { TaskForm } from '../components/TaskForm'
 import { LiveOutputInline } from '../components/LiveOutput'
 import TaskOutputView from '../components/TaskOutputView'
 import TaskChangesSection from '../components/TaskChangesSection'
-import { fetchTask, retryTask, deleteTask, updateTask, killTask, fetchTaskRawOutput } from '../api/client'
+import { fetchTask, retryTask, deleteTask, updateTask, killTask, fetchTaskRawOutput, regenerateTaskFailureSummary } from '../api/client'
 import { parseNDJSON, type TaskOutputEvent } from '../utils/parseNDJSON'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import { useTaskEvents } from '../hooks/useTaskEvents'
@@ -317,6 +319,15 @@ function TaskDetail({ taskId }: { taskId: string }) {
         </button>
       </div>
 
+      {/* Failure summary */}
+      {task.status === 'failed' && (
+        <FailureSummaryBox
+          taskId={taskId}
+          summary={task.failure_summary ?? null}
+          onSummary={(s) => setTask((prev) => (prev ? { ...prev, failure_summary: s } : prev))}
+        />
+      )}
+
       {/* Failure reason */}
       {task.failure_reason && (
         <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -568,6 +579,63 @@ function TokenUsage({ task }: { task: Task }) {
         </div>
       ))}
     </dl>
+  )
+}
+
+function FailureSummaryBox({
+  taskId,
+  summary,
+  onSummary,
+}: {
+  taskId: string
+  summary: string | null
+  onSummary: (s: string) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleRegenerate() {
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await regenerateTaskFailureSummary(taskId)
+      onSummary(result.failure_summary)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to regenerate summary')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+      <div className="flex items-start gap-3">
+        <Sparkles className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+        <div className="min-w-0 flex-1">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+              Shrnutí selhání
+            </span>
+            <button
+              onClick={handleRegenerate}
+              disabled={busy}
+              className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white px-2 py-0.5 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+            >
+              <RefreshCw className={clsx('h-3 w-3', busy && 'animate-spin')} />
+              {busy ? 'Generating…' : 'Regenerate'}
+            </button>
+          </div>
+          {summary ? (
+            <p className="text-sm leading-relaxed text-amber-900 whitespace-pre-wrap">{summary}</p>
+          ) : (
+            <p className="text-sm italic text-amber-700">
+              {busy ? 'Generuji shrnutí…' : 'Shrnutí zatím není k dispozici.'}
+            </p>
+          )}
+          {error && <p className="mt-2 text-xs text-red-700">{error}</p>}
+        </div>
+      </div>
+    </div>
   )
 }
 

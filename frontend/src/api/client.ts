@@ -164,6 +164,10 @@ export function killTask(id: string): Promise<{ message: string }> {
   return requestData<{ message: string }>(`/tasks/${id}/kill`, { method: 'POST' })
 }
 
+export function regenerateTaskFailureSummary(id: string): Promise<{ failure_summary: string }> {
+  return requestData<{ failure_summary: string }>(`/tasks/${id}/regenerate-summary`, { method: 'POST' })
+}
+
 export function batchUpdateTaskStatus(ids: string[], status: string): Promise<{ updated: number }> {
   return requestData<{ updated: number }>('/tasks/batch-status', {
     method: 'POST',

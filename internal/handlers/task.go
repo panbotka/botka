@@ -103,19 +103,20 @@ type reorderItem struct {
 
 // taskListItem is the JSON representation of a task in list responses.
 type taskListItem struct {
-	ID            uuid.UUID         `json:"id"`
-	Title         string            `json:"title"`
-	Spec          string            `json:"spec"`
-	Status        models.TaskStatus `json:"status"`
-	Priority      int               `json:"priority"`
-	ProjectID     uuid.UUID         `json:"project_id"`
-	ProjectName   string            `json:"project_name"`
-	FailureReason *string           `json:"failure_reason"`
-	RetryCount    int               `json:"retry_count"`
-	StartedAt     *time.Time        `json:"started_at"`
-	CompletedAt   *time.Time        `json:"completed_at"`
-	CreatedAt     time.Time         `json:"created_at"`
-	UpdatedAt     time.Time         `json:"updated_at"`
+	ID             uuid.UUID         `json:"id"`
+	Title          string            `json:"title"`
+	Spec           string            `json:"spec"`
+	Status         models.TaskStatus `json:"status"`
+	Priority       int               `json:"priority"`
+	ProjectID      uuid.UUID         `json:"project_id"`
+	ProjectName    string            `json:"project_name"`
+	FailureReason  *string           `json:"failure_reason"`
+	FailureSummary *string           `json:"failure_summary"`
+	RetryCount     int               `json:"retry_count"`
+	StartedAt      *time.Time        `json:"started_at"`
+	CompletedAt    *time.Time        `json:"completed_at"`
+	CreatedAt      time.Time         `json:"created_at"`
+	UpdatedAt      time.Time         `json:"updated_at"`
 }
 
 // List returns tasks with optional filtering and pagination.
@@ -446,8 +447,9 @@ func (h *TaskHandler) Retry(c *gin.Context) {
 	}
 
 	updates := map[string]interface{}{
-		"status":         models.TaskStatusQueued,
-		"failure_reason": nil,
+		"status":          models.TaskStatusQueued,
+		"failure_reason":  nil,
+		"failure_summary": nil,
 	}
 	if err := h.db.Model(&task).Updates(updates).Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "failed to retry task")
@@ -633,19 +635,20 @@ func parsePagination(c *gin.Context) (limit, offset int) {
 // toTaskListItem converts a Task model into a list response item.
 func toTaskListItem(t *models.Task) taskListItem {
 	return taskListItem{
-		ID:            t.ID,
-		Title:         t.Title,
-		Spec:          t.Spec,
-		Status:        t.Status,
-		Priority:      t.Priority,
-		ProjectID:     t.ProjectID,
-		ProjectName:   t.Project.Name,
-		FailureReason: t.FailureReason,
-		RetryCount:    t.RetryCount,
-		StartedAt:     t.StartedAt,
-		CompletedAt:   t.CompletedAt,
-		CreatedAt:     t.CreatedAt,
-		UpdatedAt:     t.UpdatedAt,
+		ID:             t.ID,
+		Title:          t.Title,
+		Spec:           t.Spec,
+		Status:         t.Status,
+		Priority:       t.Priority,
+		ProjectID:      t.ProjectID,
+		ProjectName:    t.Project.Name,
+		FailureReason:  t.FailureReason,
+		FailureSummary: t.FailureSummary,
+		RetryCount:     t.RetryCount,
+		StartedAt:      t.StartedAt,
+		CompletedAt:    t.CompletedAt,
+		CreatedAt:      t.CreatedAt,
+		UpdatedAt:      t.UpdatedAt,
 	}
 }
 

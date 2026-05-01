@@ -92,6 +92,7 @@ type Task struct {
 	CostUSD             *float64        `gorm:"type:numeric(12,6)" json:"cost_usd"`
 	BaseCommitSHA       *string         `gorm:"type:text" json:"base_commit_sha,omitempty"`
 	HeadCommitSHA       *string         `gorm:"type:text" json:"head_commit_sha,omitempty"`
+	FailureSummary      *string         `gorm:"type:text" json:"failure_summary,omitempty"`
 	CreatedAt           time.Time       `json:"created_at"`
 	UpdatedAt           time.Time       `json:"updated_at"`
 }

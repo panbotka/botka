@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -27,6 +29,7 @@ func RegisterRunnerRoutes(rg *gin.RouterGroup, h *RunnerHandler) {
 	rg.POST("/runner/stop", h.Stop)
 	rg.POST("/runner/usage/refresh", h.RefreshUsage)
 	rg.POST("/tasks/:id/kill", h.KillTask)
+	rg.POST("/tasks/:id/regenerate-summary", h.RegenerateFailureSummary)
 }
 
 // Status returns the current runner state.
@@ -79,4 +82,29 @@ func (h *RunnerHandler) KillTask(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"message": "Task kill initiated"}})
+}
+
+// regenerateFailureSummaryTimeout caps how long a synchronous regenerate
+// request may run. Slightly longer than the underlying claude timeout so the
+// HTTP client gets a clean error rather than a context deadline race.
+const regenerateFailureSummaryTimeout = 2 * time.Minute
+
+// RegenerateFailureSummary re-runs the haiku summarization for a failed task
+// and returns the produced summary. Synchronous so the UI can show the
+// updated text without polling.
+func (h *RunnerHandler) RegenerateFailureSummary(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "invalid task id")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), regenerateFailureSummaryTimeout)
+	defer cancel()
+
+	summary, err := h.runner.RegenerateFailureSummary(ctx, id)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"failure_summary": summary}})
 }

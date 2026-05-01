@@ -212,6 +212,8 @@ Exposes 19 tools across categories: task management (create_task, list_tasks, ge
 | `KEEPALIVE_ACTIVITY_THRESHOLD` | `50m` | Skip the keepalive ping when a task started or a chat message was created within this window — real activity already keeps the 5h window alive (Go duration; set to `0` to always ping) |
 | `KEEPALIVE_LEAD_TIME` | `15m` | How long before the current 5h window's `resets_at` to fire the keepalive ping. The ping is dynamically scheduled at `resets_at - lead_time`; if that's already in the past or within ~1 minute, ping immediately and reschedule for the next window (Go duration) |
 | `SIGNAL_CLI_URL` | `http://127.0.0.1:5107` | Base URL of signal-cli daemon HTTP JSON-RPC endpoint |
+| `FAILURE_SUMMARY_ENABLED` | `true` | Generate an LLM failure summary in Czech after a task transitions to `failed`. Runs asynchronously; failures leave the column null and log a warning |
+| `FAILURE_SUMMARY_MODEL` | `haiku` | Claude model passed to `claude -p --output-format json` when generating the failure summary |
 
 ## Task Agent Safety
 

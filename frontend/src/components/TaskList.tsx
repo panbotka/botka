@@ -53,11 +53,12 @@ const statusTransitions: Partial<Record<TaskStatus, { label: string; target: Tas
   deleted:      [{ label: 'Restore', target: 'pending' }],
 }
 
-function StatusBadge({ status }: { status: TaskStatus }) {
+function StatusBadge({ status, title }: { status: TaskStatus; title?: string }) {
   const cfg = statusBadge[status]
   const Icon = cfg.icon
   return (
     <span
+      title={title}
       className={clsx(
         'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
         cfg.bg,
@@ -72,7 +73,16 @@ function StatusBadge({ status }: { status: TaskStatus }) {
   )
 }
 
-function StatusBadgeDropdown({ taskId, status, onStatusChange }: { taskId: string; status: TaskStatus; onStatusChange: () => void }) {
+// firstSentence returns the first sentence of a summary string. Falls back to
+// the whole string when no terminal punctuation is found.
+function firstSentence(s: string): string {
+  const trimmed = s.trim()
+  const m = trimmed.match(/^.*?[.!?](?:\s|$)/)
+  if (m) return m[0].trim()
+  return trimmed
+}
+
+function StatusBadgeDropdown({ taskId, status, badgeTitle, onStatusChange }: { taskId: string; status: TaskStatus; badgeTitle?: string; onStatusChange: () => void }) {
   const [open, setOpen] = useState(false)
   const [openUp, setOpenUp] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -105,7 +115,7 @@ function StatusBadgeDropdown({ taskId, status, onStatusChange }: { taskId: strin
   }
 
   if (!transitions || transitions.length === 0) {
-    return <StatusBadge status={status} />
+    return <StatusBadge status={status} title={badgeTitle} />
   }
 
   return (
@@ -114,7 +124,7 @@ function StatusBadgeDropdown({ taskId, status, onStatusChange }: { taskId: strin
         className="inline-flex items-center gap-0.5 cursor-pointer"
         onClick={handleToggle}
       >
-        <StatusBadge status={status} />
+        <StatusBadge status={status} title={badgeTitle} />
         <ChevronDown className={clsx('h-3 w-3 text-zinc-400 transition-transform', open && openUp && 'rotate-180')} />
       </button>
       {open && (
@@ -233,7 +243,16 @@ function SortableRow({ task, onClick, selected, onSelect, onStatusChange }: Sort
         {task.priority}
       </td>
       <td className="py-2.5">
-        <StatusBadgeDropdown taskId={task.id} status={task.status} onStatusChange={onStatusChange} />
+        <StatusBadgeDropdown
+          taskId={task.id}
+          status={task.status}
+          badgeTitle={
+            task.status === 'failed' && task.failure_summary
+              ? firstSentence(task.failure_summary)
+              : undefined
+          }
+          onStatusChange={onStatusChange}
+        />
       </td>
       <td className="py-2.5 pl-2 text-sm font-medium text-zinc-900 group-hover:text-blue-600">
         {task.title}
