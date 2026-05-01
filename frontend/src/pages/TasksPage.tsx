@@ -122,10 +122,11 @@ export default function TasksPage() {
     [searchParams, setSearchParams],
   )
 
+  // Selection persists across filter/project changes within the same page session;
+  // it only clears on navigation (component unmount) or pagination (different page slice).
   const handleFilterChange = useCallback(
     (value: Filter) => {
       updateSearchParams({ status: value === 'all' ? null : value, page: null })
-      setSelectedIds(new Set())
     },
     [updateSearchParams],
   )
@@ -133,7 +134,6 @@ export default function TasksPage() {
   const handleProjectChange = useCallback(
     (value: string) => {
       updateSearchParams({ project: value || null, page: null })
-      setSelectedIds(new Set())
     },
     [updateSearchParams],
   )
@@ -230,6 +230,7 @@ export default function TasksPage() {
         <>
           <TaskList
             tasks={tasks}
+            projects={projects}
             onReorder={refetchAll}
             selectedIds={selectedIds}
             onSelectionChange={handleSelectionChange}

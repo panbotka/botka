@@ -31,8 +31,43 @@ import {
   Trash2,
 } from 'lucide-react'
 
-import { reorderTasks, updateTask, batchUpdateTaskStatus } from '../api/client'
-import type { Task, TaskStatus } from '../types'
+import { bulkTaskAction, reorderTasks, updateTask } from '../api/client'
+import type { BulkTaskAction } from '../api/client'
+import { BulkActionsBar } from './BulkActionsBar'
+import type { Project, Task, TaskStatus } from '../types'
+
+// applyOptimisticBulk computes the post-action task list assuming every task
+// will accept the bulk action. Running tasks are left alone so their visual
+// state matches what the backend will return after refetch.
+function applyOptimisticBulk(
+  tasks: Task[],
+  ids: Set<string>,
+  action: BulkTaskAction,
+  value: number | string | undefined,
+): Task[] {
+  switch (action) {
+    case 'set_priority': {
+      const priority = value as number
+      return tasks.map((t) =>
+        ids.has(t.id) && t.status !== 'running' ? { ...t, priority } : t,
+      )
+    }
+    case 'set_status': {
+      const status = value as TaskStatus
+      return tasks.map((t) =>
+        ids.has(t.id) && t.status !== 'running' ? { ...t, status } : t,
+      )
+    }
+    case 'set_project': {
+      const projectId = value as string
+      return tasks.map((t) =>
+        ids.has(t.id) && t.status !== 'running' ? { ...t, project_id: projectId } : t,
+      )
+    }
+    case 'delete':
+      return tasks.filter((t) => !ids.has(t.id) || t.status === 'running')
+  }
+}
 
 const statusBadge: Record<TaskStatus, { icon: typeof CheckCircle2; bg: string; text: string; label: string; pulse?: boolean; strike?: boolean }> = {
   pending:      { icon: Clock,          bg: 'bg-zinc-100',   text: 'text-zinc-600',   label: 'Pending' },
@@ -276,75 +311,32 @@ function SortableRow({ task, onClick, selected, onSelect, onStatusChange }: Sort
   )
 }
 
-function BatchToolbar({
-  selectedIds,
-  tasks,
-  onDeselect,
-  onStatusChange,
-}: {
-  selectedIds: Set<string>
-  tasks: Task[]
-  onDeselect: () => void
-  onStatusChange: () => void
-}) {
-  const selectedTasks = tasks.filter((t) => selectedIds.has(t.id))
-
-  const commonTransitions = selectedTasks.reduce<{ label: string; target: TaskStatus }[] | null>(
-    (acc, task) => {
-      const transitions = statusTransitions[task.status]
-      if (!transitions) return []
-      if (acc === null) return [...transitions]
-      return acc.filter((t) => transitions.some((tr) => tr.target === t.target && tr.label === t.label))
-    },
-    null,
-  ) ?? []
-
-  const handleBatch = async (target: TaskStatus) => {
-    const ids = Array.from(selectedIds)
-    await batchUpdateTaskStatus(ids, target)
-    onDeselect()
-    onStatusChange()
-  }
-
-  return (
-    <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 mb-3">
-      <span className="text-sm font-medium text-blue-800">{selectedIds.size} selected</span>
-      {commonTransitions.map((t) => (
-        <button
-          key={t.target}
-          onClick={() => handleBatch(t.target)}
-          className="rounded-full bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-700 border border-zinc-200 hover:bg-zinc-100"
-        >
-          {t.label}
-        </button>
-      ))}
-      <button
-        onClick={onDeselect}
-        className="ml-auto rounded-full bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-500 border border-zinc-200 hover:bg-zinc-100"
-      >
-        Deselect all
-      </button>
-    </div>
-  )
-}
-
 interface TaskListProps {
   tasks: Task[]
+  projects: Project[]
   onReorder: () => Promise<void>
   selectedIds: Set<string>
   onSelectionChange: (ids: Set<string>) => void
   onStatusChange: () => void
 }
 
-export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, onStatusChange }: TaskListProps) {
+export function TaskList({ tasks, projects, onReorder, selectedIds, onSelectionChange, onStatusChange }: TaskListProps) {
   const navigate = useNavigate()
   const [items, setItems] = useState(tasks)
   const [reordering, setReordering] = useState(false)
+  const [bulkBanner, setBulkBanner] = useState<{ tone: 'error' | 'warn'; message: string } | null>(null)
 
   // Sync when parent tasks change (new fetch)
   if (tasks !== items && !reordering) {
     setItems(tasks)
   }
+
+  // Auto-dismiss the bulk feedback banner so it doesn't linger after the next refetch.
+  useEffect(() => {
+    if (!bulkBanner) return
+    const id = setTimeout(() => setBulkBanner(null), 6000)
+    return () => clearTimeout(id)
+  }, [bulkBanner])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -410,20 +402,68 @@ export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, onS
     [selectedIds, onSelectionChange],
   )
 
+  // Select-all-on-page toggles the current page's items in/out of the selection
+  // without disturbing IDs picked up under a different filter view.
   const handleSelectAll = useCallback(
     (checked: boolean) => {
-      if (checked) {
-        onSelectionChange(new Set(items.map((t) => t.id)))
-      } else {
-        onSelectionChange(new Set())
+      const next = new Set(selectedIds)
+      for (const t of items) {
+        if (checked) next.add(t.id)
+        else next.delete(t.id)
       }
+      onSelectionChange(next)
     },
-    [items, onSelectionChange],
+    [items, selectedIds, onSelectionChange],
   )
 
   const allSelected = items.length > 0 && items.every((t) => selectedIds.has(t.id))
 
-  if (items.length === 0) {
+  const handleBulkAction = useCallback(
+    async (action: BulkTaskAction, value?: number | string) => {
+      const ids = Array.from(selectedIds)
+      if (ids.length === 0) return
+
+      const idSet = new Set(ids)
+      const snapshot = items
+      setItems((prev) => applyOptimisticBulk(prev, idSet, action, value))
+
+      try {
+        const { results } = await bulkTaskAction(ids, action, value)
+        const succeeded = results.filter((r) => r.success).length
+        const failed = results.length - succeeded
+
+        if (succeeded === 0) {
+          // Server-side validation rejected every task — undo the optimistic mutation.
+          setItems(snapshot)
+          const firstError = results.find((r) => !r.success)?.error ?? 'no tasks updated'
+          setBulkBanner({ tone: 'error', message: `Bulk action failed: ${firstError}` })
+        } else if (failed > 0) {
+          const firstError = results.find((r) => !r.success)?.error ?? 'unknown error'
+          setBulkBanner({
+            tone: 'warn',
+            message: `${succeeded} updated, ${failed} skipped: ${firstError}`,
+          })
+        }
+
+        // Drop successfully-modified tasks from the selection; failed ones stay selected for retry.
+        const successIds = new Set(results.filter((r) => r.success).map((r) => r.id))
+        if (successIds.size > 0) {
+          const next = new Set(selectedIds)
+          for (const id of successIds) next.delete(id)
+          onSelectionChange(next)
+        }
+
+        onStatusChange()
+      } catch (err) {
+        // Network or 4xx — revert the optimistic mutation and rethrow so the modal shows the error.
+        setItems(snapshot)
+        throw err
+      }
+    },
+    [items, selectedIds, onSelectionChange, onStatusChange],
+  )
+
+  if (items.length === 0 && selectedIds.size === 0) {
     return (
       <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-zinc-200">
         <p className="text-sm text-zinc-400">No tasks found</p>
@@ -433,13 +473,26 @@ export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, onS
 
   return (
     <div>
-      {selectedIds.size > 0 && (
-        <BatchToolbar
-          selectedIds={selectedIds}
-          tasks={items}
-          onDeselect={() => onSelectionChange(new Set())}
-          onStatusChange={onStatusChange}
-        />
+      {bulkBanner && (
+        <div
+          className={clsx(
+            'mb-3 flex items-start gap-2 rounded-lg border px-3 py-2 text-sm',
+            bulkBanner.tone === 'error'
+              ? 'border-red-200 bg-red-50 text-red-800'
+              : 'border-amber-200 bg-amber-50 text-amber-800',
+          )}
+          role="status"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <span className="flex-1">{bulkBanner.message}</span>
+          <button
+            onClick={() => setBulkBanner(null)}
+            className="text-xs font-medium opacity-70 hover:opacity-100"
+            aria-label="Dismiss"
+          >
+            Dismiss
+          </button>
+        </div>
       )}
       <div className="overflow-x-clip overflow-y-visible rounded-lg border border-zinc-200">
         <table className="w-full text-left">
@@ -483,6 +536,14 @@ export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, onS
           </DndContext>
         </table>
       </div>
+      {selectedIds.size > 0 && (
+        <BulkActionsBar
+          count={selectedIds.size}
+          projects={projects}
+          onAction={handleBulkAction}
+          onClear={() => onSelectionChange(new Set())}
+        />
+      )}
     </div>
   )
 }

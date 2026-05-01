@@ -175,6 +175,27 @@ export function batchUpdateTaskStatus(ids: string[], status: string): Promise<{ 
   })
 }
 
+export type BulkTaskAction = 'set_priority' | 'set_status' | 'set_project' | 'delete'
+
+export interface BulkTaskResult {
+  id: string
+  success: boolean
+  error?: string
+}
+
+export function bulkTaskAction(
+  ids: string[],
+  action: BulkTaskAction,
+  value?: number | string,
+): Promise<{ results: BulkTaskResult[] }> {
+  const body: { ids: string[]; action: BulkTaskAction; value?: number | string } = { ids, action }
+  if (value !== undefined) body.value = value
+  return requestData<{ results: BulkTaskResult[] }>('/tasks/bulk', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
 export function fetchTaskStats(): Promise<TaskStats> {
   return requestData<TaskStats>('/tasks/stats')
 }

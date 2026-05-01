@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -48,6 +49,7 @@ func RegisterTaskRoutes(rg *gin.RouterGroup, h *TaskHandler) {
 	rg.GET("/tasks/stats", h.Stats)
 	rg.POST("/tasks", h.Create)
 	rg.POST("/tasks/batch-status", h.BatchUpdateStatus)
+	rg.POST("/tasks/bulk", h.Bulk)
 	rg.POST("/tasks/reorder", h.Reorder)
 	rg.GET("/tasks/:id", h.Get)
 	rg.GET("/tasks/:id/diff", h.Diff)
@@ -345,6 +347,274 @@ func (h *TaskHandler) BatchUpdateStatus(c *gin.Context) {
 // errBatchAborted is a sentinel error used to roll back a transaction after
 // the response has already been written to the client.
 var errBatchAborted = errors.New("batch aborted")
+
+// Bulk action identifiers accepted by /tasks/bulk.
+const (
+	bulkActionSetPriority = "set_priority"
+	bulkActionSetStatus   = "set_status"
+	bulkActionSetProject  = "set_project"
+	bulkActionDelete      = "delete"
+)
+
+// bulkRequest is the JSON body for the POST /tasks/bulk endpoint.
+type bulkRequest struct {
+	IDs    []uuid.UUID     `json:"ids"`
+	Action string          `json:"action"`
+	Value  json.RawMessage `json:"value"`
+}
+
+// bulkResult reports the outcome of a single task in a bulk operation.
+type bulkResult struct {
+	ID      uuid.UUID `json:"id"`
+	Success bool      `json:"success"`
+	Error   string    `json:"error,omitempty"`
+}
+
+// bulkApplier applies a bulk action to a single task, returning an event to
+// publish on success (or nil when no event should fire) and an error on
+// failure.
+type bulkApplier func(id uuid.UUID) (*runner.TaskEvent, error)
+
+// Bulk applies an action to many tasks, returning per-ID success/error results.
+// The request is validated up front (action, value shape, ID list) and then
+// each task is processed in its own transaction so a single failure cannot
+// abort the rest of the batch.
+func (h *TaskHandler) Bulk(c *gin.Context) {
+	var req bulkRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.IDs) == 0 {
+		respondError(c, http.StatusBadRequest, "ids must not be empty")
+		return
+	}
+	if dup := firstDuplicate(req.IDs); dup != nil {
+		respondError(c, http.StatusBadRequest, fmt.Sprintf("duplicate id: %s", dup))
+		return
+	}
+
+	apply, errMsg := h.buildBulkApplier(req)
+	if errMsg != "" {
+		respondError(c, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	results := make([]bulkResult, 0, len(req.IDs))
+	events := make([]runner.TaskEvent, 0, len(req.IDs))
+	for _, id := range req.IDs {
+		evt, err := apply(id)
+		if err != nil {
+			results = append(results, bulkResult{ID: id, Success: false, Error: err.Error()})
+			continue
+		}
+		results = append(results, bulkResult{ID: id, Success: true})
+		if evt != nil {
+			events = append(events, *evt)
+		}
+	}
+
+	for _, evt := range events {
+		h.taskEvents.Publish(evt)
+	}
+
+	respondOK(c, gin.H{"results": results})
+}
+
+// firstDuplicate returns a pointer to the first duplicated ID in the slice,
+// or nil if all IDs are unique.
+func firstDuplicate(ids []uuid.UUID) *uuid.UUID {
+	seen := make(map[uuid.UUID]bool, len(ids))
+	for _, id := range ids {
+		if seen[id] {
+			return &id
+		}
+		seen[id] = true
+	}
+	return nil
+}
+
+// buildBulkApplier validates the request value for the given action and
+// returns a closure that applies the action to a single task ID. Returns a
+// non-empty error string when the request itself is malformed.
+func (h *TaskHandler) buildBulkApplier(req bulkRequest) (bulkApplier, string) {
+	switch req.Action {
+	case bulkActionSetPriority:
+		var priority int
+		if err := unmarshalBulkValue(req.Value, &priority); err != nil {
+			return nil, "invalid value: expected integer priority"
+		}
+		return func(id uuid.UUID) (*runner.TaskEvent, error) {
+			return applyBulkSetPriority(h.db, id, priority)
+		}, ""
+
+	case bulkActionSetStatus:
+		var status models.TaskStatus
+		if err := unmarshalBulkValue(req.Value, &status); err != nil {
+			return nil, "invalid value: expected status string"
+		}
+		if status != models.TaskStatusPending &&
+			status != models.TaskStatusQueued &&
+			status != models.TaskStatusCancelled {
+			return nil, "status must be pending, queued, or cancelled"
+		}
+		return func(id uuid.UUID) (*runner.TaskEvent, error) {
+			return applyBulkSetStatus(h.db, id, status)
+		}, ""
+
+	case bulkActionSetProject:
+		var projectIDStr string
+		if err := unmarshalBulkValue(req.Value, &projectIDStr); err != nil {
+			return nil, "invalid value: expected project id string"
+		}
+		projectID, err := uuid.Parse(projectIDStr)
+		if err != nil {
+			return nil, "invalid project id"
+		}
+		var proj models.Project
+		if err := h.db.First(&proj, "id = ?", projectID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, "project not found"
+			}
+			return nil, "failed to validate project"
+		}
+		if !proj.Active {
+			return nil, "project is not active"
+		}
+		return func(id uuid.UUID) (*runner.TaskEvent, error) {
+			return applyBulkSetProject(h.db, id, projectID)
+		}, ""
+
+	case bulkActionDelete:
+		return func(id uuid.UUID) (*runner.TaskEvent, error) {
+			return applyBulkDelete(h.db, id)
+		}, ""
+
+	default:
+		return nil, fmt.Sprintf("invalid action: %s", req.Action)
+	}
+}
+
+// unmarshalBulkValue decodes a bulk request value into v, treating an empty
+// payload as an unmarshal error rather than zero-value success.
+func unmarshalBulkValue(raw json.RawMessage, v interface{}) error {
+	if len(raw) == 0 {
+		return errors.New("missing value")
+	}
+	return json.Unmarshal(raw, v)
+}
+
+// applyBulkSetPriority sets the priority of a single task in a transaction.
+func applyBulkSetPriority(db *gorm.DB, id uuid.UUID, priority int) (*runner.TaskEvent, error) {
+	err := db.Transaction(func(tx *gorm.DB) error {
+		task, err := lockTaskForUpdate(tx, id)
+		if err != nil {
+			return err
+		}
+		return tx.Model(&task).Update("priority", priority).Error
+	})
+	return nil, err
+}
+
+// applyBulkSetStatus changes a task's status, enforcing transition rules and
+// the running-task lock. Returns an event when the status actually changed.
+func applyBulkSetStatus(db *gorm.DB, id uuid.UUID, status models.TaskStatus) (*runner.TaskEvent, error) {
+	var event *runner.TaskEvent
+	err := db.Transaction(func(tx *gorm.DB) error {
+		task, err := lockTaskForUpdate(tx, id)
+		if err != nil {
+			return err
+		}
+		if task.Status == status {
+			return nil
+		}
+		if task.Status == models.TaskStatusRunning {
+			return errors.New("cannot change status of a running task")
+		}
+		allowed, ok := allowedTransitions[task.Status]
+		if !ok || !allowed[status] {
+			return fmt.Errorf("cannot transition from %s to %s", task.Status, status)
+		}
+		if err := tx.Model(&task).Update("status", status).Error; err != nil {
+			return err
+		}
+		event = &runner.TaskEvent{TaskID: task.ID, Status: status, ProjectID: task.ProjectID}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return event, nil
+}
+
+// applyBulkSetProject reassigns a task to a different project. The caller has
+// already verified the target project exists and is active.
+func applyBulkSetProject(db *gorm.DB, id, projectID uuid.UUID) (*runner.TaskEvent, error) {
+	var event *runner.TaskEvent
+	err := db.Transaction(func(tx *gorm.DB) error {
+		task, err := lockTaskForUpdate(tx, id)
+		if err != nil {
+			return err
+		}
+		if task.Status == models.TaskStatusRunning {
+			return errors.New("cannot change project of a running task")
+		}
+		if task.ProjectID == projectID {
+			return nil
+		}
+		if err := tx.Model(&task).Update("project_id", projectID).Error; err != nil {
+			return err
+		}
+		event = &runner.TaskEvent{TaskID: task.ID, Status: task.Status, ProjectID: projectID}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return event, nil
+}
+
+// applyBulkDelete soft-deletes a task by setting its status to deleted.
+func applyBulkDelete(db *gorm.DB, id uuid.UUID) (*runner.TaskEvent, error) {
+	var event *runner.TaskEvent
+	err := db.Transaction(func(tx *gorm.DB) error {
+		task, err := lockTaskForUpdate(tx, id)
+		if err != nil {
+			return err
+		}
+		if task.Status == models.TaskStatusRunning {
+			return errors.New("cannot delete a running task")
+		}
+		if task.Status == models.TaskStatusDeleted {
+			return nil
+		}
+		if err := tx.Model(&task).Update("status", models.TaskStatusDeleted).Error; err != nil {
+			return err
+		}
+		event = &runner.TaskEvent{TaskID: task.ID, Status: models.TaskStatusDeleted, ProjectID: task.ProjectID}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return event, nil
+}
+
+// lockTaskForUpdate fetches a task row with FOR UPDATE locking. Returns a
+// stable "task not found" error so it can be reported verbatim in bulk
+// results without leaking GORM internals.
+func lockTaskForUpdate(tx *gorm.DB, id uuid.UUID) (models.Task, error) {
+	var task models.Task
+	err := tx.Set("gorm:query_option", "FOR UPDATE").
+		First(&task, "id = ?", id).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return task, errors.New("task not found")
+		}
+		return task, err
+	}
+	return task, nil
+}
 
 // validateBatchStatusRequest checks that a batch status request is well-formed.
 func validateBatchStatusRequest(req batchStatusRequest) string {
