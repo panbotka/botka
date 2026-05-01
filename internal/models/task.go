@@ -93,6 +93,8 @@ type Task struct {
 	BaseCommitSHA       *string         `gorm:"type:text" json:"base_commit_sha,omitempty"`
 	HeadCommitSHA       *string         `gorm:"type:text" json:"head_commit_sha,omitempty"`
 	FailureSummary      *string         `gorm:"type:text" json:"failure_summary,omitempty"`
+	ScheduleID          *int64          `json:"schedule_id,omitempty"`
+	Schedule            *TaskSchedule   `json:"schedule,omitempty" gorm:"foreignKey:ScheduleID"`
 	CreatedAt           time.Time       `json:"created_at"`
 	UpdatedAt           time.Time       `json:"updated_at"`
 }

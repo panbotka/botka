@@ -131,6 +131,13 @@ func run() error {
 	cronScheduler.Start()
 	defer cronScheduler.Stop()
 
+	// Task schedule scheduler: creates pending tasks from cron-based recurring
+	// schedules. Distinct from cronScheduler — that runs prompts directly,
+	// while this enqueues tasks for the regular task runner.
+	scheduleScheduler := runner.NewScheduleScheduler(db)
+	scheduleScheduler.Start()
+	defer scheduleScheduler.Stop()
+
 	// Signal bridge: relays messages between Signal group chats and Botka
 	// threads. The bridge shares the Claude session manager with the chat
 	// handler so incoming Signal messages and UI chat messages serialize on
@@ -155,7 +162,7 @@ func run() error {
 	defer bridgeCancel()
 	signalBridge.Start(bridgeCtx)
 
-	router := setupRouter(db, cfg, taskRunner, cronScheduler, signalClient, signalBridge, boxWaker, boxSSHTarget)
+	router := setupRouter(db, cfg, taskRunner, cronScheduler, scheduleScheduler, signalClient, signalBridge, boxWaker, boxSSHTarget)
 
 	return startServer(router, cfg.Port)
 }
@@ -190,6 +197,7 @@ func runMCP() error {
 func setupRouter(
 	db *gorm.DB, cfg *config.Config, taskRunner *runner.Runner,
 	cronScheduler *runner.CronScheduler,
+	scheduleScheduler *runner.ScheduleScheduler,
 	signalClient *signal.Client, signalBridge *signal.Bridge,
 	boxWaker *box.Waker, boxSSHTarget string,
 ) *gin.Engine {
@@ -238,6 +246,9 @@ func setupRouter(
 
 	cronHandler := handlers.NewCronHandler(db, cronScheduler)
 	handlers.RegisterCronRoutes(v1, cronHandler)
+
+	scheduleHandler := handlers.NewScheduleHandler(db, scheduleScheduler)
+	handlers.RegisterScheduleRoutes(v1, scheduleHandler)
 
 	runnerHandler := handlers.NewRunnerHandler(taskRunner)
 	handlers.RegisterRunnerRoutes(v1, runnerHandler)

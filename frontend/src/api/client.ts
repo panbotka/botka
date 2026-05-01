@@ -1,4 +1,4 @@
-import type { Project, ProjectUsage, Task, TaskDiff, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution } from '../types'
+import type { Project, ProjectUsage, Task, TaskDiff, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution, TaskSchedule } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -1007,6 +1007,56 @@ export function setProjectMCPServers(projectId: string, serverIds: number[]): Pr
   })
 }
 
+// Recurring Task Schedules
+
+export function listSchedules(projectID?: string): Promise<TaskSchedule[]> {
+  const qs = projectID ? `?project_id=${encodeURIComponent(projectID)}` : ''
+  return requestData<TaskSchedule[]>(`/schedules${qs}`)
+}
+
+export function getSchedule(id: number): Promise<TaskSchedule> {
+  return requestData<TaskSchedule>(`/schedules/${id}`)
+}
+
+export interface CreateScheduleInput {
+  project_id: string
+  title: string
+  spec?: string
+  cron_expression: string
+  priority?: number
+  enabled?: boolean
+}
+
+export function createSchedule(data: CreateScheduleInput): Promise<TaskSchedule> {
+  return requestData<TaskSchedule>('/schedules', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export interface UpdateScheduleInput {
+  title?: string
+  spec?: string
+  cron_expression?: string
+  priority?: number
+  enabled?: boolean
+}
+
+export function updateSchedule(id: number, data: UpdateScheduleInput): Promise<TaskSchedule> {
+  return requestData<TaskSchedule>(`/schedules/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export function deleteSchedule(id: number): Promise<void> {
+  return request<void>(`/schedules/${id}`, { method: 'DELETE' })
+}
+
+export function runScheduleNow(id: number): Promise<{ task_id: string }> {
+  return requestData<{ task_id: string }>(`/schedules/${id}/run-now`, { method: 'POST' })
+}
+
 // Cron Jobs
 
 export function listCronJobs(): Promise<CronJob[]> {
@@ -1177,6 +1227,13 @@ export const api = {
   shutdownBox,
   startBoxService,
   stopBoxService,
+  // Recurring Task Schedules
+  listSchedules,
+  getSchedule,
+  createSchedule,
+  updateSchedule,
+  deleteSchedule,
+  runScheduleNow,
   // Cron Jobs
   listCronJobs,
   getCronJob,

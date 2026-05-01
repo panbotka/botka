@@ -45,9 +45,10 @@ func setupTestDB(t *testing.T) *gorm.DB {
 			// Ensure unaccent extension is available for diacritic-insensitive search.
 			sharedDB.Exec("CREATE EXTENSION IF NOT EXISTS unaccent")
 			// Drop all tables and recreate to avoid migration conflicts
-			sharedDB.Exec("DROP TABLE IF EXISTS cron_executions, cron_jobs, thread_mcp_servers, project_mcp_servers, mcp_servers, thread_access, webauthn_credentials, sessions, users, thread_sources, signal_bridges, thread_tags, branch_selections, attachments, messages, task_executions, tasks, threads, projects, personas, tags, memories, runner_state, fork_points CASCADE")
+			sharedDB.Exec("DROP TABLE IF EXISTS task_schedules, cron_executions, cron_jobs, thread_mcp_servers, project_mcp_servers, mcp_servers, thread_access, webauthn_credentials, sessions, users, thread_sources, signal_bridges, thread_tags, branch_selections, attachments, messages, task_executions, tasks, threads, projects, personas, tags, memories, runner_state, fork_points CASCADE")
 			dbErr = sharedDB.AutoMigrate(
 				&models.Project{},
+				&models.TaskSchedule{},
 				&models.Task{},
 				&models.TaskExecution{},
 				&models.Thread{},
@@ -105,7 +106,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 // cleanTables truncates all tables in FK-safe order.
 func cleanTables(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	db.Exec("TRUNCATE TABLE cron_executions, cron_jobs, thread_mcp_servers, project_mcp_servers, mcp_servers, thread_access, webauthn_credentials, sessions, users, thread_sources, signal_bridges, thread_tags, branch_selections, attachments, messages, task_executions, tasks, threads, projects, personas, tags, memories, runner_state, app_settings CASCADE")
+	db.Exec("TRUNCATE TABLE task_schedules, cron_executions, cron_jobs, thread_mcp_servers, project_mcp_servers, mcp_servers, thread_access, webauthn_credentials, sessions, users, thread_sources, signal_bridges, thread_tags, branch_selections, attachments, messages, task_executions, tasks, threads, projects, personas, tags, memories, runner_state, app_settings CASCADE")
 }
 
 // createTestProject creates and returns a test project.

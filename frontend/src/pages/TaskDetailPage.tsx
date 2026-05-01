@@ -308,6 +308,17 @@ function TaskDetail({ taskId }: { taskId: string }) {
             <span>Priority: {task.priority}</span>
             <span>Created: {formatDate(task.created_at)}</span>
             <span>Updated: {formatDate(task.updated_at)}</span>
+            {task.schedule_id && (
+              <span>
+                Created by schedule:{' '}
+                <Link
+                  to="/schedules"
+                  className="text-zinc-700 underline hover:text-zinc-900"
+                >
+                  {task.schedule?.title ?? `#${task.schedule_id}`}
+                </Link>
+              </span>
+            )}
           </div>
         </div>
         <button

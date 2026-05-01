@@ -103,6 +103,8 @@ export interface Task {
   cost_usd: number | null
   base_commit_sha?: string | null
   head_commit_sha?: string | null
+  schedule_id?: number | null
+  schedule?: TaskSchedule | null
   created_at: string
   updated_at: string
 }
@@ -431,6 +433,23 @@ export interface MCPServerWithStatus {
   is_default: boolean
   active: boolean
   enabled: boolean
+}
+
+// ── Recurring Task Schedules ──
+
+export interface TaskSchedule {
+  id: number
+  project_id: string
+  project?: Project
+  title: string
+  spec: string
+  cron_expression: string
+  priority: number
+  enabled: boolean
+  last_run_at: string | null
+  next_run_at: string | null
+  created_at: string
+  updated_at: string
 }
 
 // ── Cron Jobs ──
