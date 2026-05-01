@@ -30,6 +30,7 @@ import {
   fetchProjectGitLog,
   fetchProjectGitStatus,
   fetchProjectStats,
+  fetchProjectUsage,
   fetchProjectCommands,
   runProjectCommand,
   killProjectCommand,
@@ -39,7 +40,7 @@ import {
 import MCPServerToggle from '../components/MCPServerToggle'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
-import type { Project, Task, BranchStrategy, GitCommit, GitStatus, ProjectStats, RunningCommandStatus } from '../types'
+import type { Project, ProjectUsage, Task, BranchStrategy, GitCommit, GitStatus, ProjectStats, RunningCommandStatus } from '../types'
 
 type TabId = 'stats' | 'git-status' | 'git-history' | 'tasks' | 'settings'
 
@@ -106,15 +107,32 @@ function formatRelative(iso: string): string {
 
 // ── Stats Tab ──
 
+function formatTokens(n: number | null | undefined): string {
+  if (n == null) return '—'
+  return n.toLocaleString('en-US')
+}
+
+function formatCostUSD(usd: number | null | undefined, digits = 4): string {
+  if (usd == null) return '—'
+  return `$${usd.toFixed(digits)}`
+}
+
 function StatsTab({ projectId }: { projectId: string }) {
   const [stats, setStats] = useState<ProjectStats | null>(null)
+  const [usage, setUsage] = useState<ProjectUsage | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     setLoading(true)
-    fetchProjectStats(projectId)
-      .then(setStats)
+    Promise.all([
+      fetchProjectStats(projectId),
+      fetchProjectUsage(projectId),
+    ])
+      .then(([s, u]) => {
+        setStats(s)
+        setUsage(u)
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
   }, [projectId])
@@ -148,9 +166,26 @@ function StatsTab({ projectId }: { projectId: string }) {
         <StatCard
           icon={DollarSign}
           label="Total Cost"
-          value={stats.total_cost_usd != null ? `$${stats.total_cost_usd.toFixed(2)}` : '--'}
+          value={formatCostUSD(usage?.total_cost_usd ?? stats.total_cost_usd, 4)}
         />
       </div>
+
+      {/* Token usage breakdown */}
+      {usage && (
+        <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-5">
+          <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+            Token Usage
+          </h3>
+          <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+            <UsageCell label="Tasks tracked" value={String(usage.task_count)} />
+            <UsageCell label="Input" value={formatTokens(usage.total_input_tokens)} />
+            <UsageCell label="Output" value={formatTokens(usage.total_output_tokens)} />
+            <UsageCell label="Cache read" value={formatTokens(usage.total_cache_read_tokens)} />
+            <UsageCell label="Cache creation" value={formatTokens(usage.total_cache_creation_tokens)} />
+            <UsageCell label="Avg cost/task" value={formatCostUSD(usage.avg_cost_per_task_usd, 4)} />
+          </dl>
+        </div>
+      )}
 
       {/* Status breakdown */}
       <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-5">
@@ -181,6 +216,15 @@ function StatsTab({ projectId }: { projectId: string }) {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function UsageCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs uppercase tracking-wide text-zinc-500">{label}</dt>
+      <dd className="mt-1 text-base font-medium tabular-nums text-zinc-900">{value}</dd>
     </div>
   )
 }

@@ -95,8 +95,23 @@ export interface Task {
   executions?: TaskExecution[]
   started_at: string | null
   completed_at: string | null
+  input_tokens: number | null
+  output_tokens: number | null
+  cache_read_tokens: number | null
+  cache_creation_tokens: number | null
+  cost_usd: number | null
   created_at: string
   updated_at: string
+}
+
+export interface ProjectUsage {
+  task_count: number
+  total_input_tokens: number | null
+  total_output_tokens: number | null
+  total_cache_read_tokens: number | null
+  total_cache_creation_tokens: number | null
+  total_cost_usd: number | null
+  avg_cost_per_task_usd: number | null
 }
 
 export interface TaskExecution {

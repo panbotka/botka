@@ -42,11 +42,13 @@ func TestClassifyOutcome_Timeout(t *testing.T) {
 func TestClassifyOutcome_Success(t *testing.T) {
 	out := &spawnOutput{
 		exitCode: 0,
+		model:    "sonnet",
 		lastResult: &Event{
-			Type:       EventResult,
-			CostUSD:    0.05,
-			DurationMs: 12000,
-			IsError:    false,
+			Type:         EventResult,
+			DurationMs:   12000,
+			InputTokens:  1000,
+			OutputTokens: 2000,
+			IsError:      false,
 		},
 		lastText: "All changes committed.",
 	}
@@ -57,8 +59,15 @@ func TestClassifyOutcome_Success(t *testing.T) {
 	if r.Status != models.TaskStatusDone {
 		t.Errorf("status = %v, want %v", r.Status, models.TaskStatusDone)
 	}
-	if r.CostUSD != 0.05 {
-		t.Errorf("CostUSD = %v, want %v", r.CostUSD, 0.05)
+	wantCost := computeCost("sonnet", 1000, 2000, 0, 0)
+	if r.CostUSD != wantCost {
+		t.Errorf("CostUSD = %v, want %v", r.CostUSD, wantCost)
+	}
+	if r.InputTokens != 1000 || r.OutputTokens != 2000 {
+		t.Errorf("tokens = (%d, %d), want (1000, 2000)", r.InputTokens, r.OutputTokens)
+	}
+	if r.Model != "sonnet" {
+		t.Errorf("Model = %q, want %q", r.Model, "sonnet")
 	}
 	if r.DurationMs != 12000 {
 		t.Errorf("DurationMs = %v, want %v", r.DurationMs, 12000)
@@ -78,10 +87,12 @@ func TestClassifyOutcome_APIError(t *testing.T) {
 	out := &spawnOutput{
 		exitCode: 1,
 		stderr:   "Error: 529 overloaded",
+		model:    "sonnet",
 		lastResult: &Event{
-			Type:       EventResult,
-			CostUSD:    0.01,
-			DurationMs: 5000,
+			Type:         EventResult,
+			DurationMs:   5000,
+			InputTokens:  500,
+			OutputTokens: 100,
 		},
 		lastText: "overloaded response",
 	}
@@ -98,8 +109,9 @@ func TestClassifyOutcome_APIError(t *testing.T) {
 	if r.ShouldRetry {
 		t.Error("ShouldRetry should be false for API errors (uses RetryAfter instead)")
 	}
-	if r.CostUSD != 0.01 {
-		t.Errorf("CostUSD = %v, want %v", r.CostUSD, 0.01)
+	wantCost := computeCost("sonnet", 500, 100, 0, 0)
+	if r.CostUSD != wantCost {
+		t.Errorf("CostUSD = %v, want %v", r.CostUSD, wantCost)
 	}
 	if !strings.Contains(r.ErrorMessage, "API error") {
 		t.Errorf("ErrorMessage = %q, want it to contain 'API error'", r.ErrorMessage)
@@ -247,10 +259,12 @@ func TestBuildFailureResult(t *testing.T) {
 			out := &spawnOutput{
 				stderr:   tt.stderr,
 				lastText: tt.lastText,
+				model:    "sonnet",
 				lastResult: &Event{
-					Type:       EventResult,
-					CostUSD:    0.04,
-					DurationMs: 7000,
+					Type:         EventResult,
+					DurationMs:   7000,
+					InputTokens:  400,
+					OutputTokens: 800,
 				},
 			}
 			task := &models.Task{RetryCount: tt.retryCount}
@@ -269,8 +283,9 @@ func TestBuildFailureResult(t *testing.T) {
 			if r.Summary != tt.lastText {
 				t.Errorf("Summary = %q, want %q", r.Summary, tt.lastText)
 			}
-			if r.CostUSD != 0.04 {
-				t.Errorf("CostUSD = %v, want %v", r.CostUSD, 0.04)
+			wantCost := computeCost("sonnet", 400, 800, 0, 0)
+			if r.CostUSD != wantCost {
+				t.Errorf("CostUSD = %v, want %v", r.CostUSD, wantCost)
 			}
 			if r.DurationMs != 7000 {
 				t.Errorf("DurationMs = %v, want %v", r.DurationMs, 7000)

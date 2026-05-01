@@ -1,4 +1,4 @@
-import type { Project, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution } from '../types'
+import type { Project, ProjectUsage, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -81,6 +81,10 @@ export function fetchProjectGitStatus(id: string): Promise<GitStatus> {
 
 export function fetchProjectStats(id: string): Promise<ProjectStats> {
   return requestData<ProjectStats>(`/projects/${id}/stats`)
+}
+
+export function fetchProjectUsage(id: string): Promise<ProjectUsage> {
+  return requestData<ProjectUsage>(`/projects/${id}/usage`)
 }
 
 // Project Commands
@@ -1046,6 +1050,7 @@ export const api = {
   fetchProjectGitLog,
   fetchProjectGitStatus,
   fetchProjectStats,
+  fetchProjectUsage,
   runProjectCommand,
   fetchProjectCommands,
   killProjectCommand,

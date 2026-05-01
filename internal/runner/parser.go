@@ -19,6 +19,8 @@ const (
 	EventResult
 	// EventSystemError is emitted for system-level errors.
 	EventSystemError
+	// EventSystemInit is emitted on the initial system event and carries the model name.
+	EventSystemInit
 )
 
 // Event represents a parsed event from Claude's stream-json output.
@@ -33,14 +35,27 @@ type Event struct {
 	Input    string // raw JSON
 
 	// Result
-	CostUSD      float64
-	DurationMs   int64
-	InputTokens  int64
-	OutputTokens int64
-	IsError      bool
+	CostUSD             float64
+	DurationMs          int64
+	InputTokens         int64
+	OutputTokens        int64
+	CacheReadTokens     int64
+	CacheCreationTokens int64
+	IsError             bool
+
+	// SystemInit
+	Model string
 
 	// SystemError
 	Message string
+}
+
+// streamUsage is the nested usage object on the result event.
+type streamUsage struct {
+	InputTokens              int64 `json:"input_tokens"`
+	OutputTokens             int64 `json:"output_tokens"`
+	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 }
 
 // streamLine is the top-level JSON structure for each line of output.
@@ -48,13 +63,16 @@ type streamLine struct {
 	Type    string          `json:"type"`
 	Subtype string          `json:"subtype"`
 	Message json.RawMessage `json:"message"`
+	Model   string          `json:"model"`
 
 	// Result fields (top-level)
-	CostUSD       float64 `json:"cost_usd"`
-	DurationMs    int64   `json:"duration_ms"`
-	DurationAPIMs int64   `json:"duration_api_ms"`
-	InputTokens   int64   `json:"input_tokens"`
-	OutputTokens  int64   `json:"output_tokens"`
+	CostUSD       float64     `json:"cost_usd"`
+	TotalCostUSD  float64     `json:"total_cost_usd"`
+	DurationMs    int64       `json:"duration_ms"`
+	DurationAPIMs int64       `json:"duration_api_ms"`
+	InputTokens   int64       `json:"input_tokens"`
+	OutputTokens  int64       `json:"output_tokens"`
+	Usage         streamUsage `json:"usage"`
 }
 
 // streamMessage represents the nested message object in assistant lines.
@@ -97,15 +115,32 @@ func ParseStream(reader io.Reader, onEvent func(Event)) error {
 		case "assistant":
 			parseAssistantMessage(sl.Message, onEvent)
 		case "result":
+			cost := sl.CostUSD
+			if cost == 0 {
+				cost = sl.TotalCostUSD
+			}
+			inputTokens := sl.InputTokens
+			if inputTokens == 0 {
+				inputTokens = sl.Usage.InputTokens
+			}
+			outputTokens := sl.OutputTokens
+			if outputTokens == 0 {
+				outputTokens = sl.Usage.OutputTokens
+			}
 			onEvent(Event{
-				Type:         EventResult,
-				CostUSD:      sl.CostUSD,
-				DurationMs:   sl.DurationMs,
-				InputTokens:  sl.InputTokens,
-				OutputTokens: sl.OutputTokens,
-				IsError:      sl.Subtype != "success",
+				Type:                EventResult,
+				CostUSD:             cost,
+				DurationMs:          sl.DurationMs,
+				InputTokens:         inputTokens,
+				OutputTokens:        outputTokens,
+				CacheReadTokens:     sl.Usage.CacheReadInputTokens,
+				CacheCreationTokens: sl.Usage.CacheCreationInputTokens,
+				IsError:             sl.Subtype != "success",
 			})
 		case "system":
+			if sl.Subtype == "init" && sl.Model != "" {
+				onEvent(Event{Type: EventSystemInit, Model: sl.Model})
+			}
 			parseSystemMessage(sl.Message, onEvent)
 		default:
 			// Unknown type — skip silently

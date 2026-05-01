@@ -47,13 +47,18 @@ func NewExecutor(claudePath string, waker *box.Waker, sshTarget string) (*Execut
 
 // ExecutionResult holds the outcome of a task execution attempt.
 type ExecutionResult struct {
-	Status       models.TaskStatus
-	CostUSD      float64
-	DurationMs   int64
-	Summary      string
-	ErrorMessage string
-	ShouldRetry  bool
-	RetryAfter   time.Duration
+	Status              models.TaskStatus
+	CostUSD             float64
+	DurationMs          int64
+	InputTokens         int64
+	OutputTokens        int64
+	CacheReadTokens     int64
+	CacheCreationTokens int64
+	Model               string
+	Summary             string
+	ErrorMessage        string
+	ShouldRetry         bool
+	RetryAfter          time.Duration
 }
 
 // spawnOutput collects raw output data from a claude process.
@@ -62,6 +67,7 @@ type spawnOutput struct {
 	stderr     string
 	lastResult *Event
 	lastText   string
+	model      string
 	timedOut   bool
 	killed     bool
 }
@@ -333,6 +339,10 @@ func (e *Executor) spawnClaude(
 			out.lastResult = &evCopy
 		case EventAssistantText:
 			out.lastText = ev.Text
+		case EventSystemInit:
+			if ev.Model != "" {
+				out.model = ev.Model
+			}
 		}
 	})
 
@@ -373,23 +383,19 @@ func classifyOutcome(out *spawnOutput, task *models.Task) *ExecutionResult {
 		return classifyCrash(out.exitCode, allOutput, task)
 	}
 	if out.exitCode != 0 && isAPIError(allOutput) {
-		return &ExecutionResult{
-			Status:       models.TaskStatusFailed,
-			CostUSD:      out.lastResult.CostUSD,
-			DurationMs:   out.lastResult.DurationMs,
-			ErrorMessage: fmt.Sprintf("API error (exit code %d): %s", out.exitCode, truncate(out.stderr, maxErrLen)),
-			RetryAfter:   time.Hour,
-		}
+		result := newResultFromSpawn(out)
+		result.Status = models.TaskStatusFailed
+		result.ErrorMessage = fmt.Sprintf("API error (exit code %d): %s", out.exitCode, truncate(out.stderr, maxErrLen))
+		result.RetryAfter = time.Hour
+		return result
 	}
 	if out.exitCode != 0 || out.lastResult.IsError {
 		return buildFailureResult(out, task)
 	}
-	return &ExecutionResult{
-		Status:     models.TaskStatusDone,
-		CostUSD:    out.lastResult.CostUSD,
-		DurationMs: out.lastResult.DurationMs,
-		Summary:    out.lastText,
-	}
+	result := newResultFromSpawn(out)
+	result.Status = models.TaskStatusDone
+	result.Summary = out.lastText
+	return result
 }
 
 func buildFailureResult(out *spawnOutput, task *models.Task) *ExecutionResult {
@@ -397,14 +403,36 @@ func buildFailureResult(out *spawnOutput, task *models.Task) *ExecutionResult {
 	if errMsg == "" {
 		errMsg = "claude process exited with error"
 	}
-	return &ExecutionResult{
-		Status:       models.TaskStatusFailed,
-		CostUSD:      out.lastResult.CostUSD,
-		DurationMs:   out.lastResult.DurationMs,
-		Summary:      out.lastText,
-		ErrorMessage: errMsg,
-		ShouldRetry:  task.RetryCount < maxRetries,
+	result := newResultFromSpawn(out)
+	result.Status = models.TaskStatusFailed
+	result.Summary = out.lastText
+	result.ErrorMessage = errMsg
+	result.ShouldRetry = task.RetryCount < maxRetries
+	return result
+}
+
+// newResultFromSpawn builds a baseline ExecutionResult populated with the
+// token counts, model, duration, and computed cost from the parsed result
+// event. The cost is recomputed locally via the pricing table — Claude Code's
+// emitted cost_usd is intentionally ignored so all numbers in the database
+// come from a single, version-controlled source of truth.
+func newResultFromSpawn(out *spawnOutput) *ExecutionResult {
+	r := &ExecutionResult{
+		Model: out.model,
 	}
+	if out.lastResult != nil {
+		r.DurationMs = out.lastResult.DurationMs
+		r.InputTokens = out.lastResult.InputTokens
+		r.OutputTokens = out.lastResult.OutputTokens
+		r.CacheReadTokens = out.lastResult.CacheReadTokens
+		r.CacheCreationTokens = out.lastResult.CacheCreationTokens
+		r.CostUSD = computeCost(
+			out.model,
+			r.InputTokens, r.OutputTokens,
+			r.CacheReadTokens, r.CacheCreationTokens,
+		)
+	}
+	return r
 }
 
 func classifyCrash(exitCode int, output string, task *models.Task) *ExecutionResult {

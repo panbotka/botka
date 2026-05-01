@@ -63,6 +63,16 @@ function formatDate(iso: string): string {
   return formatDateTime(iso)
 }
 
+function formatTokens(n: number | null | undefined): string {
+  if (n == null) return '—'
+  return n.toLocaleString('en-US')
+}
+
+function formatCost(usd: number | null | undefined): string {
+  if (usd == null) return '—'
+  return `$${usd.toFixed(4)}`
+}
+
 export default function TaskDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -415,6 +425,14 @@ function TaskDetail({ taskId }: { taskId: string }) {
         </div>
       )}
 
+      {/* Token Usage */}
+      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-5">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          Token Usage
+        </h2>
+        <TokenUsage task={task} />
+      </div>
+
       {/* Execution History */}
       <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-5">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
@@ -518,6 +536,26 @@ function HistoricalOutput({ taskId }: { taskId: string }) {
       </button>
       {expanded && <TaskOutputView events={events} />}
     </div>
+  )
+}
+
+function TokenUsage({ task }: { task: Task }) {
+  const cells: { label: string; value: string }[] = [
+    { label: 'Input', value: formatTokens(task.input_tokens) },
+    { label: 'Output', value: formatTokens(task.output_tokens) },
+    { label: 'Cache read', value: formatTokens(task.cache_read_tokens) },
+    { label: 'Cache creation', value: formatTokens(task.cache_creation_tokens) },
+    { label: 'Cost', value: formatCost(task.cost_usd) },
+  ]
+  return (
+    <dl className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+      {cells.map((c) => (
+        <div key={c.label}>
+          <dt className="text-xs uppercase tracking-wide text-zinc-500">{c.label}</dt>
+          <dd className="mt-1 text-base font-medium tabular-nums text-zinc-900">{c.value}</dd>
+        </div>
+      ))}
+    </dl>
   )
 }
 

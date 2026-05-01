@@ -126,6 +126,41 @@ func TestParseStream_ResultError(t *testing.T) {
 	}
 }
 
+func TestParseStream_ResultCacheTokens(t *testing.T) {
+	input := `{"type":"result","subtype":"success","duration_ms":1200,"usage":{"input_tokens":100,"output_tokens":200,"cache_creation_input_tokens":50,"cache_read_input_tokens":1000}}`
+	events := collectEvents(t, input)
+
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	e := events[0]
+	if e.InputTokens != 100 || e.OutputTokens != 200 {
+		t.Errorf("tokens = (%d, %d), want (100, 200)", e.InputTokens, e.OutputTokens)
+	}
+	if e.CacheCreationTokens != 50 {
+		t.Errorf("CacheCreationTokens = %d, want 50", e.CacheCreationTokens)
+	}
+	if e.CacheReadTokens != 1000 {
+		t.Errorf("CacheReadTokens = %d, want 1000", e.CacheReadTokens)
+	}
+}
+
+func TestParseStream_SystemInitEmitsModel(t *testing.T) {
+	input := `{"type":"system","subtype":"init","model":"claude-sonnet-4-5-20250929","session_id":"abc"}`
+	events := collectEvents(t, input)
+
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	e := events[0]
+	if e.Type != EventSystemInit {
+		t.Errorf("expected EventSystemInit, got %d", e.Type)
+	}
+	if e.Model != "claude-sonnet-4-5-20250929" {
+		t.Errorf("Model = %q, want %q", e.Model, "claude-sonnet-4-5-20250929")
+	}
+}
+
 func TestParseStream_ResultCostAndDuration(t *testing.T) {
 	input := `{"type":"result","subtype":"success","cost_usd":0.1234,"duration_ms":5678}`
 	events := collectEvents(t, input)

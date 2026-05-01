@@ -73,20 +73,25 @@ func (s TaskStatus) Value() (driver.Value, error) {
 // Task represents a unit of work to be executed by the scheduler against a project.
 // Tasks are ordered by priority and progress through the TaskStatus lifecycle.
 type Task struct {
-	ID            uuid.UUID       `gorm:"type:uuid;primaryKey" json:"id"`
-	Title         string          `gorm:"size:500;not null" json:"title"`
-	Spec          string          `gorm:"type:text;not null;default:''" json:"spec"`
-	Status        TaskStatus      `gorm:"size:20;not null;default:pending" json:"status"`
-	Priority      int             `gorm:"not null;default:0" json:"priority"`
-	ProjectID     uuid.UUID       `gorm:"type:uuid;not null" json:"project_id"`
-	Project       Project         `json:"project,omitempty"`
-	FailureReason *string         `gorm:"type:text" json:"failure_reason"`
-	RetryCount    int             `gorm:"not null;default:0" json:"retry_count"`
-	Executions    []TaskExecution `gorm:"foreignKey:TaskID" json:"executions,omitempty"`
-	StartedAt     *time.Time      `json:"started_at"`
-	CompletedAt   *time.Time      `json:"completed_at"`
-	CreatedAt     time.Time       `json:"created_at"`
-	UpdatedAt     time.Time       `json:"updated_at"`
+	ID                  uuid.UUID       `gorm:"type:uuid;primaryKey" json:"id"`
+	Title               string          `gorm:"size:500;not null" json:"title"`
+	Spec                string          `gorm:"type:text;not null;default:''" json:"spec"`
+	Status              TaskStatus      `gorm:"size:20;not null;default:pending" json:"status"`
+	Priority            int             `gorm:"not null;default:0" json:"priority"`
+	ProjectID           uuid.UUID       `gorm:"type:uuid;not null" json:"project_id"`
+	Project             Project         `json:"project,omitempty"`
+	FailureReason       *string         `gorm:"type:text" json:"failure_reason"`
+	RetryCount          int             `gorm:"not null;default:0" json:"retry_count"`
+	Executions          []TaskExecution `gorm:"foreignKey:TaskID" json:"executions,omitempty"`
+	StartedAt           *time.Time      `json:"started_at"`
+	CompletedAt         *time.Time      `json:"completed_at"`
+	InputTokens         *int64          `json:"input_tokens"`
+	OutputTokens        *int64          `json:"output_tokens"`
+	CacheReadTokens     *int64          `json:"cache_read_tokens"`
+	CacheCreationTokens *int64          `json:"cache_creation_tokens"`
+	CostUSD             *float64        `gorm:"type:numeric(12,6)" json:"cost_usd"`
+	CreatedAt           time.Time       `json:"created_at"`
+	UpdatedAt           time.Time       `json:"updated_at"`
 }
 
 // TableName returns the database table name for the Task model.

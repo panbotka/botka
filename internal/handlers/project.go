@@ -48,6 +48,7 @@ func RegisterProjectRoutes(rg *gin.RouterGroup, h *ProjectHandler) {
 	rg.GET("/projects/:id/git-log", h.GetGitLog)
 	rg.GET("/projects/:id/git-status", h.GetGitStatus)
 	rg.GET("/projects/:id/stats", h.GetStats)
+	rg.GET("/projects/:id/usage", h.GetUsage)
 }
 
 // taskCounts holds per-status task counts for a project.
@@ -589,6 +590,71 @@ func (h *ProjectHandler) GetStats(c *gin.Context) {
 	stats.TotalCostUSD = totalCost.Sum
 
 	respondOK(c, stats)
+}
+
+// projectUsage holds aggregate token and cost statistics for a project.
+// Totals are summed across all tasks that have token data; tasks that have
+// never executed (or executed without a result event) are skipped.
+type projectUsage struct {
+	TaskCount                int64    `json:"task_count"`
+	TotalInputTokens         *int64   `json:"total_input_tokens"`
+	TotalOutputTokens        *int64   `json:"total_output_tokens"`
+	TotalCacheReadTokens     *int64   `json:"total_cache_read_tokens"`
+	TotalCacheCreationTokens *int64   `json:"total_cache_creation_tokens"`
+	TotalCostUSD             *float64 `json:"total_cost_usd"`
+	AvgCostPerTaskUSD        *float64 `json:"avg_cost_per_task_usd"`
+}
+
+// GetUsage returns aggregate token usage and cost across all tasks for a project.
+func (h *ProjectHandler) GetUsage(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "invalid project id")
+		return
+	}
+
+	if _, ok := h.findProject(c, id); !ok {
+		return
+	}
+
+	var row struct {
+		TaskCount                int64
+		TotalInputTokens         *int64
+		TotalOutputTokens        *int64
+		TotalCacheReadTokens     *int64
+		TotalCacheCreationTokens *int64
+		TotalCostUSD             *float64
+	}
+	err = h.db.Model(&models.Task{}).
+		Select(`
+			COUNT(*) FILTER (WHERE cost_usd IS NOT NULL OR input_tokens IS NOT NULL) AS task_count,
+			SUM(input_tokens) AS total_input_tokens,
+			SUM(output_tokens) AS total_output_tokens,
+			SUM(cache_read_tokens) AS total_cache_read_tokens,
+			SUM(cache_creation_tokens) AS total_cache_creation_tokens,
+			SUM(cost_usd) AS total_cost_usd
+		`).
+		Where("project_id = ? AND status != ?", id, models.TaskStatusDeleted).
+		Scan(&row).Error
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "failed to compute project usage")
+		return
+	}
+
+	usage := projectUsage{
+		TaskCount:                row.TaskCount,
+		TotalInputTokens:         row.TotalInputTokens,
+		TotalOutputTokens:        row.TotalOutputTokens,
+		TotalCacheReadTokens:     row.TotalCacheReadTokens,
+		TotalCacheCreationTokens: row.TotalCacheCreationTokens,
+		TotalCostUSD:             row.TotalCostUSD,
+	}
+	if row.TaskCount > 0 && row.TotalCostUSD != nil {
+		avg := *row.TotalCostUSD / float64(row.TaskCount)
+		usage.AvgCostPerTaskUSD = &avg
+	}
+
+	respondOK(c, usage)
 }
 
 // buildProjectResponse assembles a projectResponse with task and thread counts.
