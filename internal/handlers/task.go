@@ -12,19 +12,34 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"botka/internal/box"
 	"botka/internal/models"
 	"botka/internal/runner"
 )
 
 // TaskHandler handles HTTP requests for task resources.
 type TaskHandler struct {
-	db         *gorm.DB
-	taskEvents *runner.TaskEventHub
+	db           *gorm.DB
+	taskEvents   *runner.TaskEventHub
+	boxWaker     *box.Waker
+	boxSSHTarget string
 }
 
-// NewTaskHandler creates a new TaskHandler with the given database connection and event hub.
-func NewTaskHandler(db *gorm.DB, taskEvents *runner.TaskEventHub) *TaskHandler {
-	return &TaskHandler{db: db, taskEvents: taskEvents}
+// NewTaskHandler creates a new TaskHandler with the given database connection
+// and event hub. boxWaker and boxSSHTarget are used by the diff endpoint to
+// reach remote (Box-hosted) project working directories; they may be nil/empty
+// when no Box host is configured, in which case diffs only work for local
+// projects.
+func NewTaskHandler(
+	db *gorm.DB, taskEvents *runner.TaskEventHub,
+	boxWaker *box.Waker, boxSSHTarget string,
+) *TaskHandler {
+	return &TaskHandler{
+		db:           db,
+		taskEvents:   taskEvents,
+		boxWaker:     boxWaker,
+		boxSSHTarget: boxSSHTarget,
+	}
 }
 
 // RegisterTaskRoutes attaches task endpoints to the given router group.
@@ -35,6 +50,7 @@ func RegisterTaskRoutes(rg *gin.RouterGroup, h *TaskHandler) {
 	rg.POST("/tasks/batch-status", h.BatchUpdateStatus)
 	rg.POST("/tasks/reorder", h.Reorder)
 	rg.GET("/tasks/:id", h.Get)
+	rg.GET("/tasks/:id/diff", h.Diff)
 	rg.PUT("/tasks/:id", h.Update)
 	rg.DELETE("/tasks/:id", h.Delete)
 	rg.POST("/tasks/:id/retry", h.Retry)

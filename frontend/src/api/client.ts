@@ -1,4 +1,4 @@
-import type { Project, ProjectUsage, Task, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution } from '../types'
+import type { Project, ProjectUsage, Task, TaskDiff, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -177,6 +177,10 @@ export function fetchTaskStats(): Promise<TaskStats> {
 
 export function fetchTaskRawOutput(id: string): Promise<{ execution_id: string; attempt: number; raw_output: string }> {
   return requestData<{ execution_id: string; attempt: number; raw_output: string }>(`/tasks/${id}/output/raw`)
+}
+
+export function fetchTaskDiff(id: string): Promise<TaskDiff> {
+  return requestData<TaskDiff>(`/tasks/${id}/diff`)
 }
 
 // Runner

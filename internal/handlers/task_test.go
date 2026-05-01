@@ -17,7 +17,7 @@ import (
 
 func taskRouter(db *gorm.DB) *gin.Engine {
 	r := gin.New()
-	h := NewTaskHandler(db, runner.NewTaskEventHub())
+	h := NewTaskHandler(db, runner.NewTaskEventHub(), nil, "")
 	v1 := r.Group("/api/v1")
 	RegisterTaskRoutes(v1, h)
 	return r

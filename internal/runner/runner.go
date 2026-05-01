@@ -628,11 +628,16 @@ func (r *Runner) executeTask(
 	}
 	defer claude.RemoveMCPConfig(mcpConfigPath)
 
-	// Capture git HEAD SHA before execution for potential revert.
+	// Capture git HEAD SHA before execution for potential revert and as the
+	// task's base commit for diff display.
 	headSHA := CaptureGitHEAD(&task.Project, r.executor.waker, r.executor.sshTarget)
 	if headSHA != "" {
 		exec.GitHeadSHA = &headSHA
 		r.db.Model(exec).Update("git_head_sha", headSHA)
+		if task.BaseCommitSHA == nil {
+			task.BaseCommitSHA = &headSHA
+			r.db.Model(task).Update("base_commit_sha", headSHA)
+		}
 	}
 
 	result, err := r.executor.Execute(ctx, task, &task.Project, buf, mcpConfigPath)
@@ -650,6 +655,14 @@ func (r *Runner) executeTask(
 		// Set retry count to max so it won't auto-retry.
 		r.db.Model(task).Update("retry_count", maxRetries)
 		result.ShouldRetry = false
+	} else {
+		// Capture post-execution HEAD SHA so the diff endpoint can show the
+		// changes the task produced. Skip on user kill since GitRevert resets
+		// HEAD back to the base commit.
+		if postSHA := CaptureGitHEAD(&task.Project, r.executor.waker, r.executor.sshTarget); postSHA != "" && postSHA != headSHA {
+			task.HeadCommitSHA = &postSHA
+			r.db.Model(task).Update("head_commit_sha", postSHA)
+		}
 	}
 
 	r.finishTask(task, exec, buf, result)

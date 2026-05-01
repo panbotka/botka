@@ -23,6 +23,7 @@ import {
 import { TaskForm } from '../components/TaskForm'
 import { LiveOutputInline } from '../components/LiveOutput'
 import TaskOutputView from '../components/TaskOutputView'
+import TaskChangesSection from '../components/TaskChangesSection'
 import { fetchTask, retryTask, deleteTask, updateTask, killTask, fetchTaskRawOutput } from '../api/client'
 import { parseNDJSON, type TaskOutputEvent } from '../utils/parseNDJSON'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
@@ -424,6 +425,17 @@ function TaskDetail({ taskId }: { taskId: string }) {
           )}
         </div>
       )}
+
+      {/* Changes (git diff) — only shown when both SHAs are recorded and differ */}
+      {task.base_commit_sha &&
+        task.head_commit_sha &&
+        task.base_commit_sha !== task.head_commit_sha && (
+          <TaskChangesSection
+            taskId={taskId}
+            baseCommitSha={task.base_commit_sha}
+            headCommitSha={task.head_commit_sha}
+          />
+        )}
 
       {/* Token Usage */}
       <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-5">

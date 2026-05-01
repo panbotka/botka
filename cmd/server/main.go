@@ -233,7 +233,7 @@ func setupRouter(
 	commandHandler := handlers.NewCommandHandler(db, commandTracker)
 	handlers.RegisterCommandRoutes(v1, commandHandler)
 
-	taskHandler := handlers.NewTaskHandler(db, taskRunner.TaskEvents)
+	taskHandler := handlers.NewTaskHandler(db, taskRunner.TaskEvents, boxWaker, boxSSHTarget)
 	handlers.RegisterTaskRoutes(v1, taskHandler)
 
 	cronHandler := handlers.NewCronHandler(db, cronScheduler)

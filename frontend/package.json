@@ -15,6 +15,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "clsx": "^2.1.1",
+    "diff2html": "^3.4.56",
     "katex": "^0.16.40",
     "lucide-react": "^0.474.0",
     "react": "^19.0.0",
