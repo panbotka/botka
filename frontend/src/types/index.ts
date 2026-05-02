@@ -109,21 +109,16 @@ export interface Task {
   updated_at: string
 }
 
-export type TaskDiffFileStatus = 'added' | 'deleted' | 'modified' | 'renamed' | 'copied' | 'typechange'
-
-export interface TaskDiffFile {
-  path: string
-  old_path?: string
-  status: TaskDiffFileStatus
-  additions: number
+export interface TaskDiffStats {
+  files_changed: number
+  insertions: number
   deletions: number
 }
 
 export interface TaskDiff {
-  base_commit_sha: string
-  head_commit_sha: string
-  files: TaskDiffFile[]
   diff: string
+  stats: TaskDiffStats
+  truncated: boolean
 }
 
 export interface ProjectUsage {

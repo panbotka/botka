@@ -1,85 +1,131 @@
-import { useEffect, useMemo, useState } from 'react'
-import { html as renderDiff2Html } from 'diff2html'
-import 'diff2html/bundles/css/diff2html.min.css'
-import { Loader2, FileText } from 'lucide-react'
+import { useState, useMemo, useEffect } from 'react'
+import { ChevronRight, Loader2 } from 'lucide-react'
 import { fetchTaskDiff, ApiError } from '../api/client'
-import type { TaskDiff, TaskDiffFile, TaskDiffFileStatus } from '../types'
+import type { TaskDiff } from '../types'
 
 interface Props {
   taskId: string
-  baseCommitSha: string
-  headCommitSha: string
 }
 
-const LARGE_DIFF_LINE_THRESHOLD = 5000
+type DiffLineType = 'add' | 'remove' | 'context' | 'noeol'
 
-const statusColor: Record<TaskDiffFileStatus, string> = {
-  added: 'text-emerald-700',
-  deleted: 'text-red-700',
-  modified: 'text-zinc-700',
-  renamed: 'text-blue-700',
-  copied: 'text-blue-700',
-  typechange: 'text-amber-700',
+interface DiffLine {
+  type: DiffLineType
+  text: string
 }
 
-const statusBadge: Record<TaskDiffFileStatus, string> = {
-  added: 'A',
-  deleted: 'D',
-  modified: 'M',
-  renamed: 'R',
-  copied: 'C',
-  typechange: 'T',
+interface DiffHunk {
+  header: string
+  lines: DiffLine[]
 }
 
-// splitDiffByPath partitions a unified diff string into per-file chunks keyed
-// by the post-image path. Lines in a file's chunk include the leading
-// "diff --git" header so diff2html can render the file correctly on its own.
-function splitDiffByPath(rawDiff: string): Map<string, string> {
-  const result = new Map<string, string>()
-  if (!rawDiff) return result
-  const lines = rawDiff.split('\n')
-  let currentPath = ''
-  let currentLines: string[] = []
+interface DiffFile {
+  path: string
+  oldPath: string
+  isBinary: boolean
+  additions: number
+  deletions: number
+  hunks: DiffHunk[]
+}
+
+// parseUnifiedDiff turns the raw unified diff text into per-file blocks. Files
+// are delimited by `diff --git a/<old> b/<new>` headers; lines starting with
+// `@@` open a hunk; subsequent lines are classified by their leading char.
+// Binary files are flagged via the `Binary files ... differ` marker so the
+// renderer can show a placeholder instead of trying to print bytes.
+function parseUnifiedDiff(diff: string): DiffFile[] {
+  const files: DiffFile[] = []
+  if (!diff) return files
+
+  let current: DiffFile | null = null
+  let currentHunk: DiffHunk | null = null
   const flush = () => {
-    if (currentPath) result.set(currentPath, currentLines.join('\n'))
+    if (current) files.push(current)
+    current = null
+    currentHunk = null
   }
-  for (const line of lines) {
-    const m = /^diff --git a\/(.+) b\/(.+)$/.exec(line)
-    if (m && m[2]) {
+
+  for (const line of diff.split('\n')) {
+    const gitMatch = /^diff --git a\/(.+) b\/(.+)$/.exec(line)
+    if (gitMatch) {
       flush()
-      currentPath = m[2]
-      currentLines = [line]
-    } else if (currentPath) {
-      currentLines.push(line)
+      current = {
+        path: gitMatch[2] ?? '',
+        oldPath: gitMatch[1] ?? '',
+        isBinary: false,
+        additions: 0,
+        deletions: 0,
+        hunks: [],
+      }
+      continue
+    }
+    if (!current) continue
+
+    if (
+      line.startsWith('--- ') ||
+      line.startsWith('+++ ') ||
+      line.startsWith('index ') ||
+      line.startsWith('similarity index ') ||
+      line.startsWith('dissimilarity index ') ||
+      line.startsWith('rename ') ||
+      line.startsWith('copy ') ||
+      line.startsWith('new file mode ') ||
+      line.startsWith('deleted file mode ') ||
+      line.startsWith('old mode ') ||
+      line.startsWith('new mode ')
+    ) {
+      continue
+    }
+
+    if (line.startsWith('Binary files ') && line.endsWith(' differ')) {
+      current.isBinary = true
+      continue
+    }
+
+    if (line.startsWith('@@')) {
+      currentHunk = { header: line, lines: [] }
+      current.hunks.push(currentHunk)
+      continue
+    }
+
+    if (!currentHunk) continue
+
+    const ch = line.charAt(0)
+    if (ch === '+') {
+      current.additions++
+      currentHunk.lines.push({ type: 'add', text: line.slice(1) })
+    } else if (ch === '-') {
+      current.deletions++
+      currentHunk.lines.push({ type: 'remove', text: line.slice(1) })
+    } else if (ch === ' ') {
+      currentHunk.lines.push({ type: 'context', text: line.slice(1) })
+    } else if (ch === '\\') {
+      currentHunk.lines.push({ type: 'noeol', text: line })
     }
   }
   flush()
-  return result
+  return files
 }
 
-export default function TaskChangesSection({ taskId, baseCommitSha, headCommitSha }: Props) {
+export default function TaskChangesSection({ taskId }: Props) {
+  const [expanded, setExpanded] = useState(false)
   const [diff, setDiff] = useState<TaskDiff | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [missing, setMissing] = useState(false)
-  const [selectedPath, setSelectedPath] = useState<string | null>(null)
-  const [showFullDiff, setShowFullDiff] = useState(false)
 
+  // Lazy-load: only fetch the diff once, when the user first expands.
   useEffect(() => {
+    if (!expanded || diff || loading || error) return
     let cancelled = false
     setLoading(true)
-    setError(null)
-    setMissing(false)
     fetchTaskDiff(taskId)
       .then(d => {
-        if (cancelled) return
-        setDiff(d)
-        setSelectedPath(d.files[0]?.path ?? null)
+        if (!cancelled) setDiff(d)
       })
       .catch(err => {
         if (cancelled) return
         if (err instanceof ApiError && err.status === 404) {
-          setMissing(true)
+          setError(err.message || 'commit not found in repository')
         } else {
           setError(err instanceof Error ? err.message : 'Failed to load diff')
         }
@@ -88,145 +134,129 @@ export default function TaskChangesSection({ taskId, baseCommitSha, headCommitSh
         if (!cancelled) setLoading(false)
       })
     return () => { cancelled = true }
-  }, [taskId, baseCommitSha, headCommitSha])
+  }, [expanded, taskId, diff, loading, error])
 
-  const perFileDiff = useMemo(
-    () => (diff ? splitDiffByPath(diff.diff) : new Map<string, string>()),
-    [diff],
-  )
+  const files = useMemo(() => (diff ? parseUnifiedDiff(diff.diff) : []), [diff])
 
-  const totalLines = useMemo(() => (diff ? diff.diff.split('\n').length : 0), [diff])
-  const isLarge = totalLines > LARGE_DIFF_LINE_THRESHOLD
-
-  const selectedDiffHtml = useMemo(() => {
-    if (!selectedPath) return ''
-    const chunk = perFileDiff.get(selectedPath)
-    if (!chunk) return ''
-    return renderDiff2Html(chunk, {
-      drawFileList: false,
-      matching: 'lines',
-      outputFormat: 'line-by-line',
-      colorScheme: 'light' as never,
-    })
-  }, [selectedPath, perFileDiff])
-
-  if (missing) return null
+  const headerLabel = diff
+    ? `${diff.stats.files_changed} ${diff.stats.files_changed === 1 ? 'file' : 'files'} changed · `
+    : 'Changes'
 
   return (
-    <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-5">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Changes</h2>
+    <div className="overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="flex w-full items-center gap-2 px-5 py-3 text-left hover:bg-zinc-100 cursor-pointer"
+      >
+        <ChevronRight
+          size={14}
+          className={`text-zinc-400 transition-transform duration-200 shrink-0 ${expanded ? 'rotate-90' : ''}`}
+        />
+        <span className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          {headerLabel}
+        </span>
         {diff && (
-          <span className="font-mono text-xs text-zinc-500">
-            {diff.base_commit_sha.slice(0, 7)}..{diff.head_commit_sha.slice(0, 7)}
+          <span className="flex items-center gap-2 font-mono text-xs">
+            <span className="text-emerald-700">+{diff.stats.insertions}</span>
+            <span className="text-red-700">&minus;{diff.stats.deletions}</span>
           </span>
         )}
-      </div>
+        {loading && <Loader2 className="ml-2 h-3.5 w-3.5 animate-spin text-zinc-400" />}
+      </button>
 
-      {loading && (
-        <div className="flex items-center gap-2 text-sm text-zinc-500">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading diff…
-        </div>
-      )}
+      {expanded && (
+        <div className="border-t border-zinc-200 bg-white">
+          {error && (
+            <div className="px-5 py-3 text-sm text-red-700">{error}</div>
+          )}
 
-      {error && (
-        <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-      )}
-
-      {diff && diff.files.length === 0 && (
-        <p className="text-sm text-zinc-400">No file changes between commits.</p>
-      )}
-
-      {diff && diff.files.length > 0 && (
-        <>
-          {isLarge && !showFullDiff ? (
-            <CollapsedDiffSummary
-              files={diff.files}
-              totalLines={totalLines}
-              onShow={() => setShowFullDiff(true)}
-            />
-          ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
-              <FileTree
-                files={diff.files}
-                selected={selectedPath}
-                onSelect={setSelectedPath}
-              />
-              <div className="overflow-x-auto rounded border border-zinc-200 bg-white">
-                {selectedDiffHtml ? (
-                  <div
-                    className="task-diff-view text-xs"
-                    dangerouslySetInnerHTML={{ __html: selectedDiffHtml }}
-                  />
-                ) : (
-                  <p className="p-4 text-sm text-zinc-400">Select a file to view its diff.</p>
-                )}
-              </div>
+          {!error && !loading && diff && diff.truncated && (
+            <div className="border-b border-amber-200 bg-amber-50 px-5 py-2 text-xs text-amber-800">
+              Diff too large &mdash; only first 5 MB shown.
             </div>
           )}
-        </>
+
+          {!error && !loading && diff && files.length === 0 && (
+            <div className="px-5 py-3 text-sm text-zinc-500">No changes.</div>
+          )}
+
+          {!error && diff && files.length > 0 && (
+            <div className="divide-y divide-zinc-200">
+              {files.map(f => (
+                <DiffFileBlock key={f.path} file={f} />
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
 }
 
-function CollapsedDiffSummary({
-  files, totalLines, onShow,
-}: { files: TaskDiffFile[]; totalLines: number; onShow: () => void }) {
-  const totals = files.reduce(
-    (acc, f) => ({ adds: acc.adds + f.additions, dels: acc.dels + f.deletions }),
-    { adds: 0, dels: 0 },
-  )
-  return (
-    <div className="rounded border border-zinc-200 bg-white p-4 text-sm text-zinc-600">
-      <p className="mb-3">
-        Diff is large — {files.length.toLocaleString('en-US')} files,{' '}
-        <span className="text-emerald-700">+{totals.adds.toLocaleString('en-US')}</span>{' '}
-        <span className="text-red-700">−{totals.dels.toLocaleString('en-US')}</span>,{' '}
-        {totalLines.toLocaleString('en-US')} lines total.
-      </p>
-      <button
-        onClick={onShow}
-        className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
-      >
-        Show full diff
-      </button>
-    </div>
-  )
-}
+function DiffFileBlock({ file }: { file: DiffFile }) {
+  const [expanded, setExpanded] = useState(true)
+  const fileName = file.path.split('/').pop() || file.path
 
-function FileTree({
-  files, selected, onSelect,
-}: { files: TaskDiffFile[]; selected: string | null; onSelect: (path: string) => void }) {
   return (
-    <ul className="max-h-[32rem] overflow-y-auto rounded border border-zinc-200 bg-white p-1 text-sm">
-      {files.map(f => {
-        const isSelected = f.path === selected
-        return (
-          <li key={f.path}>
-            <button
-              onClick={() => onSelect(f.path)}
-              className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left transition-colors ${
-                isSelected ? 'bg-blue-50 text-blue-900' : 'hover:bg-zinc-100 text-zinc-700'
-              }`}
-              title={f.old_path ? `${f.old_path} → ${f.path}` : f.path}
-            >
-              <span
-                className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded font-mono text-[11px] font-semibold ${statusColor[f.status]}`}
-                aria-label={f.status}
-              >
-                {statusBadge[f.status]}
-              </span>
-              <FileText className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
-              <span className="min-w-0 truncate font-mono text-xs">{f.path}</span>
-              <span className="ml-auto flex shrink-0 gap-1 font-mono text-[11px] tabular-nums">
-                {f.additions > 0 && <span className="text-emerald-700">+{f.additions}</span>}
-                {f.deletions > 0 && <span className="text-red-700">−{f.deletions}</span>}
-              </span>
-            </button>
-          </li>
-        )
-      })}
-    </ul>
+    <div>
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="flex w-full items-center gap-2 bg-zinc-50 px-3 py-1.5 text-left hover:bg-zinc-100 cursor-pointer"
+        title={file.oldPath !== file.path ? `${file.oldPath} → ${file.path}` : file.path}
+      >
+        <ChevronRight
+          size={12}
+          className={`text-zinc-400 transition-transform duration-200 shrink-0 ${expanded ? 'rotate-90' : ''}`}
+        />
+        <span className="font-mono text-xs text-zinc-700 truncate">{fileName}</span>
+        <span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-xs">
+          {file.additions > 0 && <span className="text-emerald-700">+{file.additions}</span>}
+          {file.deletions > 0 && <span className="text-red-700">&minus;{file.deletions}</span>}
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="overflow-x-auto bg-zinc-50">
+          {file.isBinary ? (
+            <p className="px-3 py-2 text-xs italic text-zinc-500">Binary file changed</p>
+          ) : (
+            <table className="w-full font-mono text-xs leading-5">
+              <tbody>
+                {file.hunks.flatMap((hunk, hi) => [
+                  <tr key={`h-${hi}`} className="bg-zinc-100 text-zinc-500">
+                    <td className="select-none w-5 text-right pr-2 pl-3 align-top">&nbsp;</td>
+                    <td className="pr-3 whitespace-pre-wrap break-all">{hunk.header}</td>
+                  </tr>,
+                  ...hunk.lines.map((line, li) => (
+                    <tr
+                      key={`h-${hi}-l-${li}`}
+                      className={
+                        line.type === 'add' ? 'bg-emerald-50'
+                          : line.type === 'remove' ? 'bg-red-50'
+                          : ''
+                      }
+                    >
+                      <td className="select-none w-5 text-right pr-2 pl-3 text-zinc-400 align-top">
+                        {line.type === 'add' ? '+' : line.type === 'remove' ? '−' : ' '}
+                      </td>
+                      <td
+                        className={`pr-3 whitespace-pre-wrap break-all ${
+                          line.type === 'add' ? 'text-emerald-800'
+                            : line.type === 'remove' ? 'text-red-800'
+                            : line.type === 'noeol' ? 'text-zinc-500 italic'
+                            : 'text-zinc-700'
+                        }`}
+                      >
+                        {line.text || ' '}
+                      </td>
+                    </tr>
+                  )),
+                ])}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </div>
   )
 }

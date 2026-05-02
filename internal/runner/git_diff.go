@@ -11,30 +11,50 @@ import (
 	"botka/internal/models"
 )
 
-// DiffFile describes a single file changed between two commits.
-type DiffFile struct {
-	Path      string `json:"path"`
-	OldPath   string `json:"old_path,omitempty"`
-	Status    string `json:"status"`
-	Additions int    `json:"additions"`
-	Deletions int    `json:"deletions"`
+// MaxDiffBytes caps the size of a returned diff. When the raw `git diff`
+// output exceeds this, DiffResult.Diff is truncated and DiffResult.Truncated
+// is set to true so the UI can show a "diff too large" banner.
+const MaxDiffBytes = 5 * 1024 * 1024
+
+// DiffStats summarizes the per-file insertions/deletions in a diff range.
+type DiffStats struct {
+	FilesChanged int `json:"files_changed"`
+	Insertions   int `json:"insertions"`
+	Deletions    int `json:"deletions"`
 }
 
-// DiffResult is the combined output of `git diff` for a task: per-file
-// metadata plus the raw unified diff.
+// DiffResult is the payload returned by GitDiff and the /tasks/:id/diff
+// endpoint. Diff contains the verbatim unified diff (possibly truncated),
+// Stats sums the per-file numstat numbers, and Truncated is true when the
+// raw diff was larger than MaxDiffBytes.
 type DiffResult struct {
-	BaseCommitSHA string     `json:"base_commit_sha"`
-	HeadCommitSHA string     `json:"head_commit_sha"`
-	Files         []DiffFile `json:"files"`
-	Diff          string     `json:"diff"`
+	Diff      string    `json:"diff"`
+	Stats     DiffStats `json:"stats"`
+	Truncated bool      `json:"truncated"`
+}
+
+// CommitMissingError indicates that one of the requested SHAs is not present
+// in the project's git repository (`git cat-file -e` reported an error). The
+// HTTP layer maps this to 404.
+type CommitMissingError struct {
+	SHA string
+}
+
+func (e *CommitMissingError) Error() string {
+	return "commit not found in repository: " + e.SHA
 }
 
 const gitDiffTimeout = 60 * time.Second
 
-// GitDiff computes the unified diff between two commits in the project's
-// working directory. It runs three git commands (--name-status, --numstat,
-// and the raw diff) and merges the per-file metadata. For remote projects
-// the commands are dispatched via SSH.
+// GitDiff returns the unified diff between two commits in a project's working
+// directory along with summary stats. The caller is expected to have already
+// validated that base and head are non-empty and not equal (an empty diff is
+// returned without error in either case, but the API surface treats those as
+// "no diff yet" rather than a real range).
+//
+// Both SHAs are first verified with `git cat-file -e`; a missing commit is
+// reported as a *CommitMissingError. The raw diff is then capped at
+// MaxDiffBytes and any per-file numstat lines are summed into DiffStats.
 func GitDiff(
 	project *models.Project, waker *box.Waker, sshTarget, base, head string,
 ) (*DiffResult, error) {
@@ -42,70 +62,45 @@ func GitDiff(
 	ctx, cancel := context.WithTimeout(context.Background(), gitDiffTimeout)
 	defer cancel()
 
+	for _, sha := range []string{base, head} {
+		if _, err := pr.runGit(ctx, "cat-file", "-e", sha); err != nil {
+			return nil, &CommitMissingError{SHA: sha}
+		}
+	}
+
 	rng := base + ".." + head
-	rawDiff, err := pr.runGit(ctx, "diff", "-M", rng)
+	rawDiff, err := pr.runGit(ctx, "diff", rng)
 	if err != nil {
 		return nil, fmt.Errorf("git diff: %w: %s", err, string(rawDiff))
 	}
-	nameStatus, err := pr.runGit(ctx, "diff", "--name-status", "-M", rng)
-	if err != nil {
-		return nil, fmt.Errorf("git diff --name-status: %w: %s", err, string(nameStatus))
-	}
-	numstat, err := pr.runGit(ctx, "diff", "--numstat", "-M", rng)
+	numstat, err := pr.runGit(ctx, "diff", "--numstat", rng)
 	if err != nil {
 		return nil, fmt.Errorf("git diff --numstat: %w: %s", err, string(numstat))
 	}
 
-	files := mergeDiffFiles(parseNameStatus(string(nameStatus)), parseNumstat(string(numstat)))
+	diff, truncated := capDiff(string(rawDiff), MaxDiffBytes)
 	return &DiffResult{
-		BaseCommitSHA: base,
-		HeadCommitSHA: head,
-		Files:         files,
-		Diff:          string(rawDiff),
+		Diff:      diff,
+		Stats:     summarizeNumstat(string(numstat)),
+		Truncated: truncated,
 	}, nil
 }
 
-type nameStatusEntry struct {
-	Status  string
-	Path    string
-	OldPath string
-}
-
-type numstatEntry struct {
-	Additions int
-	Deletions int
-}
-
-// parseNameStatus parses `git diff --name-status -M` line-by-line. Each line
-// is "<status>\t<path>" or "R<N>\t<old>\t<new>" / "C<N>\t<old>\t<new>".
-func parseNameStatus(s string) []nameStatusEntry {
-	var entries []nameStatusEntry
-	for _, line := range strings.Split(strings.TrimRight(s, "\n"), "\n") {
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, "\t")
-		if len(parts) < 2 {
-			continue
-		}
-		code := parts[0]
-		e := nameStatusEntry{Status: mapStatusCode(code)}
-		if (strings.HasPrefix(code, "R") || strings.HasPrefix(code, "C")) && len(parts) >= 3 {
-			e.OldPath = parts[1]
-			e.Path = parts[2]
-		} else {
-			e.Path = parts[1]
-		}
-		entries = append(entries, e)
+// capDiff truncates s to maxBytes bytes, returning the truncated string and a
+// flag reporting whether truncation occurred.
+func capDiff(s string, maxBytes int) (string, bool) {
+	if len(s) <= maxBytes {
+		return s, false
 	}
-	return entries
+	return s[:maxBytes], true
 }
 
-// parseNumstat parses `git diff --numstat -M`. Each line is
-// "<additions>\t<deletions>\t<path>". Binary files are reported as "-\t-\tpath".
-// Order matches `--name-status`, so the caller merges by index.
-func parseNumstat(s string) []numstatEntry {
-	var entries []numstatEntry
+// summarizeNumstat parses `git diff --numstat` output and aggregates the
+// totals. Each line is "<additions>\t<deletions>\t<path>"; binary files are
+// reported as "-\t-\t<path>" and contribute to FilesChanged but not to the
+// line counts.
+func summarizeNumstat(s string) DiffStats {
+	var stats DiffStats
 	for _, line := range strings.Split(strings.TrimRight(s, "\n"), "\n") {
 		if line == "" {
 			continue
@@ -114,63 +109,18 @@ func parseNumstat(s string) []numstatEntry {
 		if len(parts) < 3 {
 			continue
 		}
-		entries = append(entries, numstatEntry{
-			Additions: parseStatCount(parts[0]),
-			Deletions: parseStatCount(parts[1]),
-		})
+		stats.FilesChanged++
+		stats.Insertions += parseStatCount(parts[0])
+		stats.Deletions += parseStatCount(parts[1])
 	}
-	return entries
+	return stats
 }
 
+// parseStatCount parses a numstat add/del column, treating "-" (binary) as 0.
 func parseStatCount(s string) int {
 	if s == "-" {
 		return 0
 	}
 	n, _ := strconv.Atoi(s)
 	return n
-}
-
-// mergeDiffFiles combines name-status and numstat output. Both commands emit
-// files in the same order, so they merge by index. If the lengths disagree
-// (e.g. binary files in some git versions), missing numstat entries default
-// to zero counts.
-func mergeDiffFiles(ns []nameStatusEntry, num []numstatEntry) []DiffFile {
-	files := make([]DiffFile, 0, len(ns))
-	for i, e := range ns {
-		f := DiffFile{
-			Path:    e.Path,
-			OldPath: e.OldPath,
-			Status:  e.Status,
-		}
-		if i < len(num) {
-			f.Additions = num[i].Additions
-			f.Deletions = num[i].Deletions
-		}
-		files = append(files, f)
-	}
-	return files
-}
-
-// mapStatusCode translates git's single-character status code (with optional
-// similarity score for renames/copies) into a descriptive string.
-func mapStatusCode(code string) string {
-	if code == "" {
-		return "modified"
-	}
-	switch code[0] {
-	case 'A':
-		return "added"
-	case 'D':
-		return "deleted"
-	case 'M':
-		return "modified"
-	case 'R':
-		return "renamed"
-	case 'C':
-		return "copied"
-	case 'T':
-		return "typechange"
-	default:
-		return "modified"
-	}
 }

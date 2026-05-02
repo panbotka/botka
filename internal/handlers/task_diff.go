@@ -12,9 +12,23 @@ import (
 	"botka/internal/runner"
 )
 
-// Diff returns the unified diff between a task's recorded base and head
-// commits. Returns 404 when either SHA is missing (task never produced
-// commits) or when the two SHAs are equal (task ran but committed nothing).
+// emptyDiffResult is returned (with HTTP 200) when a task has no recorded
+// commit range yet — either because it never ran or because it was cancelled
+// before producing commits. Front-ends use this to render an empty Changes
+// section rather than an error.
+var emptyDiffResult = runner.DiffResult{}
+
+// Diff returns the unified git diff between a task's recorded base and head
+// commits along with summary stats and a `truncated` flag. The endpoint:
+//
+//   - returns 404 if the task itself does not exist;
+//   - returns 200 with an empty result if either SHA is missing on the task
+//     row, or if base equals head (the task ran but committed nothing);
+//   - returns 404 with "commit not found in repository" if either SHA exists
+//     on the task row but cannot be resolved by git (e.g. the branch was
+//     rebased away);
+//   - otherwise returns the unified diff capped at runner.MaxDiffBytes,
+//     setting truncated=true when the cap was hit.
 func (h *TaskHandler) Diff(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -33,11 +47,11 @@ func (h *TaskHandler) Diff(c *gin.Context) {
 	}
 
 	if task.BaseCommitSHA == nil || task.HeadCommitSHA == nil {
-		respondError(c, http.StatusNotFound, "task did not produce a recorded commit range")
+		respondOK(c, emptyDiffResult)
 		return
 	}
 	if *task.BaseCommitSHA == *task.HeadCommitSHA {
-		respondError(c, http.StatusNotFound, "task produced no commits")
+		respondOK(c, emptyDiffResult)
 		return
 	}
 
@@ -46,6 +60,11 @@ func (h *TaskHandler) Diff(c *gin.Context) {
 		*task.BaseCommitSHA, *task.HeadCommitSHA,
 	)
 	if err != nil {
+		var missing *runner.CommitMissingError
+		if errors.As(err, &missing) {
+			respondError(c, http.StatusNotFound, "commit not found in repository")
+			return
+		}
 		respondError(c, http.StatusInternalServerError, "failed to compute diff: "+err.Error())
 		return
 	}
