@@ -94,6 +94,7 @@ type Runner struct {
 	pingFn         func() error              // overridable for testing; nil uses defaultPing
 	activityFn     func() (time.Time, error) // overridable for testing; nil queries the database
 	resetsAtFn     func() time.Time          // overridable for testing; nil reads from usageMon
+	pushNotifier   PushNotifier              // optional; nil disables push triggers
 }
 
 // NewRunner creates a new Runner instance and loads persisted state from the database.
@@ -139,6 +140,14 @@ func (r *Runner) loadMaxWorkersFromDB() {
 		return
 	}
 	r.maxWorkers = n
+}
+
+// SetPushNotifier installs (or replaces) the push notifier used to fire Web
+// Push notifications on terminal task transitions. Pass nil to disable.
+// Wired at startup; not thread-safe with itself but safe to call before the
+// scheduler loop starts.
+func (r *Runner) SetPushNotifier(n PushNotifier) {
+	r.pushNotifier = n
 }
 
 // SetMaxWorkers updates the maximum number of concurrent task workers.
@@ -762,6 +771,15 @@ func (r *Runner) finalizeTask(task *models.Task, result *ExecutionResult) {
 	}
 	r.db.Model(task).Updates(updates)
 	slog.Info("task finished", "task_id", task.ID, "status", result.Status)
+
+	// Mirror the in-memory task with the freshly persisted fields so the push
+	// payload uses the same status and failure reason that just hit the DB.
+	task.Status = result.Status
+	if result.ErrorMessage != "" {
+		em := result.ErrorMessage
+		task.FailureReason = &em
+	}
+	r.notifyTaskTransition(task, result.Status)
 
 	r.TaskEvents.Publish(TaskEvent{
 		TaskID:    task.ID,

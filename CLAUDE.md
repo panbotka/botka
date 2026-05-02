@@ -217,6 +217,7 @@ Exposes 19 tools across categories: task management (create_task, list_tasks, ge
 | `VAPID_PUBLIC_KEY` | *(empty)* | Web Push VAPID public key (base64url). Generate a fresh pair with `botka vapid-generate`. When empty, all `/api/v1/push/*` endpoints return 503 and the in-process push Sender is nil so trigger code can short-circuit |
 | `VAPID_PRIVATE_KEY` | *(empty)* | Web Push VAPID private key (base64url). Must be set together with `VAPID_PUBLIC_KEY` |
 | `VAPID_SUBJECT` | `mailto:kozak@talko.cz` | `sub` claim of the VAPID JWT — RFC 8292 requires a `mailto:` or `https:` URL so push services can reach the operator |
+| `PUSH_NOTIFICATIONS_ENABLED` | `true` | Master switch for application-triggered Web Push notifications (task `failed`/`needs_review` transitions and chat assistant replies). Set to `false` to suppress all event-driven pushes regardless of subscriptions; the `/api/v1/push/*` subscription endpoints remain unaffected |
 
 ## Task Agent Safety
 

@@ -156,6 +156,11 @@ func run() error {
 		slog.Warn("web push disabled", "reason", err)
 		pushSender = nil
 	}
+	// Wire push triggers into the task runner. nil sender or
+	// PushNotificationsEnabled=false will turn the trigger paths into no-ops.
+	if pushSender != nil && cfg.PushNotificationsEnabled {
+		taskRunner.SetPushNotifier(pushSender)
+	}
 
 	// Signal bridge: relays messages between Signal group chats and Botka
 	// threads. The bridge shares the Claude session manager with the chat
@@ -304,9 +309,14 @@ func setupRouter(
 		OpenClawWorkspace: cfg.OpenClawWorkspace,
 		ContextDir:        cfg.ClaudeContextDir,
 	}
+	var chatPushNotifier handlers.PushNotifier
+	if pushSender != nil {
+		chatPushNotifier = pushSender
+	}
 	chatHandler := handlers.NewChatHandler(
 		db, cfg.AIModel, cfg.UploadDir, claudeCfg, contextCfg,
 		cfg.ClaudeDefaultWorkDir, signalBridge, boxWaker, boxSSHTarget,
+		chatPushNotifier, cfg.PushNotificationsEnabled,
 	)
 	handlers.RegisterChatRoutes(v1, chatHandler)
 

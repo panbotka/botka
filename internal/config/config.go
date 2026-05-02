@@ -48,6 +48,7 @@ type Config struct {
 	VAPIDPublicKey             string
 	VAPIDPrivateKey            string
 	VAPIDSubject               string
+	PushNotificationsEnabled   bool
 }
 
 // Load reads configuration from the .env file and environment variables.
@@ -99,6 +100,11 @@ func Load() (*Config, error) {
 	failureSummaryEnabled, err := getEnvBool("FAILURE_SUMMARY_ENABLED", true)
 	if err != nil {
 		return nil, fmt.Errorf("parsing FAILURE_SUMMARY_ENABLED: %w", err)
+	}
+
+	pushNotificationsEnabled, err := getEnvBool("PUSH_NOTIFICATIONS_ENABLED", true)
+	if err != nil {
+		return nil, fmt.Errorf("parsing PUSH_NOTIFICATIONS_ENABLED: %w", err)
 	}
 
 	availableModels := getEnvCSV("AVAILABLE_MODELS", []string{"sonnet", "opus", "haiku"})
@@ -155,6 +161,7 @@ func Load() (*Config, error) {
 		VAPIDPublicKey:             getEnv("VAPID_PUBLIC_KEY", ""),
 		VAPIDPrivateKey:            getEnv("VAPID_PRIVATE_KEY", ""),
 		VAPIDSubject:               getEnv("VAPID_SUBJECT", "mailto:kozak@talko.cz"),
+		PushNotificationsEnabled:   pushNotificationsEnabled,
 	}, nil
 }
 

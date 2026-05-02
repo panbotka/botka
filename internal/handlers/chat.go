@@ -84,16 +84,21 @@ type ChatHandler struct {
 	signalBridge *signal.Bridge
 	boxWaker     *box.Waker
 	boxSSHTarget string
+	pushNotifier PushNotifier // optional; nil disables assistant-reply pushes
+	pushEnabled  bool
 }
 
 // NewChatHandler creates a new ChatHandler with the given dependencies. The
 // signalBridge may be nil, in which case outgoing messages are not forwarded
 // to Signal. boxWaker and boxSSHTarget may be nil/empty; when unset,
 // remote-path work directories ("box:/...") will fail fast at spawn time.
+// Pass a nil pushNotifier (or pushEnabled=false) to disable assistant-reply
+// push notifications.
 func NewChatHandler(
 	db *gorm.DB, model, uploadDir string,
 	claudeCfg claude.RunConfig, contextCfg claude.ContextConfig, defaultDir string,
 	signalBridge *signal.Bridge, boxWaker *box.Waker, boxSSHTarget string,
+	pushNotifier PushNotifier, pushEnabled bool,
 ) *ChatHandler {
 	return &ChatHandler{
 		db:           db,
@@ -105,6 +110,8 @@ func NewChatHandler(
 		signalBridge: signalBridge,
 		boxWaker:     boxWaker,
 		boxSSHTarget: boxSSHTarget,
+		pushNotifier: pushNotifier,
+		pushEnabled:  pushEnabled,
 	}
 }
 
@@ -797,6 +804,11 @@ loop:
 				// this thread has an active bridge. Best-effort: errors are
 				// logged by the bridge and never surface to the chat client.
 				h.signalBridge.ForwardToSignal(c.Request.Context(), threadID, "assistant", assistantContent)
+
+				// Fire a Web Push for the assistant reply, but suppress it
+				// while the originating SSE client is still connected — the
+				// user is actively watching the response.
+				notifyAssistantReply(h.pushNotifier, h.pushEnabled, thread, assistantContent, !clientDisconnected)
 
 				paths := collectedPaths.paths()
 				if len(paths) > 0 {
