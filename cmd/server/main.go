@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	webpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/gin-gonic/gin"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"gorm.io/gorm"
@@ -28,6 +29,7 @@ import (
 	"botka/internal/mcp"
 	"botka/internal/middleware"
 	"botka/internal/projects"
+	"botka/internal/push"
 	"botka/internal/runner"
 	"botka/internal/signal"
 	"botka/internal/static"
@@ -41,6 +43,15 @@ func main() {
 		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 		if err := runMCP(); err != nil {
 			slog.Error("mcp server failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// vapid-generate: print a fresh VAPID key pair in .env-ready form.
+	if len(os.Args) > 1 && os.Args[1] == "vapid-generate" {
+		if err := runVAPIDGenerate(); err != nil {
+			fmt.Fprintf(os.Stderr, "vapid-generate failed: %v\n", err)
 			os.Exit(1)
 		}
 		return
@@ -138,6 +149,14 @@ func run() error {
 	scheduleScheduler.Start()
 	defer scheduleScheduler.Stop()
 
+	// Web Push sender. Returns nil + error if VAPID keys are missing; we
+	// log a warning and continue with push disabled rather than crashing.
+	pushSender, err := push.NewSender(cfg, db)
+	if err != nil {
+		slog.Warn("web push disabled", "reason", err)
+		pushSender = nil
+	}
+
 	// Signal bridge: relays messages between Signal group chats and Botka
 	// threads. The bridge shares the Claude session manager with the chat
 	// handler so incoming Signal messages and UI chat messages serialize on
@@ -162,9 +181,22 @@ func run() error {
 	defer bridgeCancel()
 	signalBridge.Start(bridgeCtx)
 
-	router := setupRouter(db, cfg, taskRunner, cronScheduler, scheduleScheduler, signalClient, signalBridge, boxWaker, boxSSHTarget)
+	router := setupRouter(db, cfg, taskRunner, cronScheduler, scheduleScheduler, signalClient, signalBridge, boxWaker, boxSSHTarget, pushSender)
 
 	return startServer(router, cfg.Port)
+}
+
+// runVAPIDGenerate prints a fresh VAPID key pair to stdout in the form
+// expected by .env files (one KEY=value per line). Operators paste this
+// output into their .env to enable Web Push.
+func runVAPIDGenerate() error {
+	priv, pub, err := webpush.GenerateVAPIDKeys()
+	if err != nil {
+		return fmt.Errorf("generate keys: %w", err)
+	}
+	fmt.Printf("VAPID_PUBLIC_KEY=%s\n", pub)
+	fmt.Printf("VAPID_PRIVATE_KEY=%s\n", priv)
+	return nil
 }
 
 // runMCP starts the MCP server in stdio mode. It connects to the database,
@@ -200,6 +232,7 @@ func setupRouter(
 	scheduleScheduler *runner.ScheduleScheduler,
 	signalClient *signal.Client, signalBridge *signal.Bridge,
 	boxWaker *box.Waker, boxSSHTarget string,
+	pushSender push.Sender,
 ) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Recovery(), gin.Logger(), middleware.CORS())
@@ -316,6 +349,9 @@ func setupRouter(
 
 	mcpAssignHandler := handlers.NewMCPServerAssignmentHandler(db)
 	handlers.RegisterMCPServerAssignmentRoutes(v1, mcpAssignHandler)
+
+	pushHandler := handlers.NewPushHandler(db, pushSender, cfg.VAPIDPublicKey)
+	handlers.RegisterPushRoutes(v1, pushHandler)
 
 	settingsHandler := handlers.NewSettingsHandler(db)
 	settingsHandler.SetOnChange(func(key, value string) {

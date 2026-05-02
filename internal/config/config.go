@@ -45,6 +45,9 @@ type Config struct {
 	SignalCLIURL               string
 	FailureSummaryEnabled      bool
 	FailureSummaryModel        string
+	VAPIDPublicKey             string
+	VAPIDPrivateKey            string
+	VAPIDSubject               string
 }
 
 // Load reads configuration from the .env file and environment variables.
@@ -149,6 +152,9 @@ func Load() (*Config, error) {
 		SignalCLIURL:               getEnv("SIGNAL_CLI_URL", "http://127.0.0.1:5107"),
 		FailureSummaryEnabled:      failureSummaryEnabled,
 		FailureSummaryModel:        getEnv("FAILURE_SUMMARY_MODEL", "haiku"),
+		VAPIDPublicKey:             getEnv("VAPID_PUBLIC_KEY", ""),
+		VAPIDPrivateKey:            getEnv("VAPID_PRIVATE_KEY", ""),
+		VAPIDSubject:               getEnv("VAPID_SUBJECT", "mailto:kozak@talko.cz"),
 	}, nil
 }
 

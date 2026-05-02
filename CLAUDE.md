@@ -214,6 +214,9 @@ Exposes 19 tools across categories: task management (create_task, list_tasks, ge
 | `SIGNAL_CLI_URL` | `http://127.0.0.1:5107` | Base URL of signal-cli daemon HTTP JSON-RPC endpoint |
 | `FAILURE_SUMMARY_ENABLED` | `true` | Generate an LLM failure summary in Czech after a task transitions to `failed`. Runs asynchronously; failures leave the column null and log a warning |
 | `FAILURE_SUMMARY_MODEL` | `haiku` | Claude model passed to `claude -p --output-format json` when generating the failure summary |
+| `VAPID_PUBLIC_KEY` | *(empty)* | Web Push VAPID public key (base64url). Generate a fresh pair with `botka vapid-generate`. When empty, all `/api/v1/push/*` endpoints return 503 and the in-process push Sender is nil so trigger code can short-circuit |
+| `VAPID_PRIVATE_KEY` | *(empty)* | Web Push VAPID private key (base64url). Must be set together with `VAPID_PUBLIC_KEY` |
+| `VAPID_SUBJECT` | `mailto:kozak@talko.cz` | `sub` claim of the VAPID JWT — RFC 8292 requires a `mailto:` or `https:` URL so push services can reach the operator |
 
 ## Task Agent Safety
 
