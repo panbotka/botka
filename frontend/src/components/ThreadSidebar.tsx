@@ -735,10 +735,12 @@ export default function ThreadSidebar({
             Pinned
           </div>
           {pinnedThreads.map(renderThread)}
-          {regularThreads.length > 0 && (
-            <div className="my-1.5 mx-3 border-t border-zinc-100" />
-          )}
         </>
+      )}
+      {pinnedThreads.length > 0 && regularThreads.length > 0 && (
+        <div className="px-3 py-1.5 text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
+          Recent
+        </div>
       )}
       {regularThreads.map(renderThread)}
       {archivedSectionVisible && archivedThreads.length > 0 && (

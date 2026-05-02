@@ -296,6 +296,58 @@ describe('ThreadSidebar prefix syntax', () => {
   })
 })
 
+describe('ThreadSidebar pinned/recent separator', () => {
+  it('renders the "Recent" label between pinned and regular threads when both groups have entries', () => {
+    const threads = [
+      makeThread({ id: 1, title: 'Pinned A', pinned: true }),
+      makeThread({ id: 2, title: 'Regular A' }),
+    ]
+    renderSidebar({ threads })
+
+    expect(screen.getByText('Pinned')).toBeInTheDocument()
+    expect(screen.getByText('Recent')).toBeInTheDocument()
+    expect(screen.getByText('Pinned A')).toBeInTheDocument()
+    expect(screen.getByText('Regular A')).toBeInTheDocument()
+  })
+
+  it('does not render "Recent" when there are no pinned threads', () => {
+    const threads = [
+      makeThread({ id: 1, title: 'Regular A' }),
+      makeThread({ id: 2, title: 'Regular B' }),
+    ]
+    renderSidebar({ threads })
+
+    expect(screen.queryByText('Pinned')).not.toBeInTheDocument()
+    expect(screen.queryByText('Recent')).not.toBeInTheDocument()
+    expect(screen.getByText('Regular A')).toBeInTheDocument()
+    expect(screen.getByText('Regular B')).toBeInTheDocument()
+  })
+
+  it('does not render "Recent" when there are only pinned threads', () => {
+    const threads = [
+      makeThread({ id: 1, title: 'Pinned A', pinned: true }),
+      makeThread({ id: 2, title: 'Pinned B', pinned: true }),
+    ]
+    renderSidebar({ threads })
+
+    expect(screen.getByText('Pinned')).toBeInTheDocument()
+    expect(screen.queryByText('Recent')).not.toBeInTheDocument()
+    expect(screen.getByText('Pinned A')).toBeInTheDocument()
+    expect(screen.getByText('Pinned B')).toBeInTheDocument()
+  })
+
+  it('renders the "Recent" label in mobile mode too', () => {
+    const threads = [
+      makeThread({ id: 1, title: 'Pinned A', pinned: true }),
+      makeThread({ id: 2, title: 'Regular A' }),
+    ]
+    renderSidebar({ threads, mobile: true })
+
+    expect(screen.getByText('Pinned')).toBeInTheDocument()
+    expect(screen.getByText('Recent')).toBeInTheDocument()
+  })
+})
+
 describe('ThreadSidebar new-chat split-button', () => {
   function makePersona(overrides: Partial<import('../types').Persona> = {}): import('../types').Persona {
     return {
