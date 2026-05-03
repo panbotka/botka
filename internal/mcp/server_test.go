@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
+	"botka/internal/runner"
 )
 
 // TestHandleMessage_parseError verifies that malformed JSON returns a parse error.
@@ -371,6 +373,12 @@ func (m *mockRunner) StartN(n int) {
 func (m *mockRunner) KillTask(taskID uuid.UUID) error {
 	m.killedTask = taskID
 	return m.killErr
+}
+
+// GetStatus returns a zero-valued status — sufficient for tests that don't
+// exercise the rate-limit pause fields.
+func (m *mockRunner) GetStatus() runner.Status {
+	return runner.Status{}
 }
 
 // TestFormatToolResult_stringResult verifies string results are wrapped in MCP content format.

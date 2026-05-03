@@ -218,6 +218,8 @@ Exposes 19 tools across categories: task management (create_task, list_tasks, ge
 | `VAPID_PRIVATE_KEY` | *(empty)* | Web Push VAPID private key (base64url). Must be set together with `VAPID_PUBLIC_KEY` |
 | `VAPID_SUBJECT` | `mailto:kozak@talko.cz` | `sub` claim of the VAPID JWT — RFC 8292 requires a `mailto:` or `https:` URL so push services can reach the operator |
 | `PUSH_NOTIFICATIONS_ENABLED` | `true` | Master switch for application-triggered Web Push notifications (task `failed`/`needs_review` transitions and chat assistant replies). Set to `false` to suppress all event-driven pushes regardless of subscriptions; the `/api/v1/push/*` subscription endpoints remain unaffected |
+| `CLAUDE_RATE_LIMIT_COOLDOWN` | `2h` | Fallback pause duration applied when a Claude rate-limit error is detected but no machine-parsable reset time can be extracted from the failure summary. Used by the runner's rate-limit gate (Go duration) |
+| `RATE_LIMIT_DETECTION_ENABLED` | `true` | Master switch for the failure-text rate-limit detector. When `false`, the runner only relies on the existing `UsageMonitor` (5h/7d threshold) gate; no new pauses are triggered by Claude error strings |
 
 ## Task Agent Safety
 

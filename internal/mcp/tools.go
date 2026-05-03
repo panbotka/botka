@@ -430,6 +430,23 @@ func (s *Server) handleGetRunnerStatus(_ json.RawMessage) (interface{}, error) {
 		}
 	}
 
+	if s.runner != nil {
+		st := s.runner.GetStatus()
+		if st.PausedUntil != nil {
+			source := "rate_limit"
+			if st.PauseSource != nil {
+				source = *st.PauseSource
+			}
+			reason := ""
+			if st.PauseReason != nil {
+				reason = *st.PauseReason
+			}
+			fmt.Fprintf(&b,
+				"\nRunner paused until %s (source=%s, reason=%s)\n",
+				st.PausedUntil.Format(timeFmt), source, reason)
+		}
+	}
+
 	return b.String(), nil
 }
 

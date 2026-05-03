@@ -30,6 +30,7 @@ import {
   stopRunner,
   listProcesses,
   killProcess,
+  clearRateLimitPause,
 } from '../api/client'
 import { CostContent } from './CostDashboardPage'
 import type {
@@ -229,11 +230,12 @@ const runnerStateConfig = {
   },
 } as const
 
-function RunnerControls({ status, onStart, onPause, onStop, toggling }: {
+function RunnerControls({ status, onStart, onPause, onStop, onClearRateLimit, toggling }: {
   status: RunnerStatusType
   onStart: (count?: number) => void
   onPause: () => void
   onStop: () => void
+  onClearRateLimit: () => void
   toggling: boolean
 }) {
   const [taskCount, setTaskCount] = useState('')
@@ -242,6 +244,8 @@ function RunnerControls({ status, onStart, onPause, onStop, toggling }: {
   const cfg = runnerStateConfig[status.state]
   const hasLimit = status.task_limit > 0
   const showOrphanWarning = orphanedCount > 0 && status.state !== 'running'
+  const pausedActive = status.paused_until !== null
+    && new Date(status.paused_until).getTime() > Date.now()
 
   function handleStart() {
     const n = parseInt(taskCount, 10)
@@ -249,8 +253,48 @@ function RunnerControls({ status, onStart, onPause, onStop, toggling }: {
     setTaskCount('')
   }
 
+  function formatLocal(iso: string): string {
+    try {
+      return new Date(iso).toLocaleString(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        day: '2-digit',
+        month: 'short',
+      })
+    } catch {
+      return iso
+    }
+  }
+
+  function describeSource(source: string | null): string {
+    return source === 'rate_limit' ? 'Claude rate limit' : (source ?? 'paused')
+  }
+
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:bg-zinc-100">
+      {pausedActive && status.paused_until && (
+        <div className="mb-3 flex items-start justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <div className="text-sm">
+              <p className="font-medium">
+                Runner paused until {formatLocal(status.paused_until)} — {describeSource(status.pause_source)}
+              </p>
+              {status.pause_reason && (
+                <p className="mt-0.5 text-xs text-amber-800/80 dark:text-amber-300/80">{status.pause_reason}</p>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClearRateLimit}
+            disabled={toggling}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-amber-300 bg-white px-2.5 py-1 text-xs font-medium text-amber-900 transition-colors hover:bg-amber-100 disabled:opacity-50 dark:bg-amber-900/40 dark:text-amber-100"
+          >
+            Clear pause
+          </button>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className={clsx('inline-block h-3 w-3 rounded-full', cfg.dot)} />
@@ -487,6 +531,16 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleClearRateLimit() {
+    setToggling(true)
+    try {
+      await clearRateLimitPause()
+      await refresh()
+    } finally {
+      setToggling(false)
+    }
+  }
+
   async function handleKillProcess(threadId: number) {
     try {
       await killProcess(threadId)
@@ -534,6 +588,7 @@ export default function DashboardPage() {
         status={runnerStatus}
         onStart={handleStart}
         onPause={handlePause}
+        onClearRateLimit={handleClearRateLimit}
         onStop={handleStop}
         toggling={toggling}
       />

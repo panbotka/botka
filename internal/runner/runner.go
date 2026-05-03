@@ -71,6 +71,15 @@ type Status struct {
 	Usage          *UsageInfo             `json:"usage,omitempty"`
 	TaskLimit      int                    `json:"task_limit"`
 	CompletedCount int                    `json:"completed_count"`
+	// PausedUntil is when the rate-limit gate clears. Null when the gate is
+	// not active. ISO8601 in JSON.
+	PausedUntil *time.Time `json:"paused_until"`
+	// PauseReason is a human-readable string describing why the gate is set.
+	// Null when the gate is not active.
+	PauseReason *string `json:"pause_reason"`
+	// PauseSource identifies what tripped the gate ("rate_limit" today;
+	// future-proof for additional sources). Null when not paused.
+	PauseSource *string `json:"pause_source"`
 }
 
 // Runner manages the scheduling loop and parallel task execution.
@@ -95,6 +104,7 @@ type Runner struct {
 	activityFn     func() (time.Time, error) // overridable for testing; nil queries the database
 	resetsAtFn     func() time.Time          // overridable for testing; nil reads from usageMon
 	pushNotifier   PushNotifier              // optional; nil disables push triggers
+	rateLimitGate  *RateLimitGate
 }
 
 // NewRunner creates a new Runner instance and loads persisted state from the database.
@@ -118,6 +128,7 @@ func NewRunner(db *gorm.DB, cfg *config.Config, usageMon *UsageMonitor, boxWaker
 		executor:       exec,
 		retryNotBefore: make(map[uuid.UUID]time.Time),
 		TaskEvents:     NewTaskEventHub(),
+		rateLimitGate:  NewRateLimitGate(db),
 	}
 	r.state = r.loadState()
 	r.maxWorkers = cfg.MaxWorkers // default from env
@@ -323,7 +334,7 @@ func (r *Runner) GetStatus() Status {
 	tasks = append(tasks, r.loadOrphanedRunningTasks(inMem)...)
 
 	usage := r.usageMon.CurrentUsage()
-	return Status{
+	status := Status{
 		State:          state,
 		ActiveTasks:    tasks,
 		MaxWorkers:     maxWorkers,
@@ -331,6 +342,49 @@ func (r *Runner) GetStatus() Status {
 		Usage:          &usage,
 		TaskLimit:      taskLimit,
 		CompletedCount: completedCount,
+	}
+	if r.rateLimitGate != nil {
+		if active, until, reason, source, _ := r.rateLimitGate.Snapshot(); active {
+			t := until
+			s := string(source)
+			rs := reason
+			status.PausedUntil = &t
+			status.PauseReason = &rs
+			status.PauseSource = &s
+		}
+	}
+	return status
+}
+
+// RateLimitGate returns the runner's rate-limit gate so handlers and other
+// callers can read state or trigger a manual clear. May return nil in tests
+// that construct a Runner without one.
+func (r *Runner) RateLimitGate() *RateLimitGate {
+	return r.rateLimitGate
+}
+
+// SetRateLimitGate replaces the runner's gate. Intended for tests; production
+// code uses the gate created in NewRunner.
+func (r *Runner) SetRateLimitGate(g *RateLimitGate) {
+	r.rateLimitGate = g
+}
+
+// NewRunnerForTest builds a minimally-wired runner for HTTP-level tests in
+// other packages. It deliberately avoids constructing an Executor — tests that
+// only exercise GetStatus / pause endpoints don't need one. The returned
+// runner is in the StatePaused state; the caller can flip state directly via
+// Pause / Resume / HardStop if needed.
+func NewRunnerForTest(db *gorm.DB, usageMon *UsageMonitor, gate *RateLimitGate) *Runner {
+	return &Runner{
+		db:             db,
+		state:          models.StatePaused,
+		executors:      make(map[uuid.UUID]*activeTask),
+		buffers:        make(map[uuid.UUID]*Buffer),
+		usageMon:       usageMon,
+		retryNotBefore: make(map[uuid.UUID]time.Time),
+		TaskEvents:     NewTaskEventHub(),
+		rateLimitGate:  gate,
+		maxWorkers:     2,
 	}
 }
 
@@ -417,6 +471,14 @@ func (r *Runner) tick() {
 	if limited, reason := r.usageMon.IsRateLimited(); limited {
 		slog.Info("rate limited, waiting", "reason", reason, "resets_at", r.usageMon.ResetsAt())
 		return
+	}
+
+	if r.rateLimitGate != nil {
+		if active, until, reason, _, _ := r.rateLimitGate.Snapshot(); active {
+			slog.Info("scheduler: rate-limit gate active, skipping tick",
+				"paused_until", until, "reason", reason)
+			return
+		}
 	}
 
 	task, execution, err := r.pickNextTask(activeProjectIDs, blockedTaskIDs)
@@ -683,6 +745,7 @@ func (r *Runner) finishTask(
 	rawOutput := string(buf.ReadAll())
 	r.updateExecution(exec, result, rawOutput)
 	r.accumulateTaskUsage(task, result)
+	r.maybeTripRateLimitGate(task, result, rawOutput)
 	r.applyResult(task, result)
 
 	if !result.ShouldRetry && result.RetryAfter == 0 && result.Status == models.TaskStatusFailed {
@@ -694,6 +757,52 @@ func (r *Runner) finishTask(
 	delete(r.executors, task.ProjectID)
 	delete(r.buffers, task.ID)
 	r.mu.Unlock()
+}
+
+// maybeTripRateLimitGate inspects the failure text from a completed task and
+// — if Claude's own rate-limit signal is present — sets the global pause gate
+// and forces the result into a no-retry shape so the task lands in `failed`
+// rather than being requeued for an immediate retry storm.
+//
+// The detector is bypassed entirely when RATE_LIMIT_DETECTION_ENABLED=false.
+func (r *Runner) maybeTripRateLimitGate(
+	task *models.Task, result *ExecutionResult, rawOutput string,
+) {
+	if r.rateLimitGate == nil {
+		return
+	}
+	if r.config != nil && !r.config.RateLimitDetectionEnabled {
+		return
+	}
+	if result.Status != models.TaskStatusFailed {
+		return
+	}
+
+	failureText := result.ErrorMessage + "\n" + result.Summary + "\n" + rawOutput
+	hit, resetAt, ok := DetectRateLimit(failureText)
+	if !hit {
+		return
+	}
+
+	cooldown := 2 * time.Hour //nolint:mnd // sensible default; overridden by config
+	if r.config != nil && r.config.ClaudeRateLimitCooldown > 0 {
+		cooldown = r.config.ClaudeRateLimitCooldown
+	}
+	pauseUntil := resetAt
+	if !ok || pauseUntil.IsZero() {
+		pauseUntil = time.Now().Add(cooldown)
+	}
+
+	reason := fmt.Sprintf("Claude rate limit (task %s)", task.ID)
+	r.rateLimitGate.PauseUntil(pauseUntil, reason, task.ID)
+	until := r.rateLimitGate.PausedUntil()
+	slog.Warn("runner paused due to Claude rate limit",
+		"paused_until", until, "task_id", task.ID)
+
+	// Don't retry into the wall: force the task to land in `failed` rather
+	// than getting requeued for an immediate second attempt.
+	result.ShouldRetry = false
+	result.RetryAfter = 0
 }
 
 func (r *Runner) updateExecution(exec *models.TaskExecution, result *ExecutionResult, rawOutput string) {
@@ -728,6 +837,17 @@ func (r *Runner) accumulateTaskUsage(task *models.Task, result *ExecutionResult)
 }
 
 func (r *Runner) applyResult(task *models.Task, result *ExecutionResult) {
+	// If the rate-limit gate is currently active, never requeue a failed task
+	// — that's the "don't retry into the wall" rule. The task lands in `failed`
+	// without retry_count increment and is picked up naturally after the gate
+	// clears (since the original task remains in `failed` it stays failed; the
+	// next queued task on the project gets its turn).
+	if r.rateLimitGate != nil && r.rateLimitGate.IsActive() &&
+		result.Status == models.TaskStatusFailed {
+		result.ShouldRetry = false
+		result.RetryAfter = 0
+	}
+
 	switch {
 	case result.RetryAfter > 0:
 		r.requeueTask(task, result.ErrorMessage)

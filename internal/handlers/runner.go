@@ -28,6 +28,7 @@ func RegisterRunnerRoutes(rg *gin.RouterGroup, h *RunnerHandler) {
 	rg.POST("/runner/pause", h.Pause)
 	rg.POST("/runner/stop", h.Stop)
 	rg.POST("/runner/usage/refresh", h.RefreshUsage)
+	rg.POST("/runner/clear-rate-limit", h.ClearRateLimit)
 	rg.POST("/tasks/:id/kill", h.KillTask)
 	rg.POST("/tasks/:id/regenerate-summary", h.RegenerateFailureSummary)
 }
@@ -68,6 +69,18 @@ func (h *RunnerHandler) Pause(c *gin.Context) {
 func (h *RunnerHandler) Stop(c *gin.Context) {
 	h.runner.HardStop()
 	respondOK(c, h.runner.GetStatus())
+}
+
+// ClearRateLimit clears the rate-limit gate immediately. Returns 204 with no
+// body — the caller refreshes the runner status to see the cleared fields.
+func (h *RunnerHandler) ClearRateLimit(c *gin.Context) {
+	gate := h.runner.RateLimitGate()
+	if gate == nil {
+		respondError(c, http.StatusServiceUnavailable, "rate limit gate is not initialized")
+		return
+	}
+	gate.Clear()
+	c.Status(http.StatusNoContent)
 }
 
 // KillTask terminates a single running task and reverts its git changes.

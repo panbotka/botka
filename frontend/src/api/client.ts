@@ -237,6 +237,10 @@ export function refreshUsage(): Promise<UsageInfo> {
   return requestData<UsageInfo>('/runner/usage/refresh', { method: 'POST' })
 }
 
+export async function clearRateLimitPause(): Promise<void> {
+  await request<void>('/runner/clear-rate-limit', { method: 'POST' })
+}
+
 // Threads
 
 export function fetchThreads(includeArchived?: boolean): Promise<Thread[]> {

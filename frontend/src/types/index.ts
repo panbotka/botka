@@ -182,6 +182,9 @@ export interface RunnerStatus {
   usage: UsageInfo | null
   task_limit: number
   completed_count: number
+  paused_until: string | null
+  pause_reason: string | null
+  pause_source: string | null
 }
 
 export interface ServerSettings {

@@ -49,6 +49,8 @@ type Config struct {
 	VAPIDPrivateKey            string
 	VAPIDSubject               string
 	PushNotificationsEnabled   bool
+	ClaudeRateLimitCooldown    time.Duration
+	RateLimitDetectionEnabled  bool
 }
 
 // Load reads configuration from the .env file and environment variables.
@@ -107,6 +109,16 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("parsing PUSH_NOTIFICATIONS_ENABLED: %w", err)
 	}
 
+	claudeRateLimitCooldown, err := time.ParseDuration(getEnv("CLAUDE_RATE_LIMIT_COOLDOWN", "2h"))
+	if err != nil {
+		return nil, fmt.Errorf("parsing CLAUDE_RATE_LIMIT_COOLDOWN: %w", err)
+	}
+
+	rateLimitDetectionEnabled, err := getEnvBool("RATE_LIMIT_DETECTION_ENABLED", true)
+	if err != nil {
+		return nil, fmt.Errorf("parsing RATE_LIMIT_DETECTION_ENABLED: %w", err)
+	}
+
 	availableModels := getEnvCSV("AVAILABLE_MODELS", []string{"sonnet", "opus", "haiku"})
 
 	sessionMaxAge, err := time.ParseDuration(getEnv("SESSION_MAX_AGE", "720h"))
@@ -162,6 +174,8 @@ func Load() (*Config, error) {
 		VAPIDPrivateKey:            getEnv("VAPID_PRIVATE_KEY", ""),
 		VAPIDSubject:               getEnv("VAPID_SUBJECT", "mailto:kozak@talko.cz"),
 		PushNotificationsEnabled:   pushNotificationsEnabled,
+		ClaudeRateLimitCooldown:    claudeRateLimitCooldown,
+		RateLimitDetectionEnabled:  rateLimitDetectionEnabled,
 	}, nil
 }
 

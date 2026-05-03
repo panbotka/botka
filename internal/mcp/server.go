@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"botka/internal/handlers"
+	"botka/internal/runner"
 )
 
 var newline = []byte{'\n'}
@@ -62,6 +63,7 @@ type RunnerController interface {
 	Resume()
 	StartN(n int)
 	KillTask(taskID uuid.UUID) error
+	GetStatus() runner.Status
 }
 
 // Server handles MCP protocol messages. It is transport-agnostic;
@@ -75,8 +77,8 @@ type Server struct {
 // NewServer creates a new MCP server backed by the given database.
 // The runner and commands parameters may be nil (e.g. in stdio mode) —
 // runner control and command execution tools will return an error in that case.
-func NewServer(db *gorm.DB, runner RunnerController, commands *handlers.CommandTracker) *Server {
-	return &Server{db: db, runner: runner, commands: commands}
+func NewServer(db *gorm.DB, ctrl RunnerController, commands *handlers.CommandTracker) *Server {
+	return &Server{db: db, runner: ctrl, commands: commands}
 }
 
 // RunStdio reads JSON-RPC 2.0 messages from stdin and writes responses
