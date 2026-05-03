@@ -81,7 +81,7 @@ func (h *AnalyticsHandler) CostAnalytics(c *gin.Context) {
 
 	// Total cost: sum messages + task executions
 	var msgTotal struct{ Sum *float64 }
-	h.db.Raw(`SELECT SUM(cost_usd) as sum FROM messages WHERE cost_usd IS NOT NULL AND created_at >= ?`, since).Scan(&msgTotal)
+	h.db.Raw(`SELECT SUM(cost_usd) as sum FROM messages WHERE cost_usd IS NOT NULL AND deleted_at IS NULL AND created_at >= ?`, since).Scan(&msgTotal)
 
 	var execTotal struct{ Sum *float64 }
 	h.db.Raw(`SELECT SUM(cost_usd) as sum FROM task_executions WHERE cost_usd IS NOT NULL AND started_at >= ?`, since).Scan(&execTotal)
@@ -110,7 +110,7 @@ func (h *AnalyticsHandler) CostAnalytics(c *gin.Context) {
 			COUNT(*) AS message_count
 		FROM messages m
 		JOIN threads t ON t.id = m.thread_id
-		WHERE m.cost_usd IS NOT NULL AND m.created_at >= ?
+		WHERE m.cost_usd IS NOT NULL AND m.deleted_at IS NULL AND m.created_at >= ?
 		GROUP BY COALESCE(t.model, 'unknown')
 		ORDER BY input_tokens DESC
 	`, since).Scan(&byModelRows)
@@ -150,7 +150,7 @@ func (h *AnalyticsHandler) CostAnalytics(c *gin.Context) {
 				SUM(COALESCE(prompt_tokens, 0)) AS input_tokens,
 				SUM(COALESCE(completion_tokens, 0)) AS output_tokens
 			FROM messages
-			WHERE cost_usd IS NOT NULL AND created_at >= ?
+			WHERE cost_usd IS NOT NULL AND deleted_at IS NULL AND created_at >= ?
 			GROUP BY to_char(created_at, 'YYYY-MM-DD')
 		) m ON m.date = d.date
 		LEFT JOIN (
@@ -177,7 +177,7 @@ func (h *AnalyticsHandler) CostAnalytics(c *gin.Context) {
 			SUM(COALESCE(m.completion_tokens, 0)) AS output_tokens
 		FROM messages m
 		JOIN threads t ON t.id = m.thread_id
-		WHERE m.cost_usd IS NOT NULL AND m.created_at >= ?
+		WHERE m.cost_usd IS NOT NULL AND m.deleted_at IS NULL AND m.created_at >= ?
 		GROUP BY to_char(m.created_at, 'YYYY-MM-DD'), COALESCE(t.model, 'unknown')
 	`, since).Scan(&dateModelRows)
 
@@ -216,7 +216,7 @@ func (h *AnalyticsHandler) CostAnalytics(c *gin.Context) {
 			SUM(COALESCE(m.completion_tokens, 0)) AS output_tokens
 		FROM messages m
 		JOIN threads t ON t.id = m.thread_id
-		WHERE m.cost_usd IS NOT NULL AND m.created_at >= ?
+		WHERE m.cost_usd IS NOT NULL AND m.deleted_at IS NULL AND m.created_at >= ?
 		GROUP BY m.thread_id, t.title
 		ORDER BY cost_usd DESC
 		LIMIT 10
@@ -247,7 +247,7 @@ func (h *AnalyticsHandler) CostAnalytics(c *gin.Context) {
 			FROM messages m
 			JOIN threads t ON t.id = m.thread_id
 			JOIN projects p ON p.id = t.project_id
-			WHERE m.cost_usd IS NOT NULL AND m.created_at >= ? AND t.project_id IS NOT NULL
+			WHERE m.cost_usd IS NOT NULL AND m.deleted_at IS NULL AND m.created_at >= ? AND t.project_id IS NOT NULL
 			GROUP BY p.name
 		) combined
 		GROUP BY project_name

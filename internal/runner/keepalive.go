@@ -201,7 +201,7 @@ func (r *Runner) mostRecentActivity() (time.Time, error) {
 
 	var msgCreated sql.NullTime
 	if err := r.db.Raw(
-		"SELECT created_at FROM messages ORDER BY id DESC LIMIT 1",
+		"SELECT created_at FROM messages WHERE deleted_at IS NULL ORDER BY id DESC LIMIT 1",
 	).Scan(&msgCreated).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return time.Time{}, err
 	}

@@ -67,11 +67,11 @@ func (h *ThreadHandler) List(c *gin.Context) {
 	var rows []threadListRow
 	query := h.db.Table("threads t").
 		Select(`t.*, lm.content AS last_message_preview, lm.created_at AS last_message_at,
-			(SELECT SUM(cost_usd) FROM messages WHERE thread_id = t.id AND cost_usd IS NOT NULL) AS total_cost_usd,
+			(SELECT SUM(cost_usd) FROM messages WHERE thread_id = t.id AND cost_usd IS NOT NULL AND deleted_at IS NULL) AS total_cost_usd,
 			EXISTS (SELECT 1 FROM signal_bridges sb WHERE sb.thread_id = t.id AND sb.active = true) AS signal_bridge_active`).
 		Joins(`LEFT JOIN LATERAL (
 			SELECT LEFT(content, 150) AS content, created_at
-			FROM messages WHERE thread_id = t.id
+			FROM messages WHERE thread_id = t.id AND deleted_at IS NULL
 			ORDER BY created_at DESC LIMIT 1
 		) lm ON true`)
 
@@ -290,11 +290,13 @@ func (h *ThreadHandler) Delete(c *gin.Context) {
 
 	claude.Sessions.Evict(id)
 
-	// Delete branch_selections, messages (with attachments), thread_tags, then thread
+	// Hard-delete branch_selections, attachments, messages, thread_tags, then
+	// thread. Use .Unscoped() to bypass GORM soft-delete on these models so that
+	// any rows previously soft-deleted by /clear or Regenerate are also removed.
 	tx := h.db.Begin()
-	tx.Where("thread_id = ?", id).Delete(&models.BranchSelection{})
-	tx.Where("message_id IN (SELECT id FROM messages WHERE thread_id = ?)", id).Delete(&models.Attachment{})
-	tx.Where("thread_id = ?", id).Delete(&models.Message{})
+	tx.Unscoped().Where("thread_id = ?", id).Delete(&models.BranchSelection{})
+	tx.Unscoped().Where("message_id IN (SELECT id FROM messages WHERE thread_id = ?)", id).Delete(&models.Attachment{})
+	tx.Unscoped().Where("thread_id = ?", id).Delete(&models.Message{})
 	tx.Exec("DELETE FROM thread_tags WHERE thread_id = ?", id)
 	if err := tx.Delete(&models.Thread{}, id).Error; err != nil {
 		tx.Rollback()
@@ -465,7 +467,7 @@ func (h *ThreadHandler) Usage(c *gin.Context) {
 	h.db.Raw(`SELECT COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
 		COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
 		COALESCE(SUM(cost_usd), 0) AS cost_usd,
-		COUNT(*) AS message_count FROM messages WHERE thread_id = ?`, id).Scan(&result)
+		COUNT(*) AS message_count FROM messages WHERE thread_id = ? AND deleted_at IS NULL`, id).Scan(&result)
 
 	respondOK(c, gin.H{
 		"thread_id":               id,
@@ -717,4 +719,30 @@ func getLastMessageInPath(db *gorm.DB, threadID int64) *models.Message {
 	}
 	last := path[len(path)-1]
 	return &last
+}
+
+// softDeleteMessageBranch soft-deletes msgID and all of its descendants in
+// thread threadID, plus any attachments belonging to those messages. Used by
+// Regenerate so the user never permanently loses a discarded assistant reply.
+// The recursive CTE filters deleted_at IS NULL so already-soft-deleted
+// ancestors don't pull live descendants into the update set.
+func softDeleteMessageBranch(db *gorm.DB, threadID, msgID int64) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(`WITH RECURSIVE descendants AS (
+			SELECT id FROM messages WHERE id = ? AND thread_id = ? AND deleted_at IS NULL
+			UNION ALL
+			SELECT m.id FROM messages m
+			JOIN descendants d ON m.parent_id = d.id
+			WHERE m.deleted_at IS NULL
+		)
+		UPDATE messages SET deleted_at = NOW()
+		WHERE id IN (SELECT id FROM descendants)`, msgID, threadID).Error; err != nil {
+			return err
+		}
+		return tx.Exec(`UPDATE attachments SET deleted_at = NOW()
+			WHERE deleted_at IS NULL AND message_id IN (
+				SELECT id FROM messages
+				WHERE thread_id = ? AND deleted_at IS NOT NULL
+			)`, threadID).Error
+	})
 }

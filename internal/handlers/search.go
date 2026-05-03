@@ -78,7 +78,8 @@ func (h *SearchHandler) Search(c *gin.Context) {
 			m.content
 		FROM messages m
 		JOIN threads t ON t.id = m.thread_id
-		WHERE unaccent(lower(m.content)) LIKE '%' || unaccent(lower(?)) || '%'
+		WHERE m.deleted_at IS NULL
+		  AND unaccent(lower(m.content)) LIKE '%' || unaccent(lower(?)) || '%'
 		ORDER BY m.created_at DESC
 		LIMIT 50`, q).Scan(&rows).Error
 
@@ -322,7 +323,8 @@ func (h *SearchHandler) GlobalSearch(c *gin.Context) {
 			SELECT m.id, m.thread_id, t.title AS thread_title, m.content, m.created_at
 			FROM messages m
 			JOIN threads t ON t.id = m.thread_id
-			WHERE unaccent(lower(m.content)) LIKE '%' || unaccent(lower($1)) || '%'
+			WHERE m.deleted_at IS NULL
+			  AND unaccent(lower(m.content)) LIKE '%' || unaccent(lower($1)) || '%'
 			ORDER BY m.created_at DESC
 			LIMIT $2`, q, limit).Scan(&rows).Error
 		if err != nil {

@@ -433,8 +433,24 @@ func TestThread_ClearMessages(t *testing.T) {
 
 	th := createTestThread(t, db)
 
-	// Create a message.
-	db.Create(&models.Message{ThreadID: th.ID, Role: "user", Content: "hello"})
+	// Create a message with an attachment and a branch selection so we exercise
+	// soft-delete on all three tables.
+	msg := models.Message{ThreadID: th.ID, Role: "user", Content: "hello"}
+	db.Create(&msg)
+	att := models.Attachment{
+		MessageID:    msg.ID,
+		StoredName:   "stored.txt",
+		OriginalName: "original.txt",
+		MimeType:     "text/plain",
+		Size:         5,
+	}
+	db.Create(&att)
+	bs := models.BranchSelection{
+		ThreadID:        th.ID,
+		ForkMessageID:   0,
+		SelectedChildID: msg.ID,
+	}
+	db.Create(&bs)
 
 	r := threadRouter(db)
 	w := doRequest(r, http.MethodDelete, fmt.Sprintf("/api/v1/threads/%d/messages", th.ID), "")
@@ -443,11 +459,167 @@ func TestThread_ClearMessages(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// Verify messages are gone.
-	var count int64
-	db.Model(&models.Message{}).Where("thread_id = ?", th.ID).Count(&count)
-	if count != 0 {
-		t.Errorf("expected 0 messages after clear, got %d", count)
+	// GORM auto-filters soft-deleted rows, so live counts should be zero.
+	var liveCount int64
+	db.Model(&models.Message{}).Where("thread_id = ?", th.ID).Count(&liveCount)
+	if liveCount != 0 {
+		t.Errorf("expected 0 live messages after clear, got %d", liveCount)
+	}
+	var liveAttachments int64
+	db.Model(&models.Attachment{}).Where("message_id = ?", msg.ID).Count(&liveAttachments)
+	if liveAttachments != 0 {
+		t.Errorf("expected 0 live attachments after clear, got %d", liveAttachments)
+	}
+	var liveBranches int64
+	db.Model(&models.BranchSelection{}).Where("thread_id = ?", th.ID).Count(&liveBranches)
+	if liveBranches != 0 {
+		t.Errorf("expected 0 live branch selections after clear, got %d", liveBranches)
+	}
+
+	// .Unscoped() reveals soft-deleted rows — they should still exist with
+	// deleted_at populated.
+	var allMessages []models.Message
+	db.Unscoped().Where("thread_id = ?", th.ID).Find(&allMessages)
+	if len(allMessages) != 1 {
+		t.Fatalf("expected 1 soft-deleted message, got %d", len(allMessages))
+	}
+	if !allMessages[0].DeletedAt.Valid {
+		t.Error("expected message deleted_at to be set")
+	}
+	var allAttachments []models.Attachment
+	db.Unscoped().Where("message_id = ?", msg.ID).Find(&allAttachments)
+	if len(allAttachments) != 1 || !allAttachments[0].DeletedAt.Valid {
+		t.Errorf("expected 1 soft-deleted attachment with deleted_at set, got %d", len(allAttachments))
+	}
+	var allBranches []models.BranchSelection
+	db.Unscoped().Where("thread_id = ?", th.ID).Find(&allBranches)
+	if len(allBranches) != 1 || !allBranches[0].DeletedAt.Valid {
+		t.Errorf("expected 1 soft-deleted branch selection with deleted_at set, got %d", len(allBranches))
+	}
+}
+
+func TestThread_ClearMessages_Idempotent(t *testing.T) {
+	// Re-clearing the same thread multiple times must not error and must
+	// not surface previously-cleared rows.
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	th := createTestThread(t, db)
+	db.Create(&models.Message{ThreadID: th.ID, Role: "user", Content: "first"})
+
+	r := threadRouter(db)
+	for i := 0; i < 3; i++ {
+		w := doRequest(r, http.MethodDelete, fmt.Sprintf("/api/v1/threads/%d/messages", th.ID), "")
+		if w.Code != http.StatusOK {
+			t.Fatalf("clear #%d: expected 200, got %d: %s", i, w.Code, w.Body.String())
+		}
+		// Add a fresh message between clears so subsequent clears have work.
+		db.Create(&models.Message{ThreadID: th.ID, Role: "user", Content: fmt.Sprintf("msg %d", i)})
+	}
+
+	var liveCount int64
+	db.Model(&models.Message{}).Where("thread_id = ?", th.ID).Count(&liveCount)
+	if liveCount != 1 {
+		t.Errorf("expected 1 live message (the most recent insert), got %d", liveCount)
+	}
+}
+
+func TestThread_ClearMessages_BranchSelectionPartialUnique(t *testing.T) {
+	// After /clear soft-deletes a branch_selection, creating a new one for
+	// the same (thread_id, fork_message_id) pair must succeed because the
+	// unique constraint is partial (non-deleted rows only).
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	th := createTestThread(t, db)
+	parent := models.Message{ThreadID: th.ID, Role: "user", Content: "parent"}
+	db.Create(&parent)
+	childA := models.Message{ThreadID: th.ID, Role: "assistant", Content: "child A", ParentID: &parent.ID}
+	db.Create(&childA)
+	bs := models.BranchSelection{
+		ThreadID:        th.ID,
+		ForkMessageID:   parent.ID,
+		SelectedChildID: childA.ID,
+	}
+	if err := db.Create(&bs).Error; err != nil {
+		t.Fatalf("create initial branch selection: %v", err)
+	}
+
+	r := threadRouter(db)
+	w := doRequest(r, http.MethodDelete, fmt.Sprintf("/api/v1/threads/%d/messages", th.ID), "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("clear: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Re-create the same conversation shape and a new branch selection for the
+	// same (thread_id, fork_message_id) pair. This must NOT collide with the
+	// soft-deleted row.
+	parent2 := models.Message{ThreadID: th.ID, Role: "user", Content: "parent again"}
+	db.Create(&parent2)
+	childB := models.Message{ThreadID: th.ID, Role: "assistant", Content: "child B", ParentID: &parent2.ID}
+	db.Create(&childB)
+	bs2 := models.BranchSelection{
+		ThreadID:        th.ID,
+		ForkMessageID:   parent.ID, // same fork id as the soft-deleted row
+		SelectedChildID: childB.ID,
+	}
+	if err := db.Create(&bs2).Error; err != nil {
+		t.Fatalf("create branch selection after clear: %v (the partial unique index may be missing)", err)
+	}
+}
+
+func TestThread_Delete_HardDeletesMessages(t *testing.T) {
+	// Thread DELETE must physically remove messages, attachments, and
+	// branch_selections — including any rows already soft-deleted.
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	th := createTestThread(t, db)
+	msg := models.Message{ThreadID: th.ID, Role: "user", Content: "hello"}
+	db.Create(&msg)
+	att := models.Attachment{
+		MessageID:    msg.ID,
+		StoredName:   "stored.txt",
+		OriginalName: "original.txt",
+		MimeType:     "text/plain",
+		Size:         5,
+	}
+	db.Create(&att)
+	bs := models.BranchSelection{
+		ThreadID:        th.ID,
+		ForkMessageID:   0,
+		SelectedChildID: msg.ID,
+	}
+	db.Create(&bs)
+
+	// First clear (soft-delete) so DELETE has to clean both live and
+	// already-soft-deleted rows.
+	r := threadRouter(db)
+	w := doRequest(r, http.MethodDelete, fmt.Sprintf("/api/v1/threads/%d/messages", th.ID), "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("clear: expected 200, got %d", w.Code)
+	}
+
+	w = doRequest(r, http.MethodDelete, fmt.Sprintf("/api/v1/threads/%d", th.ID), "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("delete: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Even with .Unscoped(), nothing should remain — thread DELETE is hard.
+	var allMessages []models.Message
+	db.Unscoped().Where("thread_id = ?", th.ID).Find(&allMessages)
+	if len(allMessages) != 0 {
+		t.Errorf("expected 0 messages after thread delete, got %d", len(allMessages))
+	}
+	var allAttachments []models.Attachment
+	db.Unscoped().Where("message_id = ?", msg.ID).Find(&allAttachments)
+	if len(allAttachments) != 0 {
+		t.Errorf("expected 0 attachments after thread delete, got %d", len(allAttachments))
+	}
+	var allBranches []models.BranchSelection
+	db.Unscoped().Where("thread_id = ?", th.ID).Find(&allBranches)
+	if len(allBranches) != 0 {
+		t.Errorf("expected 0 branch selections after thread delete, got %d", len(allBranches))
 	}
 }
 

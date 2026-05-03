@@ -132,6 +132,115 @@ func createMessage(t *testing.T, db *gorm.DB, threadID int64, parentID *int64, r
 	return msg
 }
 
+func TestSoftDeleteMessageBranch(t *testing.T) {
+	// Regenerate uses softDeleteMessageBranch to clear the last assistant
+	// message and its descendants. Verify that:
+	//   - the assistant message + its descendants get deleted_at set;
+	//   - the user message that came before is untouched;
+	//   - attachments tied to the deleted messages are also soft-deleted;
+	//   - GORM Find auto-filters the soft-deleted rows;
+	//   - .Unscoped() still sees them with deleted_at populated.
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	thread := createTestThread(t, db)
+	user := createMessage(t, db, thread.ID, nil, "user", "hi")
+	assistant := createMessage(t, db, thread.ID, &user.ID, "assistant", "hello")
+	follow := createMessage(t, db, thread.ID, &assistant.ID, "user", "thanks")
+	att := models.Attachment{
+		MessageID:    assistant.ID,
+		StoredName:   "stored.png",
+		OriginalName: "orig.png",
+		MimeType:     "image/png",
+		Size:         1,
+	}
+	db.Create(&att)
+
+	if err := softDeleteMessageBranch(db, thread.ID, assistant.ID); err != nil {
+		t.Fatalf("softDeleteMessageBranch: %v", err)
+	}
+
+	// Live (auto-filtered) view: only the original user message survives.
+	var live []models.Message
+	db.Where("thread_id = ?", thread.ID).Order("id ASC").Find(&live)
+	if len(live) != 1 || live[0].ID != user.ID {
+		t.Fatalf("expected only the user message live, got %d (ids %v)", len(live), live)
+	}
+
+	// Unscoped: assistant + descendant follow-up still in DB with deleted_at set.
+	var all []models.Message
+	db.Unscoped().Where("thread_id = ?", thread.ID).Order("id ASC").Find(&all)
+	if len(all) != 3 {
+		t.Fatalf("expected 3 rows in DB, got %d", len(all))
+	}
+	for _, m := range all {
+		switch m.ID {
+		case user.ID:
+			if m.DeletedAt.Valid {
+				t.Errorf("user message should not be soft-deleted")
+			}
+		case assistant.ID, follow.ID:
+			if !m.DeletedAt.Valid {
+				t.Errorf("message %d should have deleted_at set", m.ID)
+			}
+		default:
+			t.Errorf("unexpected message id %d", m.ID)
+		}
+	}
+
+	// Attachment on the deleted assistant message is soft-deleted too.
+	var liveAtt []models.Attachment
+	db.Where("message_id = ?", assistant.ID).Find(&liveAtt)
+	if len(liveAtt) != 0 {
+		t.Errorf("expected attachment hidden after branch soft-delete, got %d", len(liveAtt))
+	}
+	var allAtt []models.Attachment
+	db.Unscoped().Where("message_id = ?", assistant.ID).Find(&allAtt)
+	if len(allAtt) != 1 || !allAtt[0].DeletedAt.Valid {
+		t.Errorf("expected attachment still present with deleted_at set, got %d", len(allAtt))
+	}
+
+	// getActivePath now skips the soft-deleted branch.
+	path, _, err := getActivePath(db, thread.ID)
+	if err != nil {
+		t.Fatalf("getActivePath: %v", err)
+	}
+	if len(path) != 1 || path[0].ID != user.ID {
+		t.Fatalf("expected getActivePath to return only the user message, got %d entries", len(path))
+	}
+}
+
+func TestSoftDeleteMessageBranch_Idempotent(t *testing.T) {
+	// Calling Regenerate's soft-delete twice on the same branch must not error
+	// and must leave the deleted_at timestamps untouched on the second call.
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	thread := createTestThread(t, db)
+	user := createMessage(t, db, thread.ID, nil, "user", "hi")
+	assistant := createMessage(t, db, thread.ID, &user.ID, "assistant", "hello")
+
+	if err := softDeleteMessageBranch(db, thread.ID, assistant.ID); err != nil {
+		t.Fatalf("first soft-delete: %v", err)
+	}
+	var first models.Message
+	if err := db.Unscoped().First(&first, assistant.ID).Error; err != nil {
+		t.Fatalf("load deleted assistant: %v", err)
+	}
+	firstAt := first.DeletedAt
+
+	if err := softDeleteMessageBranch(db, thread.ID, assistant.ID); err != nil {
+		t.Fatalf("second soft-delete: %v", err)
+	}
+	var second models.Message
+	if err := db.Unscoped().First(&second, assistant.ID).Error; err != nil {
+		t.Fatalf("reload deleted assistant: %v", err)
+	}
+	if !second.DeletedAt.Valid || second.DeletedAt.Time != firstAt.Time {
+		t.Errorf("deleted_at should not change on a second soft-delete; was %v, now %v", firstAt.Time, second.DeletedAt.Time)
+	}
+}
+
 func TestIsTransientError(t *testing.T) {
 	tests := []struct {
 		msg  string

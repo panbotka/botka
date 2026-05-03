@@ -253,12 +253,10 @@ func (h *ChatHandler) Regenerate(c *gin.Context) {
 
 	lastMsg := pathMessages[len(pathMessages)-1]
 	if lastMsg.Role == "assistant" {
-		// Delete the assistant message branch
-		h.db.Exec(`WITH RECURSIVE descendants AS (
-			SELECT id FROM messages WHERE id = ? AND thread_id = ?
-			UNION ALL
-			SELECT m.id FROM messages m JOIN descendants d ON m.parent_id = d.id
-		) DELETE FROM messages WHERE id IN (SELECT id FROM descendants)`, lastMsg.ID, threadID)
+		if err := softDeleteMessageBranch(h.db, threadID, lastMsg.ID); err != nil {
+			respondError(c, http.StatusInternalServerError, "failed to clear assistant branch")
+			return
+		}
 	} else if lastMsg.Role != "user" {
 		respondError(c, http.StatusBadRequest, "unexpected last message role")
 		return

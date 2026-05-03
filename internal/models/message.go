@@ -3,6 +3,8 @@ package models
 import (
 	"encoding/json"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // ToolCall represents a single tool invocation during an assistant response.
@@ -29,6 +31,7 @@ type Message struct {
 	Hidden             bool            `gorm:"not null;default:false" json:"hidden"`
 	Attachments        []Attachment    `gorm:"foreignKey:MessageID" json:"attachments,omitempty"`
 	CreatedAt          time.Time       `json:"created_at"`
+	DeletedAt          gorm.DeletedAt  `gorm:"index" json:"-"`
 }
 
 // TableName returns the database table name for the Message model.

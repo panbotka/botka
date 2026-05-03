@@ -95,6 +95,10 @@ func setupTestDB(t *testing.T) *gorm.DB {
 				// One running task per project constraint.
 				sharedDB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_one_running_per_project
 					ON tasks (project_id) WHERE status = 'running'`)
+				// Partial unique index on branch_selections — non-deleted rows only.
+				sharedDB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_branch_thread_fork
+					ON branch_selections (thread_id, fork_message_id)
+					WHERE deleted_at IS NULL`)
 			}
 		}
 	})

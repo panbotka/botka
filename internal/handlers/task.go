@@ -1021,7 +1021,7 @@ func (h *TaskHandler) Stats(c *gin.Context) {
 		Scan(&execCost)
 
 	var msgCost struct{ Sum *float64 }
-	h.db.Raw(`SELECT SUM(cost_usd) as sum FROM messages WHERE cost_usd IS NOT NULL`).Scan(&msgCost)
+	h.db.Raw(`SELECT SUM(cost_usd) as sum FROM messages WHERE cost_usd IS NOT NULL AND deleted_at IS NULL`).Scan(&msgCost)
 
 	totalCost := 0.0
 	if execCost.Sum != nil {
