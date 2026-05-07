@@ -1,4 +1,4 @@
-import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution, TaskSchedule } from '../types'
+import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -1127,6 +1127,38 @@ export function triggerCronJob(id: number): Promise<{ execution_id: number }> {
   return requestData<{ execution_id: number }>(`/cron-jobs/${id}/run`, { method: 'POST' })
 }
 
+// Web Push
+
+export interface CreatePushSubscriptionInput {
+  endpoint: string
+  keys: { p256dh: string; auth: string }
+  user_agent?: string
+}
+
+export function getVapidPublicKey(): Promise<{ public_key: string }> {
+  return requestData<{ public_key: string }>('/push/vapid-public-key')
+}
+
+export function listPushSubscriptions(): Promise<PushSubscriptionInfo[]> {
+  return requestData<PushSubscriptionInfo[]>('/push/subscriptions')
+}
+
+export async function createPushSubscription(input: CreatePushSubscriptionInput): Promise<PushSubscriptionInfo> {
+  const body = await request<{ data: PushSubscriptionInfo }>('/push/subscriptions', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+  return body.data
+}
+
+export function deletePushSubscription(id: number): Promise<void> {
+  return request<void>(`/push/subscriptions/${id}`, { method: 'DELETE' })
+}
+
+export function sendTestPush(): Promise<{ sent: number }> {
+  return requestData<{ sent: number }>('/push/test', { method: 'POST' })
+}
+
 // Convenience object for use in hooks that call api.methodName()
 export const api = {
   // Projects
@@ -1251,4 +1283,10 @@ export const api = {
   deleteCronJob,
   listCronExecutions,
   triggerCronJob,
+  // Web Push
+  getVapidPublicKey,
+  listPushSubscriptions,
+  createPushSubscription,
+  deletePushSubscription,
+  sendTestPush,
 }

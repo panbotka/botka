@@ -559,3 +559,14 @@ export interface CostAnalytics {
   by_thread: CostByThread[]
   by_project: CostByProject[]
 }
+
+export interface PushSubscriptionInfo {
+  id: number
+  user_id: number
+  endpoint: string
+  p256dh: string
+  auth: string
+  user_agent?: string
+  created_at: string
+  last_used_at?: string | null
+}

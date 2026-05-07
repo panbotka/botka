@@ -24,6 +24,7 @@ import {
   Star,
   Eye,
   EyeOff,
+  Bell,
 } from 'lucide-react'
 
 import { useSettings, type Theme, type FontSize } from '../context/SettingsContext'
@@ -62,6 +63,7 @@ import {
 import type { Persona, Tag, Memory, MCPServer, MCPServerType, MCPServerStdioConfig, MCPServerSSEConfig } from '../types'
 import UsersTab from '../components/UsersTab'
 import { ProjectsContent } from './ProjectsPage'
+import { usePushSubscription } from '../hooks/usePushSubscription'
 
 // ── Constants ──
 
@@ -78,7 +80,7 @@ const TAG_COLORS = [
   { name: 'Pink', hex: '#EC4899' },
 ]
 
-type TabId = 'general' | 'security' | 'users' | 'runner' | 'personas' | 'tags' | 'memories' | 'voice' | 'projects' | 'mcp-servers'
+type TabId = 'general' | 'security' | 'users' | 'runner' | 'personas' | 'tags' | 'memories' | 'voice' | 'projects' | 'mcp-servers' | 'notifications'
 
 interface TabDef {
   id: TabId
@@ -89,6 +91,7 @@ interface TabDef {
 const TABS: TabDef[] = [
   { id: 'general', label: 'General', icon: SettingsIcon },
   { id: 'security', label: 'Security', icon: Shield },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'users', label: 'Users', icon: Users },
   { id: 'runner', label: 'Task Runner', icon: Cpu },
   { id: 'projects', label: 'Projects', icon: FolderGit2 },
@@ -1292,6 +1295,225 @@ function SecurityTab() {
   )
 }
 
+// ── Notifications Tab ──
+
+function isIos(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && (navigator as Navigator & { maxTouchPoints?: number }).maxTouchPoints != null && (navigator as Navigator & { maxTouchPoints: number }).maxTouchPoints > 1)
+}
+
+function isStandalonePWA(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia) return false
+  if (window.matchMedia('(display-mode: standalone)').matches) return true
+  const nav = window.navigator as Navigator & { standalone?: boolean }
+  return nav.standalone === true
+}
+
+function describePushState(state: ReturnType<typeof usePushSubscription>['state']): string {
+  switch (state) {
+    case 'unsupported':
+      return 'Push notifications: not supported in this browser'
+    case 'not-configured':
+      return 'Push notifications: not configured on server'
+    case 'denied':
+      return 'Push notifications: blocked by browser'
+    case 'subscribed':
+      return 'Push notifications: enabled'
+    case 'subscribing':
+      return 'Push notifications: enabling…'
+    default:
+      return 'Push notifications: disabled'
+  }
+}
+
+function NotificationsTab() {
+  const push = usePushSubscription()
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [actionInfo, setActionInfo] = useState<string | null>(null)
+  const [busy, setBusy] = useState<'subscribe' | 'unsubscribe' | 'test' | null>(null)
+  const showIosHint = isIos() && !isStandalonePWA()
+
+  const clearMessages = () => {
+    setActionError(null)
+    setActionInfo(null)
+  }
+
+  const handleEnable = async () => {
+    clearMessages()
+    setBusy('subscribe')
+    try {
+      await push.subscribe()
+      setActionInfo('Push notifications enabled on this device.')
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to enable notifications')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const handleDisable = async () => {
+    clearMessages()
+    setBusy('unsubscribe')
+    try {
+      await push.unsubscribe()
+      setActionInfo('Push notifications disabled on this device.')
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to disable notifications')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const handleTest = async () => {
+    clearMessages()
+    setBusy('test')
+    try {
+      await push.sendTest()
+      setActionInfo('Test notification sent.')
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to send test notification')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const handleRemove = async (id: number) => {
+    clearMessages()
+    try {
+      await push.removeDevice(id)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to remove device')
+    }
+  }
+
+  const handleRetry = () => {
+    clearMessages()
+    void push.reload()
+  }
+
+  const canEnable = push.state === 'unsubscribed' || push.state === 'subscribing'
+  const canDisable = push.state === 'subscribed'
+  const canTest = push.state === 'subscribed'
+  const stateLabel = describePushState(push.state)
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-sm font-semibold text-zinc-900">Web Push notifications</h3>
+        <p className="mt-1 text-sm text-zinc-500">
+          Get push notifications even when this tab is closed. Each browser/device subscribes
+          separately.
+        </p>
+      </div>
+
+      {push.loadError && (
+        <div className="flex items-center justify-between rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+          <span>Could not load notification settings: {push.loadError}</span>
+          <button
+            onClick={handleRetry}
+            className="ml-3 rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {actionError && (
+        <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</div>
+      )}
+      {actionInfo && (
+        <div className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{actionInfo}</div>
+      )}
+
+      <div className="rounded-md border border-zinc-200 px-4 py-3">
+        <div className="text-sm text-zinc-700">{stateLabel}</div>
+      </div>
+
+      {showIosHint && (
+        <div className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Add Botka to your home screen first to enable push on iOS.
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        {canEnable && (
+          <button
+            onClick={handleEnable}
+            disabled={busy === 'subscribe' || push.state === 'subscribing' || !push.vapidKey}
+            className={clsx(
+              'rounded-md px-4 py-2 text-sm font-medium text-zinc-50 transition-colors',
+              busy === 'subscribe' || push.state === 'subscribing' || !push.vapidKey
+                ? 'cursor-not-allowed bg-zinc-400'
+                : 'bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-200 dark:text-zinc-800 dark:hover:bg-zinc-300',
+            )}
+          >
+            {busy === 'subscribe' ? 'Enabling…' : 'Enable on this device'}
+          </button>
+        )}
+        {canDisable && (
+          <button
+            onClick={handleDisable}
+            disabled={busy === 'unsubscribe'}
+            className={clsx(
+              'rounded-md border px-4 py-2 text-sm font-medium transition-colors',
+              busy === 'unsubscribe'
+                ? 'cursor-not-allowed border-zinc-200 text-zinc-400'
+                : 'border-zinc-300 text-zinc-700 hover:bg-zinc-100',
+            )}
+          >
+            {busy === 'unsubscribe' ? 'Disabling…' : 'Disable on this device'}
+          </button>
+        )}
+        {canTest && (
+          <button
+            onClick={handleTest}
+            disabled={busy === 'test'}
+            className={clsx(
+              'rounded-md border px-4 py-2 text-sm font-medium transition-colors',
+              busy === 'test'
+                ? 'cursor-not-allowed border-zinc-200 text-zinc-400'
+                : 'border-zinc-300 text-zinc-700 hover:bg-zinc-100',
+            )}
+          >
+            {busy === 'test' ? 'Sending…' : 'Send test notification'}
+          </button>
+        )}
+      </div>
+
+      <div>
+        <h4 className="text-sm font-semibold text-zinc-900">Subscribed devices</h4>
+        {push.devices.length === 0 ? (
+          <p className="mt-2 text-sm text-zinc-400">No devices subscribed.</p>
+        ) : (
+          <div className="mt-2 space-y-2">
+            {push.devices.map((d) => (
+              <div
+                key={d.id}
+                className="flex items-center justify-between rounded-md border border-zinc-200 px-3 py-2"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Bell className="h-4 w-4 shrink-0 text-zinc-400" />
+                  <span className="truncate text-sm text-zinc-700">
+                    {d.user_agent && d.user_agent.trim() !== '' ? d.user_agent : 'Unknown device'}
+                  </span>
+                </div>
+                <button
+                  onClick={() => handleRemove(d.id)}
+                  className="ml-3 shrink-0 rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-red-500"
+                  title="Remove device"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Voice Tab ──
 
 function VoiceTab() {
@@ -2071,6 +2293,7 @@ export default function SettingsPage() {
       <div>
         {activeTab === 'general' && <GeneralTab />}
         {activeTab === 'security' && <SecurityTab />}
+        {activeTab === 'notifications' && <NotificationsTab />}
         {activeTab === 'users' && <UsersTab />}
         {activeTab === 'runner' && <RunnerTab />}
         {activeTab === 'projects' && <ProjectsContent />}

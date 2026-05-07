@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useEffect, useCallback } from 'react'
-import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
   MessageSquare,
@@ -119,6 +119,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function AuthenticatedApp() {
   const location = useLocation()
+  const navigate = useNavigate()
   const isMobile = useIsMobile()
   const isChat = location.pathname.startsWith('/chat')
   // Hide bottom nav when viewing an active chat thread on mobile
@@ -156,6 +157,28 @@ function AuthenticatedApp() {
     window.addEventListener('botka:open-search', handler as EventListener)
     return () => window.removeEventListener('botka:open-search', handler as EventListener)
   }, [])
+
+  // Service-worker driven navigation: when the user clicks a Web Push
+  // notification while a tab is open, the SW focuses it and posts a
+  // {type:'navigate', url} message we honor here via react-router.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return
+    function handler(event: MessageEvent) {
+      const data = event.data as { type?: string; url?: string } | undefined
+      if (data?.type === 'navigate' && typeof data.url === 'string') {
+        try {
+          const target = new URL(data.url, window.location.origin)
+          if (target.origin === window.location.origin) {
+            navigate(target.pathname + target.search + target.hash)
+          }
+        } catch {
+          // ignore malformed URLs
+        }
+      }
+    }
+    navigator.serviceWorker.addEventListener('message', handler)
+    return () => navigator.serviceWorker.removeEventListener('message', handler)
+  }, [navigate])
 
   return (
     <SSEProvider>
