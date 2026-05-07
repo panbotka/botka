@@ -69,8 +69,11 @@ func (h *ThreadHandler) List(c *gin.Context) {
 		Select(`t.*, lm.content AS last_message_preview, lm.created_at AS last_message_at,
 			(SELECT SUM(cost_usd) FROM messages WHERE thread_id = t.id AND cost_usd IS NOT NULL AND deleted_at IS NULL) AS total_cost_usd,
 			EXISTS (SELECT 1 FROM signal_bridges sb WHERE sb.thread_id = t.id AND sb.active = true) AS signal_bridge_active`).
+		// `content || ''` forces PG to fully detoast/decompress the value before
+		// LEFT runs. Without it, PG 17 may decompress only a prefix and fail
+		// UTF-8 validation when the truncation lands mid-multibyte-char.
 		Joins(`LEFT JOIN LATERAL (
-			SELECT LEFT(content, 150) AS content, created_at
+			SELECT LEFT(content || '', 150) AS content, created_at
 			FROM messages WHERE thread_id = t.id AND deleted_at IS NULL
 			ORDER BY created_at DESC LIMIT 1
 		) lm ON true`)
