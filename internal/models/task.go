@@ -95,6 +95,7 @@ type Task struct {
 	FailureSummary      *string         `gorm:"type:text" json:"failure_summary,omitempty"`
 	ScheduleID          *int64          `json:"schedule_id,omitempty"`
 	Schedule            *TaskSchedule   `json:"schedule,omitempty" gorm:"foreignKey:ScheduleID"`
+	Tags                []TaskTag       `gorm:"many2many:task_tag_assignments;joinForeignKey:task_id;joinReferences:tag_id" json:"tags,omitempty"`
 	CreatedAt           time.Time       `json:"created_at"`
 	UpdatedAt           time.Time       `json:"updated_at"`
 }

@@ -1,4 +1,4 @@
-import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo } from '../types'
+import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, TaskTag, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -113,12 +113,16 @@ export function killProjectCommand(projectId: string, pid: number): Promise<void
 export function fetchTasks(params?: {
   status?: string
   project_id?: string
+  tag_ids?: number[]
   limit?: number
   offset?: number
 }): Promise<{ data: Task[]; total: number }> {
   const search = new URLSearchParams()
   if (params?.status) search.set('status', params.status)
   if (params?.project_id) search.set('project_id', params.project_id)
+  if (params?.tag_ids) {
+    for (const id of params.tag_ids) search.append('tag_id', String(id))
+  }
   if (params?.limit != null) search.set('limit', String(params.limit))
   if (params?.offset != null) search.set('offset', String(params.offset))
   const qs = search.toString()
@@ -469,6 +473,37 @@ export function deleteTag(id: number): Promise<void> {
 
 export function getTagThreadCount(id: number): Promise<number> {
   return requestData<{ count: number }>(`/tags/${id}/threads/count`).then((r) => r.count)
+}
+
+// Task Tags
+
+export function fetchTaskTags(): Promise<TaskTag[]> {
+  return requestData<TaskTag[]>('/task-tags')
+}
+
+export function createTaskTag(data: { name: string; color?: string }): Promise<TaskTag> {
+  return requestData<TaskTag>('/task-tags', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export function updateTaskTag(id: number, data: { name?: string; color?: string }): Promise<TaskTag> {
+  return requestData<TaskTag>(`/task-tags/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
+export function deleteTaskTag(id: number): Promise<void> {
+  return request<void>(`/task-tags/${id}`, { method: 'DELETE' })
+}
+
+export function assignTaskTags(taskId: string, tagIds: number[]): Promise<TaskTag[]> {
+  return requestData<TaskTag[]>(`/tasks/${taskId}/tags`, {
+    method: 'POST',
+    body: JSON.stringify({ tag_ids: tagIds }),
+  })
 }
 
 // Personas
@@ -1216,6 +1251,12 @@ export const api = {
   updateTag,
   deleteTag,
   getTagThreadCount,
+  // Task Tags
+  fetchTaskTags,
+  createTaskTag,
+  updateTaskTag,
+  deleteTaskTag,
+  assignTaskTags,
   // Personas
   fetchPersonas,
   createPersona,

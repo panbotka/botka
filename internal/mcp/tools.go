@@ -116,12 +116,15 @@ func (s *Server) handleCreateTask(raw json.RawMessage) (interface{}, error) {
 
 // listTasksArgs holds the arguments for the list_tasks tool.
 type listTasksArgs struct {
-	ProjectName string `json:"project_name"`
-	Status      string `json:"status"`
-	Limit       int    `json:"limit"`
+	ProjectName string   `json:"project_name"`
+	Status      string   `json:"status"`
+	TagNames    []string `json:"tag_names"`
+	Limit       int      `json:"limit"`
 }
 
-// handleListTasks lists tasks with optional filtering by status or project.
+// handleListTasks lists tasks with optional filtering by status, project, or
+// tag names. When multiple tag_names are given, only tasks bearing all of them
+// are returned.
 func (s *Server) handleListTasks(raw json.RawMessage) (interface{}, error) {
 	var args listTasksArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
@@ -133,7 +136,12 @@ func (s *Server) handleListTasks(raw json.RawMessage) (interface{}, error) {
 		limit = args.Limit
 	}
 
-	query := s.db.Preload("Project").Order("priority DESC, created_at ASC")
+	query := s.db.
+		Preload("Project").
+		Preload("Tags", func(db *gorm.DB) *gorm.DB {
+			return db.Order("task_tags.name ASC")
+		}).
+		Order("priority DESC, created_at ASC")
 
 	if args.Status != "" {
 		query = query.Where("status = ?", args.Status)
@@ -146,6 +154,20 @@ func (s *Server) handleListTasks(raw json.RawMessage) (interface{}, error) {
 			return err, nil //nolint:nilerr // return message as result, not error
 		}
 		query = query.Where("project_id = ?", project.ID)
+	}
+	if len(args.TagNames) > 0 {
+		tagIDs, msg := s.lookupTagIDs(args.TagNames)
+		if msg != "" {
+			return msg, nil
+		}
+		query = query.Where(
+			"id IN (?)",
+			s.db.Table("task_tag_assignments").
+				Select("task_id").
+				Where("tag_id IN ?", tagIDs).
+				Group("task_id").
+				Having("COUNT(DISTINCT tag_id) = ?", len(tagIDs)),
+		)
 	}
 
 	var tasks []models.Task
@@ -163,8 +185,45 @@ func (s *Server) handleListTasks(raw json.RawMessage) (interface{}, error) {
 		fmt.Fprintf(&b, "\n- [%s] %s (priority: %d)\n", t.Status, t.Title, t.Priority)
 		fmt.Fprintf(&b, "  Project: %s | ID: %s | Created: %s\n",
 			t.Project.Name, t.ID, t.CreatedAt.Format(timeFmt))
+		if len(t.Tags) > 0 {
+			names := make([]string, 0, len(t.Tags))
+			for _, tag := range t.Tags {
+				names = append(names, tag.Name)
+			}
+			fmt.Fprintf(&b, "  Tags: %s\n", strings.Join(names, ", "))
+		}
 	}
 	return b.String(), nil
+}
+
+// lookupTagIDs resolves tag names (case-insensitive) to their IDs, returning a
+// human-readable message instead of an error if any tag cannot be found.
+func (s *Server) lookupTagIDs(names []string) ([]int64, string) {
+	lower := make([]string, len(names))
+	for i, n := range names {
+		lower[i] = strings.ToLower(strings.TrimSpace(n))
+	}
+	var found []models.TaskTag
+	if err := s.db.Where("LOWER(name) IN ?", lower).Find(&found).Error; err != nil {
+		return nil, fmt.Sprintf("Failed to look up tags: %s", err)
+	}
+	foundByName := make(map[string]int64, len(found))
+	for _, t := range found {
+		foundByName[strings.ToLower(t.Name)] = t.ID
+	}
+	ids := make([]int64, 0, len(lower))
+	var missing []string
+	for _, n := range lower {
+		if id, ok := foundByName[n]; ok {
+			ids = append(ids, id)
+		} else {
+			missing = append(missing, n)
+		}
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Sprintf("Unknown tag(s): %s", strings.Join(missing, ", "))
+	}
+	return ids, ""
 }
 
 // findProjectForFilter looks up a project for list filtering.

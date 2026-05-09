@@ -282,6 +282,9 @@ func setupRouter(
 	taskHandler := handlers.NewTaskHandler(db, taskRunner.TaskEvents, boxWaker, boxSSHTarget)
 	handlers.RegisterTaskRoutes(v1, taskHandler)
 
+	taskTagHandler := handlers.NewTaskTagHandler(db)
+	handlers.RegisterTaskTagRoutes(v1, taskTagHandler)
+
 	cronHandler := handlers.NewCronHandler(db, cronScheduler)
 	handlers.RegisterCronRoutes(v1, cronHandler)
 

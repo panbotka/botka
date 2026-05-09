@@ -105,8 +105,16 @@ export interface Task {
   head_commit_sha?: string | null
   schedule_id?: number | null
   schedule?: TaskSchedule | null
+  tags?: TaskTag[]
   created_at: string
   updated_at: string
+}
+
+export interface TaskTag {
+  id: number
+  name: string
+  color: string
+  created_at: string
 }
 
 export interface TaskDiffStats {

@@ -34,6 +34,7 @@ import {
 import { bulkTaskAction, reorderTasks, updateTask } from '../api/client'
 import type { BulkTaskAction } from '../api/client'
 import { BulkActionsBar } from './BulkActionsBar'
+import { TaskTagChip } from './TaskTagChip'
 import type { Project, Task, TaskStatus } from '../types'
 
 // applyOptimisticBulk computes the post-action task list assuming every task
@@ -290,7 +291,12 @@ function SortableRow({ task, onClick, selected, onSelect, onStatusChange }: Sort
         />
       </td>
       <td className="py-2.5 pl-2 text-sm font-medium text-zinc-900 group-hover:text-blue-600">
-        {task.title}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span>{task.title}</span>
+          {task.tags?.map((tag) => (
+            <TaskTagChip key={tag.id} tag={tag} size="xs" />
+          ))}
+        </div>
       </td>
       <td className="whitespace-nowrap py-2.5 pl-2 text-xs text-zinc-500">
         {task.project_name || task.project?.name || '\u2014'}

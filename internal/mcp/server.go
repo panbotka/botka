@@ -327,11 +327,16 @@ func taskToolDefinitions() []toolDef {
 		},
 		{
 			Name:        "list_tasks",
-			Description: "List tasks with optional filtering by status or project",
+			Description: "List tasks with optional filtering by status, project, or tags",
 			InputSchema: schema(map[string]interface{}{
 				"status":       enumProp("Filter by status", allStatuses...),
 				"project_name": prop("string", "Filter by project name (case-insensitive)"),
-				"limit":        prop("integer", "Max results (default 20)"),
+				"tag_names": map[string]interface{}{
+					"type":        "array",
+					"items":       map[string]interface{}{"type": "string"},
+					"description": "Filter to tasks tagged with ALL of these names (case-insensitive)",
+				},
+				"limit": prop("integer", "Max results (default 20)"),
 			}),
 		},
 		{

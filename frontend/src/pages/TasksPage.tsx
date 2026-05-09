@@ -4,6 +4,7 @@ import { clsx } from 'clsx'
 import { Plus, Loader2 } from 'lucide-react'
 
 import { TaskList } from '../components/TaskList'
+import { TaskTagFilterBar } from '../components/TaskTagFilterBar'
 import { Pagination } from '../components/Pagination'
 import { useTasks } from '../hooks/useTasks'
 import { useTaskCounts } from '../hooks/useTaskCounts'
@@ -38,7 +39,20 @@ export default function TasksPage() {
   const urlStatus = searchParams.get('status')
   const urlProject = searchParams.get('project')
   const urlPage = searchParams.get('page')
+  const urlTags = searchParams.getAll('tag')
   const hasValidUrlParam = urlStatus !== null && validFilters.has(urlStatus)
+
+  // Parse comma-separated or repeatable ?tag=N values into a deduped int array.
+  const activeTagIDs = useMemo(() => {
+    const ids = new Set<number>()
+    for (const t of urlTags) {
+      for (const part of t.split(',')) {
+        const n = parseInt(part, 10)
+        if (!isNaN(n)) ids.add(n)
+      }
+    }
+    return Array.from(ids)
+  }, [urlTags])
 
   const autoSelectedFilter = useRef<Filter | null>(null)
 
@@ -75,6 +89,7 @@ export default function TasksPage() {
   const { tasks, total, loading, error, refetch } = useTasks({
     status: apiStatus,
     project_id: activeProjectId,
+    tag_ids: activeTagIDs,
     limit: PAGE_SIZE,
     offset,
   })
@@ -134,6 +149,14 @@ export default function TasksPage() {
   const handleProjectChange = useCallback(
     (value: string) => {
       updateSearchParams({ project: value || null, page: null })
+    },
+    [updateSearchParams],
+  )
+
+  const handleTagsChange = useCallback(
+    (ids: number[]) => {
+      // Persist as a single comma-separated `tag` param so URLs stay short.
+      updateSearchParams({ tag: ids.length === 0 ? null : ids.join(','), page: null })
     },
     [updateSearchParams],
   )
@@ -215,6 +238,7 @@ export default function TasksPage() {
             </select>
           )}
         </div>
+        <TaskTagFilterBar selected={activeTagIDs} onChange={handleTagsChange} />
       </div>
 
       {/* Content */}

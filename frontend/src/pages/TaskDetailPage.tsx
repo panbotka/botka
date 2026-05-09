@@ -26,12 +26,13 @@ import { TaskForm } from '../components/TaskForm'
 import { LiveOutputInline } from '../components/LiveOutput'
 import TaskOutputView from '../components/TaskOutputView'
 import TaskChangesSection from '../components/TaskChangesSection'
+import { TaskTagPicker } from '../components/TaskTagPicker'
 import { fetchTask, retryTask, deleteTask, updateTask, killTask, fetchTaskRawOutput, regenerateTaskFailureSummary } from '../api/client'
 import { parseNDJSON, type TaskOutputEvent } from '../utils/parseNDJSON'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import { useTaskEvents } from '../hooks/useTaskEvents'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
-import type { Task, TaskStatus, TaskExecution } from '../types'
+import type { Task, TaskStatus, TaskTag, TaskExecution } from '../types'
 
 const statusConfig: Record<
   TaskStatus,
@@ -328,6 +329,18 @@ function TaskDetail({ taskId }: { taskId: string }) {
           <Pencil className="h-3.5 w-3.5" />
           Edit
         </button>
+      </div>
+
+      {/* Tags */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs uppercase tracking-wide text-zinc-400">Tags</span>
+        <TaskTagPicker
+          taskId={taskId}
+          selected={task.tags ?? []}
+          onChange={(tags: TaskTag[]) =>
+            setTask((prev) => (prev ? { ...prev, tags } : prev))
+          }
+        />
       </div>
 
       {/* Failure summary */}

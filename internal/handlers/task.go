@@ -119,6 +119,7 @@ type taskListItem struct {
 	CompletedAt    *time.Time        `json:"completed_at"`
 	CreatedAt      time.Time         `json:"created_at"`
 	UpdatedAt      time.Time         `json:"updated_at"`
+	Tags           []models.TaskTag  `json:"tags"`
 }
 
 // List returns tasks with optional filtering and pagination.
@@ -132,7 +133,13 @@ func (h *TaskHandler) List(c *gin.Context) {
 		}
 	}
 
-	filter := taskFilter(status, projectID)
+	tagIDs, err := parseTagIDs(c)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	filter := taskFilter(status, projectID, tagIDs)
 	var total int64
 	if err := filter(h.db.Model(&models.Task{})).Count(&total).Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "failed to count tasks")
@@ -145,7 +152,9 @@ func (h *TaskHandler) List(c *gin.Context) {
 	if isCompletedFilter(status) {
 		order = "completed_at DESC NULLS LAST, created_at DESC"
 	}
-	q := filter(h.db.Preload("Project")).
+	q := filter(h.db.Preload("Project").Preload("Tags", func(db *gorm.DB) *gorm.DB {
+		return db.Order("task_tags.name ASC")
+	})).
 		Order(order).
 		Limit(limit).Offset(offset)
 	if err := q.Find(&tasks).Error; err != nil {
@@ -158,6 +167,28 @@ func (h *TaskHandler) List(c *gin.Context) {
 		items = append(items, toTaskListItem(&tasks[i]))
 	}
 	c.JSON(http.StatusOK, gin.H{"data": items, "total": total})
+}
+
+// parseTagIDs reads repeatable ?tag_id=N query params and returns the deduplicated list.
+func parseTagIDs(c *gin.Context) ([]int64, error) {
+	raw := c.QueryArray("tag_id")
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	seen := make(map[int64]struct{}, len(raw))
+	ids := make([]int64, 0, len(raw))
+	for _, s := range raw {
+		id, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return nil, errors.New("invalid tag_id")
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 // Create creates a new task.
@@ -198,6 +229,9 @@ func (h *TaskHandler) Get(c *gin.Context) {
 
 	var task models.Task
 	q := h.db.Preload("Project").Preload("Schedule").
+		Preload("Tags", func(db *gorm.DB) *gorm.DB {
+			return db.Order("task_tags.name ASC")
+		}).
 		Preload("Executions", func(db *gorm.DB) *gorm.DB {
 			return db.Select("id, task_id, attempt, started_at, finished_at, exit_code, cost_usd, duration_ms, summary, error_message, created_at").Order("attempt DESC")
 		})
@@ -869,10 +903,12 @@ func isCompletedFilter(status string) bool {
 	return true
 }
 
-// taskFilter returns a function that applies status and project_id WHERE clauses.
-// Status may be a single value or comma-separated list (e.g. "done,failed,needs_review").
-// When no status filter is provided, deleted tasks are excluded by default.
-func taskFilter(status, projectID string) func(*gorm.DB) *gorm.DB {
+// taskFilter returns a function that applies status, project_id, and tag_id
+// WHERE clauses. Status may be a single value or comma-separated list (e.g.
+// "done,failed,needs_review"). When no status filter is provided, deleted
+// tasks are excluded by default. When tagIDs is non-empty, the filter only
+// returns tasks that have ALL specified tags (intersection semantics).
+func taskFilter(status, projectID string, tagIDs []int64) func(*gorm.DB) *gorm.DB {
 	return func(q *gorm.DB) *gorm.DB {
 		if status != "" {
 			if statuses := strings.Split(status, ","); len(statuses) > 1 {
@@ -885,6 +921,20 @@ func taskFilter(status, projectID string) func(*gorm.DB) *gorm.DB {
 		}
 		if projectID != "" {
 			q = q.Where("project_id = ?", projectID)
+		}
+		if len(tagIDs) > 0 {
+			// Tasks that have ALL specified tags — count distinct matching
+			// rows in the assignment table per task and require the count to
+			// equal the number of requested tags.
+			q = q.Where(
+				"id IN (?)",
+				q.Session(&gorm.Session{NewDB: true}).
+					Table("task_tag_assignments").
+					Select("task_id").
+					Where("tag_id IN ?", tagIDs).
+					Group("task_id").
+					Having("COUNT(DISTINCT tag_id) = ?", len(tagIDs)),
+			)
 		}
 		return q
 	}
@@ -904,6 +954,10 @@ func parsePagination(c *gin.Context) (limit, offset int) {
 
 // toTaskListItem converts a Task model into a list response item.
 func toTaskListItem(t *models.Task) taskListItem {
+	tags := t.Tags
+	if tags == nil {
+		tags = []models.TaskTag{}
+	}
 	return taskListItem{
 		ID:             t.ID,
 		Title:          t.Title,
@@ -919,6 +973,7 @@ func toTaskListItem(t *models.Task) taskListItem {
 		CompletedAt:    t.CompletedAt,
 		CreatedAt:      t.CreatedAt,
 		UpdatedAt:      t.UpdatedAt,
+		Tags:           tags,
 	}
 }
 
