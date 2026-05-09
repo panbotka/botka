@@ -85,6 +85,24 @@ func TestValidateUpdate_ValidTransition(t *testing.T) {
 	}
 }
 
+func TestValidateUpdate_FailedToPending(t *testing.T) {
+	task := models.Task{Status: models.TaskStatusFailed}
+	s := models.TaskStatusPending
+	req := updateTaskRequest{Status: &s}
+	if msg := validateUpdate(task, req); msg != "" {
+		t.Fatalf("expected failed→pending allowed, got %q", msg)
+	}
+}
+
+func TestValidateUpdate_FailedToDoneRejected(t *testing.T) {
+	task := models.Task{Status: models.TaskStatusFailed}
+	s := models.TaskStatusDone
+	req := updateTaskRequest{Status: &s}
+	if msg := validateUpdate(task, req); msg != "invalid status transition" {
+		t.Fatalf("expected failed→done rejected, got %q", msg)
+	}
+}
+
 func TestBuildTaskUpdates_NilFieldsOmitted(t *testing.T) {
 	req := updateTaskRequest{}
 	updates := buildTaskUpdates(req)
