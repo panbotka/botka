@@ -119,12 +119,14 @@ type listTasksArgs struct {
 	ProjectName string   `json:"project_name"`
 	Status      string   `json:"status"`
 	TagNames    []string `json:"tag_names"`
+	Query       string   `json:"query"`
 	Limit       int      `json:"limit"`
 }
 
-// handleListTasks lists tasks with optional filtering by status, project, or
-// tag names. When multiple tag_names are given, only tasks bearing all of them
-// are returned.
+// handleListTasks lists tasks with optional filtering by status, project, tag
+// names, or a full-text query against title, spec, and failure_summary. When
+// multiple tag_names are given, only tasks bearing all of them are returned.
+// When query is non-empty, results are ranked by relevance instead of priority.
 func (s *Server) handleListTasks(raw json.RawMessage) (interface{}, error) {
 	var args listTasksArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
@@ -136,12 +138,24 @@ func (s *Server) handleListTasks(raw json.RawMessage) (interface{}, error) {
 		limit = args.Limit
 	}
 
+	searchQuery := strings.TrimSpace(args.Query)
+
 	query := s.db.
 		Preload("Project").
 		Preload("Tags", func(db *gorm.DB) *gorm.DB {
 			return db.Order("task_tags.name ASC")
-		}).
-		Order("priority DESC, created_at ASC")
+		})
+
+	if searchQuery != "" {
+		query = query.
+			Where("search_vector @@ plainto_tsquery('simple', ?)", searchQuery).
+			Order(gorm.Expr(
+				"ts_rank(search_vector, plainto_tsquery('simple', ?)) DESC, created_at DESC",
+				searchQuery,
+			))
+	} else {
+		query = query.Order("priority DESC, created_at ASC")
+	}
 
 	if args.Status != "" {
 		query = query.Where("status = ?", args.Status)

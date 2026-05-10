@@ -140,7 +140,9 @@ func (h *TaskHandler) List(c *gin.Context) {
 		return
 	}
 
-	filter := taskFilter(status, projectID, tagIDs)
+	query := strings.TrimSpace(c.Query("q"))
+
+	filter := taskFilter(status, projectID, tagIDs, query)
 	var total int64
 	if err := filter(h.db.Model(&models.Task{})).Count(&total).Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "failed to count tasks")
@@ -149,15 +151,22 @@ func (h *TaskHandler) List(c *gin.Context) {
 
 	limit, offset := parsePagination(c)
 	var tasks []models.Task
-	order := "priority DESC, created_at ASC"
-	if isCompletedFilter(status) {
-		order = "completed_at DESC NULLS LAST, created_at DESC"
-	}
 	q := filter(h.db.Preload("Project").Preload("Tags", func(db *gorm.DB) *gorm.DB {
 		return db.Order("task_tags.name ASC")
 	})).
-		Order(order).
 		Limit(limit).Offset(offset)
+	switch {
+	case query != "":
+		// When searching, rank by relevance first; recency breaks ties.
+		q = q.Order(gorm.Expr(
+			"ts_rank(search_vector, plainto_tsquery('simple', ?)) DESC, created_at DESC",
+			query,
+		))
+	case isCompletedFilter(status):
+		q = q.Order("completed_at DESC NULLS LAST, created_at DESC")
+	default:
+		q = q.Order("priority DESC, created_at ASC")
+	}
 	if err := q.Find(&tasks).Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "failed to list tasks")
 		return
@@ -963,12 +972,14 @@ func isCompletedFilter(status string) bool {
 	return true
 }
 
-// taskFilter returns a function that applies status, project_id, and tag_id
-// WHERE clauses. Status may be a single value or comma-separated list (e.g.
-// "done,failed,needs_review"). When no status filter is provided, deleted
-// tasks are excluded by default. When tagIDs is non-empty, the filter only
-// returns tasks that have ALL specified tags (intersection semantics).
-func taskFilter(status, projectID string, tagIDs []int64) func(*gorm.DB) *gorm.DB {
+// taskFilter returns a function that applies status, project_id, tag_id, and
+// full-text search WHERE clauses. Status may be a single value or
+// comma-separated list (e.g. "done,failed,needs_review"). When no status
+// filter is provided, deleted tasks are excluded by default. When tagIDs is
+// non-empty, the filter only returns tasks that have ALL specified tags
+// (intersection semantics). When searchQuery is non-empty, results are
+// restricted to rows whose search_vector matches plainto_tsquery('simple', ?).
+func taskFilter(status, projectID string, tagIDs []int64, searchQuery string) func(*gorm.DB) *gorm.DB {
 	return func(q *gorm.DB) *gorm.DB {
 		if status != "" {
 			if statuses := strings.Split(status, ","); len(statuses) > 1 {
@@ -995,6 +1006,9 @@ func taskFilter(status, projectID string, tagIDs []int64) func(*gorm.DB) *gorm.D
 					Group("task_id").
 					Having("COUNT(DISTINCT tag_id) = ?", len(tagIDs)),
 			)
+		}
+		if searchQuery != "" {
+			q = q.Where("search_vector @@ plainto_tsquery('simple', ?)", searchQuery)
 		}
 		return q
 	}

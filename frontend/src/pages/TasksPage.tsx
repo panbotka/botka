@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { clsx } from 'clsx'
-import { Plus, Loader2 } from 'lucide-react'
+import { Plus, Loader2, Search, X } from 'lucide-react'
 
 import { TaskList } from '../components/TaskList'
 import { TaskTagFilterBar } from '../components/TaskTagFilterBar'
@@ -40,6 +40,7 @@ export default function TasksPage() {
   const urlProject = searchParams.get('project')
   const urlPage = searchParams.get('page')
   const urlTags = searchParams.getAll('tag')
+  const urlQuery = searchParams.get('q') ?? ''
   const hasValidUrlParam = urlStatus !== null && validFilters.has(urlStatus)
 
   // Parse comma-separated or repeatable ?tag=N values into a deduped int array.
@@ -90,6 +91,7 @@ export default function TasksPage() {
     status: apiStatus,
     project_id: activeProjectId,
     tag_ids: activeTagIDs,
+    q: urlQuery || undefined,
     limit: PAGE_SIZE,
     offset,
   })
@@ -177,6 +179,27 @@ export default function TasksPage() {
     refetchAll()
   }, [refetchAll])
 
+  // Local input state for the search box, debounced into the URL after 250ms.
+  // Keeping the URL as the canonical source means the search survives reload
+  // and back-button navigation, while the local state keeps typing snappy.
+  const [searchInput, setSearchInput] = useState(urlQuery)
+  useEffect(() => {
+    setSearchInput(urlQuery)
+  }, [urlQuery])
+
+  useEffect(() => {
+    if (searchInput === urlQuery) return
+    const timer = setTimeout(() => {
+      updateSearchParams({ q: searchInput || null, page: null })
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [searchInput, urlQuery, updateSearchParams])
+
+  const handleClearSearch = useCallback(() => {
+    setSearchInput('')
+    updateSearchParams({ q: null, page: null })
+  }, [updateSearchParams])
+
   return (
     <div className="mx-auto max-w-5xl space-y-5">
       {/* Header */}
@@ -189,6 +212,28 @@ export default function TasksPage() {
           <Plus className="h-4 w-4" />
           New Task
         </Link>
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+        <input
+          type="search"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Search tasks by title, spec, or failure summary…"
+          className="w-full rounded-md border border-zinc-200 bg-white dark:bg-zinc-100 py-2 pl-9 pr-9 text-sm text-zinc-700 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
+        />
+        {searchInput && (
+          <button
+            type="button"
+            onClick={handleClearSearch}
+            aria-label="Clear search"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       {/* Filters */}

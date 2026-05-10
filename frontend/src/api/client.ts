@@ -114,6 +114,7 @@ export function fetchTasks(params?: {
   status?: string
   project_id?: string
   tag_ids?: number[]
+  q?: string
   limit?: number
   offset?: number
 }): Promise<{ data: Task[]; total: number }> {
@@ -123,6 +124,7 @@ export function fetchTasks(params?: {
   if (params?.tag_ids) {
     for (const id of params.tag_ids) search.append('tag_id', String(id))
   }
+  if (params?.q) search.set('q', params.q)
   if (params?.limit != null) search.set('limit', String(params.limit))
   if (params?.offset != null) search.set('offset', String(params.offset))
   const qs = search.toString()

@@ -462,6 +462,84 @@ func TestTaskList_Pagination(t *testing.T) {
 	}
 }
 
+func TestTaskList_FullTextSearch(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createTestProject(t, db)
+
+	// Distinct titles/specs so search picks each one out individually.
+	t1 := models.Task{Title: "Add VAPID keys", Spec: "configure web push", ProjectID: proj.ID, Status: models.TaskStatusPending}
+	t2 := models.Task{Title: "Fix migration typo", Spec: "schema_migrations check", ProjectID: proj.ID, Status: models.TaskStatusPending}
+	t3 := models.Task{Title: "Refactor renderer", Spec: "no related keywords", ProjectID: proj.ID, Status: models.TaskStatusPending}
+	for _, task := range []*models.Task{&t1, &t2, &t3} {
+		if err := db.Create(task).Error; err != nil {
+			t.Fatalf("create test task: %v", err)
+		}
+	}
+
+	r := taskRouter(db)
+
+	// Term that appears in t1's title only.
+	w := doRequest(r, http.MethodGet, "/api/v1/tasks?q=VAPID", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if total := resp["total"].(float64); total != 1 {
+		t.Errorf("expected 1 match for 'VAPID', got %.0f", total)
+	}
+	data := resp["data"].([]interface{})
+	if len(data) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(data))
+	}
+	first := data[0].(map[string]interface{})
+	if first["title"] != "Add VAPID keys" {
+		t.Errorf("expected 'Add VAPID keys', got %q", first["title"])
+	}
+
+	// Term in t2's spec.
+	w = doRequest(r, http.MethodGet, "/api/v1/tasks?q=schema_migrations", "")
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if total := resp["total"].(float64); total != 1 {
+		t.Errorf("expected 1 match for 'schema_migrations', got %.0f", total)
+	}
+
+	// No match.
+	w = doRequest(r, http.MethodGet, "/api/v1/tasks?q=nonexistent", "")
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if total := resp["total"].(float64); total != 0 {
+		t.Errorf("expected 0 matches for 'nonexistent', got %.0f", total)
+	}
+}
+
+func TestTaskList_SearchCombinesWithFilters(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createTestProject(t, db)
+
+	t1 := models.Task{Title: "VAPID setup", Spec: "x", ProjectID: proj.ID, Status: models.TaskStatusPending}
+	t2 := models.Task{Title: "VAPID rotate", Spec: "x", ProjectID: proj.ID, Status: models.TaskStatusDone}
+	for _, task := range []*models.Task{&t1, &t2} {
+		if err := db.Create(task).Error; err != nil {
+			t.Fatalf("create test task: %v", err)
+		}
+	}
+
+	r := taskRouter(db)
+
+	// q + status — both matches contain VAPID, but only one is pending.
+	w := doRequest(r, http.MethodGet, "/api/v1/tasks?q=VAPID&status=pending", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if total := resp["total"].(float64); total != 1 {
+		t.Errorf("expected 1 result for q+status, got %.0f", total)
+	}
+}
+
 func TestTaskUpdate_Success(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)

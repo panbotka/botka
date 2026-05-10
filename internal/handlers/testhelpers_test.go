@@ -112,6 +112,17 @@ func setupTestDB(t *testing.T) *gorm.DB {
 				// One running task per project constraint.
 				sharedDB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_one_running_per_project
 					ON tasks (project_id) WHERE status = 'running'`)
+				// Mirror migration 030: full-text search column, GIN index, and
+				// auto-update trigger. The trigger keeps search_vector in sync
+				// with title/spec/failure_summary on every insert and update.
+				sharedDB.Exec(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS search_vector tsvector`)
+				sharedDB.Exec(`CREATE INDEX IF NOT EXISTS idx_tasks_search
+					ON tasks USING GIN (search_vector)`)
+				sharedDB.Exec(`DROP TRIGGER IF EXISTS tasks_search_vector_update ON tasks`)
+				sharedDB.Exec(`CREATE TRIGGER tasks_search_vector_update
+					BEFORE INSERT OR UPDATE OF title, spec, failure_summary ON tasks
+					FOR EACH ROW EXECUTE FUNCTION
+					tsvector_update_trigger(search_vector, 'pg_catalog.simple', title, spec, failure_summary)`)
 				// Partial unique index on branch_selections — non-deleted rows only.
 				sharedDB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_branch_thread_fork
 					ON branch_selections (thread_id, fork_message_id)

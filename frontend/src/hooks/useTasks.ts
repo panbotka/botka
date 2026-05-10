@@ -6,6 +6,7 @@ interface UseTasksFilters {
   status?: string
   project_id?: string
   tag_ids?: number[]
+  q?: string
   limit?: number
   offset?: number
 }
@@ -34,12 +35,14 @@ export function useTasks(filters: UseTasksFilters = {}): UseTasksResult {
         status?: string
         project_id?: string
         tag_ids?: number[]
+        q?: string
         limit?: number
         offset?: number
       } = {}
       if (filters.status) params.status = filters.status
       if (filters.project_id) params.project_id = filters.project_id
       if (filters.tag_ids && filters.tag_ids.length > 0) params.tag_ids = filters.tag_ids
+      if (filters.q) params.q = filters.q
       if (filters.limit != null) params.limit = filters.limit
       if (filters.offset != null) params.offset = filters.offset
       const result = await fetchTasks(params)
@@ -52,7 +55,7 @@ export function useTasks(filters: UseTasksFilters = {}): UseTasksResult {
     }
     // tagKey covers filters.tag_ids identity changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.status, filters.project_id, tagKey, filters.limit, filters.offset])
+  }, [filters.status, filters.project_id, tagKey, filters.q, filters.limit, filters.offset])
 
   useEffect(() => {
     setLoading(true)
