@@ -222,6 +222,8 @@ func (s *Server) toolHandlers() map[string]toolHandler {
 		"get_task":             s.handleGetTask,
 		"update_task":          s.handleUpdateTask,
 		"bulk_update_tasks":    s.handleBulkUpdateTasks,
+		"add_task_note":        s.handleAddTaskNote,
+		"list_task_notes":      s.handleListTaskNotes,
 		"list_projects":        s.handleListProjects,
 		"get_runner_status":    s.handleGetRunnerStatus,
 		"start_runner":         s.handleStartRunner,
@@ -392,6 +394,23 @@ func taskToolDefinitions() []toolDef {
 			Name:        "list_projects",
 			Description: "List all active projects for task scheduling",
 			InputSchema: schema(map[string]interface{}{}),
+		},
+		{
+			Name: "add_task_note",
+			Description: "Append a free-form, timestamped note to a task. Notes are " +
+				"human-only metadata and are NOT included in the context Claude " +
+				"sees when the task runs.",
+			InputSchema: schema(map[string]interface{}{
+				"task_id": uuidProp("UUID of the task"),
+				"body":    prop("string", "Note body (non-empty)"),
+			}, "task_id", "body"),
+		},
+		{
+			Name:        "list_task_notes",
+			Description: "List the notes attached to a task, ordered oldest-first",
+			InputSchema: schema(map[string]interface{}{
+				"task_id": uuidProp("UUID of the task"),
+			}, "task_id"),
 		},
 	}
 }

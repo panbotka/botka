@@ -29,6 +29,7 @@ import {
   Ban,
   ChevronDown,
   Trash2,
+  StickyNote,
 } from 'lucide-react'
 
 import { bulkUpdateTasks, reorderTasks, updateTask } from '../api/client'
@@ -314,6 +315,15 @@ function SortableRow({ task, onClick, selected, onSelect, onStatusChange }: Sort
           {task.tags?.map((tag) => (
             <TaskTagChip key={tag.id} tag={tag} size="xs" />
           ))}
+          {task.notes_count != null && task.notes_count > 0 && (
+            <span
+              title={`${task.notes_count} note${task.notes_count === 1 ? '' : 's'}`}
+              className="inline-flex items-center gap-0.5 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+            >
+              <StickyNote className="h-2.5 w-2.5" />
+              {task.notes_count}
+            </span>
+          )}
         </div>
       </td>
       <td className="whitespace-nowrap py-2.5 pl-2 text-xs text-zinc-500">

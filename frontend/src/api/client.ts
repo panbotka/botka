@@ -1,4 +1,4 @@
-import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, TaskTag, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo } from '../types'
+import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, TaskNote, TaskTag, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -525,6 +525,30 @@ export function assignTaskTags(taskId: string, tagIds: number[]): Promise<TaskTa
     method: 'POST',
     body: JSON.stringify({ tag_ids: tagIds }),
   })
+}
+
+// Task Notes
+
+export function fetchTaskNotes(taskId: string): Promise<TaskNote[]> {
+  return requestData<TaskNote[]>(`/tasks/${taskId}/notes`)
+}
+
+export function createTaskNote(taskId: string, body: string): Promise<TaskNote> {
+  return requestData<TaskNote>(`/tasks/${taskId}/notes`, {
+    method: 'POST',
+    body: JSON.stringify({ body }),
+  })
+}
+
+export function updateTaskNote(taskId: string, noteId: number, body: string): Promise<TaskNote> {
+  return requestData<TaskNote>(`/tasks/${taskId}/notes/${noteId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ body }),
+  })
+}
+
+export function deleteTaskNote(taskId: string, noteId: number): Promise<void> {
+  return request<void>(`/tasks/${taskId}/notes/${noteId}`, { method: 'DELETE' })
 }
 
 // Personas
@@ -1278,6 +1302,11 @@ export const api = {
   updateTaskTag,
   deleteTaskTag,
   assignTaskTags,
+  // Task Notes
+  fetchTaskNotes,
+  createTaskNote,
+  updateTaskNote,
+  deleteTaskNote,
   // Personas
   fetchPersonas,
   createPersona,

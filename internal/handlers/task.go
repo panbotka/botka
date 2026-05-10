@@ -121,6 +121,7 @@ type taskListItem struct {
 	CreatedAt      time.Time         `json:"created_at"`
 	UpdatedAt      time.Time         `json:"updated_at"`
 	Tags           []models.TaskTag  `json:"tags"`
+	NotesCount     int64             `json:"notes_count"`
 }
 
 // List returns tasks with optional filtering and pagination.
@@ -172,11 +173,47 @@ func (h *TaskHandler) List(c *gin.Context) {
 		return
 	}
 
+	notesCounts, err := h.notesCountsForTasks(tasks)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "failed to count notes")
+		return
+	}
+
 	items := make([]taskListItem, 0, len(tasks))
 	for i := range tasks {
-		items = append(items, toTaskListItem(&tasks[i]))
+		items = append(items, toTaskListItem(&tasks[i], notesCounts[tasks[i].ID]))
 	}
 	c.JSON(http.StatusOK, gin.H{"data": items, "total": total})
+}
+
+// notesCountsForTasks returns a map of task ID → non-deleted note count for
+// the given tasks. Returns an empty map when the input list is empty so the
+// caller can index into it unconditionally.
+func (h *TaskHandler) notesCountsForTasks(tasks []models.Task) (map[uuid.UUID]int64, error) {
+	counts := make(map[uuid.UUID]int64, len(tasks))
+	if len(tasks) == 0 {
+		return counts, nil
+	}
+	ids := make([]uuid.UUID, len(tasks))
+	for i := range tasks {
+		ids[i] = tasks[i].ID
+	}
+	type row struct {
+		TaskID uuid.UUID
+		Count  int64
+	}
+	var rows []row
+	if err := h.db.Model(&models.TaskNote{}).
+		Select("task_id, COUNT(*) AS count").
+		Where("task_id IN ? AND deleted_at IS NULL", ids).
+		Group("task_id").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		counts[r.TaskID] = r.Count
+	}
+	return counts, nil
 }
 
 // parseTagIDs reads repeatable ?tag_id=N query params and returns the deduplicated list.
@@ -1027,7 +1064,7 @@ func parsePagination(c *gin.Context) (limit, offset int) {
 }
 
 // toTaskListItem converts a Task model into a list response item.
-func toTaskListItem(t *models.Task) taskListItem {
+func toTaskListItem(t *models.Task, notesCount int64) taskListItem {
 	tags := t.Tags
 	if tags == nil {
 		tags = []models.TaskTag{}
@@ -1048,6 +1085,7 @@ func toTaskListItem(t *models.Task) taskListItem {
 		CreatedAt:      t.CreatedAt,
 		UpdatedAt:      t.UpdatedAt,
 		Tags:           tags,
+		NotesCount:     notesCount,
 	}
 }
 

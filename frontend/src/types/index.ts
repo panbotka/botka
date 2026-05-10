@@ -106,6 +106,7 @@ export interface Task {
   schedule_id?: number | null
   schedule?: TaskSchedule | null
   tags?: TaskTag[]
+  notes_count?: number
   created_at: string
   updated_at: string
 }
@@ -115,6 +116,15 @@ export interface TaskTag {
   name: string
   color: string
   created_at: string
+}
+
+export interface TaskNote {
+  id: number
+  task_id: string
+  body: string
+  author: string
+  created_at: string
+  updated_at: string
 }
 
 export interface TaskDiffStats {

@@ -27,6 +27,7 @@ import { LiveOutputInline } from '../components/LiveOutput'
 import TaskOutputView from '../components/TaskOutputView'
 import TaskChangesSection from '../components/TaskChangesSection'
 import { TaskTagPicker } from '../components/TaskTagPicker'
+import { TaskNotesSection } from '../components/TaskNotesSection'
 import { fetchTask, retryTask, deleteTask, updateTask, killTask, fetchTaskRawOutput, regenerateTaskFailureSummary } from '../api/client'
 import { parseNDJSON, type TaskOutputEvent } from '../utils/parseNDJSON'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
@@ -370,6 +371,14 @@ function TaskDetail({ taskId }: { taskId: string }) {
           <p className="text-sm text-zinc-400">No spec provided</p>
         )}
       </div>
+
+      {/* Notes (human-only metadata; not sent to Claude) */}
+      <TaskNotesSection
+        taskId={taskId}
+        onCountChange={(count) =>
+          setTask((prev) => (prev ? { ...prev, notes_count: count } : prev))
+        }
+      />
 
       {/* Changes (git diff) — visible for completed runs that recorded a commit range */}
       {hasCompletedOutput && task.base_commit_sha && task.head_commit_sha && (

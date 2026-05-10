@@ -285,6 +285,9 @@ func setupRouter(
 	taskTagHandler := handlers.NewTaskTagHandler(db)
 	handlers.RegisterTaskTagRoutes(v1, taskTagHandler)
 
+	taskNoteHandler := handlers.NewTaskNoteHandler(db)
+	handlers.RegisterTaskNoteRoutes(v1, taskNoteHandler)
+
 	cronHandler := handlers.NewCronHandler(db, cronScheduler)
 	handlers.RegisterCronRoutes(v1, cronHandler)
 
