@@ -239,9 +239,17 @@ interface SortableRowProps {
   selected: boolean
   onSelect: (id: string, checked: boolean) => void
   onStatusChange: () => void
+  showCost: boolean
 }
 
-function SortableRow({ task, onClick, selected, onSelect, onStatusChange }: SortableRowProps) {
+function formatCostCell(cost: number | null | undefined): string {
+  if (cost == null || cost === 0) return ''
+  if (cost < 0.01) return '<$0.01'
+  if (cost < 1) return `$${cost.toFixed(2)}`
+  return `$${cost.toFixed(2)}`
+}
+
+function SortableRow({ task, onClick, selected, onSelect, onStatusChange, showCost }: SortableRowProps) {
   const draggable = isDraggable(task.status)
   const {
     attributes,
@@ -329,6 +337,18 @@ function SortableRow({ task, onClick, selected, onSelect, onStatusChange }: Sort
       <td className="whitespace-nowrap py-2.5 pl-2 text-xs text-zinc-500">
         {task.project_name || task.project?.name || '\u2014'}
       </td>
+      {showCost && (
+        <td
+          className="whitespace-nowrap py-2.5 pl-2 text-right text-xs tabular-nums text-zinc-500"
+          title={
+            task.cost_usd != null
+              ? `$${task.cost_usd.toFixed(4)}${task.model ? ` (${task.model})` : ''}`
+              : undefined
+          }
+        >
+          {formatCostCell(task.cost_usd) || <span className="text-zinc-300">&mdash;</span>}
+        </td>
+      )}
       {(() => {
         const duration = formatDuration(task.started_at, task.completed_at)
         return duration ? (
@@ -353,11 +373,42 @@ interface TaskListProps {
   onStatusChange: () => void
 }
 
+// Storage key for the optional Cost column toggle. Persisting in localStorage
+// keeps the column shown across reloads once the user opts in.
+const COST_COLUMN_STORAGE_KEY = 'botka:tasks:show-cost'
+
+function loadCostColumnPref(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    return window.localStorage.getItem(COST_COLUMN_STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function saveCostColumnPref(show: boolean) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(COST_COLUMN_STORAGE_KEY, show ? '1' : '0')
+  } catch {
+    // ignore quota / private browsing errors
+  }
+}
+
 export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, onStatusChange }: TaskListProps) {
   const navigate = useNavigate()
   const [items, setItems] = useState(tasks)
   const [reordering, setReordering] = useState(false)
   const [bulkSummary, setBulkSummary] = useState<BulkResultSummary | null>(null)
+  const [showCost, setShowCost] = useState(loadCostColumnPref)
+
+  const toggleCost = useCallback(() => {
+    setShowCost((prev) => {
+      const next = !prev
+      saveCostColumnPref(next)
+      return next
+    })
+  }, [])
 
   // Sync when parent tasks change (new fetch)
   if (tasks !== items && !reordering) {
@@ -498,6 +549,16 @@ export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, onS
       {bulkSummary && (
         <BulkResultToast summary={bulkSummary} onDismiss={() => setBulkSummary(null)} />
       )}
+      <div className="mb-2 flex items-center justify-end">
+        <button
+          type="button"
+          onClick={toggleCost}
+          className="text-xs font-medium text-zinc-500 hover:text-zinc-700"
+          title={showCost ? 'Hide Cost column' : 'Show Cost column'}
+        >
+          {showCost ? '− Hide Cost' : '+ Show Cost'}
+        </button>
+      </div>
       <div className="overflow-x-clip overflow-y-visible rounded-lg border border-zinc-200">
         <table className="w-full text-left">
           <thead>
@@ -515,6 +576,7 @@ export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, onS
               <th className="py-2">Status</th>
               <th className="py-2 pl-2">Title</th>
               <th className="py-2 pl-2">Project</th>
+              {showCost && <th className="py-2 pl-2 text-right">Cost</th>}
               <th className="py-2 pl-2 pr-3 text-right">Created</th>
             </tr>
           </thead>
@@ -533,6 +595,7 @@ export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, onS
                     selected={selectedIds.has(task.id)}
                     onSelect={handleSelect}
                     onStatusChange={onStatusChange}
+                    showCost={showCost}
                   />
                 ))}
               </tbody>

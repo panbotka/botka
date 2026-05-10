@@ -101,6 +101,7 @@ export interface Task {
   cache_read_tokens: number | null
   cache_creation_tokens: number | null
   cost_usd: number | null
+  model?: string | null
   base_commit_sha?: string | null
   head_commit_sha?: string | null
   schedule_id?: number | null
@@ -576,6 +577,31 @@ export interface CostAnalytics {
   by_model: CostByModel[]
   by_thread: CostByThread[]
   by_project: CostByProject[]
+}
+
+// Aggregated task stats from /api/v1/stats/tasks. Each bucket fills in
+// exactly one of the keying fields (day, project, or model) depending on the
+// requested group_by.
+export interface TaskStatsBucket {
+  day?: string
+  project?: string
+  project_id?: string
+  model?: string
+  task_count: number
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_creation_tokens: number
+  cost_usd: number
+}
+
+export type TaskStatsGroupBy = 'day' | 'project' | 'model' | 'day,project' | 'day,model'
+
+export interface TaskStatsAggregated {
+  from: string
+  to: string
+  group_by: TaskStatsGroupBy
+  buckets: TaskStatsBucket[]
 }
 
 export interface PushSubscriptionInfo {

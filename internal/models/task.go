@@ -90,6 +90,7 @@ type Task struct {
 	CacheReadTokens     *int64          `json:"cache_read_tokens"`
 	CacheCreationTokens *int64          `json:"cache_creation_tokens"`
 	CostUSD             *float64        `gorm:"type:numeric(12,6)" json:"cost_usd"`
+	Model               *string         `gorm:"type:text" json:"model"`
 	BaseCommitSHA       *string         `gorm:"type:text" json:"base_commit_sha,omitempty"`
 	HeadCommitSHA       *string         `gorm:"type:text" json:"head_commit_sha,omitempty"`
 	FailureSummary      *string         `gorm:"type:text" json:"failure_summary,omitempty"`

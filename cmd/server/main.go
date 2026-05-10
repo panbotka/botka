@@ -282,6 +282,9 @@ func setupRouter(
 	taskHandler := handlers.NewTaskHandler(db, taskRunner.TaskEvents, boxWaker, boxSSHTarget)
 	handlers.RegisterTaskRoutes(v1, taskHandler)
 
+	taskStatsHandler := handlers.NewTaskStatsHandler(db)
+	handlers.RegisterTaskStatsRoutes(v1, taskStatsHandler)
+
 	taskTagHandler := handlers.NewTaskTagHandler(db)
 	handlers.RegisterTaskTagRoutes(v1, taskTagHandler)
 

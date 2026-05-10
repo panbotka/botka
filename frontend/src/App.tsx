@@ -12,6 +12,7 @@ import {
   Server,
   ChevronLeft,
   ChevronRight,
+  BarChart3,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useIsMobile } from './hooks/useIsMobile'
@@ -34,11 +35,13 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const HelpPage = lazy(() => import('./pages/HelpPage'))
 const BoxPage = lazy(() => import('./pages/BoxPage'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
+const StatsPage = lazy(() => import('./pages/StatsPage'))
 
 const allNavItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', adminOnly: true },
   { to: '/chat', icon: MessageSquare, label: 'Chat', adminOnly: false },
   { to: '/tasks', icon: ListTodo, label: 'Tasks', adminOnly: true },
+  { to: '/stats', icon: BarChart3, label: 'Stats', adminOnly: true },
   { to: '/schedules', icon: CalendarClock, label: 'Schedules', adminOnly: true },
   { to: '/cron-jobs', icon: Timer, label: 'Cron Jobs', adminOnly: true },
   { to: '/box', icon: Server, label: 'Box', adminOnly: true },
@@ -224,6 +227,7 @@ function AuthenticatedApp() {
               <Route path="/chat/*" element={<ChatPage />} />
               <Route path="/tasks" element={<TasksPage />} />
               <Route path="/tasks/:id" element={<TaskDetailPage />} />
+              <Route path="/stats" element={<StatsPage />} />
               <Route path="/cron-jobs" element={<CronJobsPage />} />
               <Route path="/schedules" element={<SchedulesPage />} />
               <Route path="/projects" element={<Navigate to="/settings?tab=projects" replace />} />

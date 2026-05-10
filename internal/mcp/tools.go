@@ -299,6 +299,7 @@ func formatTaskDetail(task *models.Task) string {
 	if task.FailureReason != nil {
 		fmt.Fprintf(&b, "Failure Reason: %s\n", *task.FailureReason)
 	}
+	formatTaskUsage(&b, task)
 	fmt.Fprintf(&b, "\nSpec:\n%s\n", task.Spec)
 
 	if len(task.Executions) > 0 {
@@ -308,6 +309,37 @@ func formatTaskDetail(task *models.Task) string {
 		}
 	}
 	return b.String()
+}
+
+// formatTaskUsage appends token and cost rollups to b when any have been
+// recorded for the task. Each metric is omitted when nil so partial captures
+// (e.g. a crash before the result event) don't print a misleading "0".
+func formatTaskUsage(b *strings.Builder, task *models.Task) {
+	hasUsage := task.InputTokens != nil || task.OutputTokens != nil ||
+		task.CacheReadTokens != nil || task.CacheCreationTokens != nil ||
+		task.CostUSD != nil || task.Model != nil
+	if !hasUsage {
+		return
+	}
+	b.WriteString("\nUsage:\n")
+	if task.Model != nil {
+		fmt.Fprintf(b, "  Model: %s\n", *task.Model)
+	}
+	if task.InputTokens != nil {
+		fmt.Fprintf(b, "  Input tokens: %d\n", *task.InputTokens)
+	}
+	if task.OutputTokens != nil {
+		fmt.Fprintf(b, "  Output tokens: %d\n", *task.OutputTokens)
+	}
+	if task.CacheReadTokens != nil {
+		fmt.Fprintf(b, "  Cache read tokens: %d\n", *task.CacheReadTokens)
+	}
+	if task.CacheCreationTokens != nil {
+		fmt.Fprintf(b, "  Cache creation tokens: %d\n", *task.CacheCreationTokens)
+	}
+	if task.CostUSD != nil {
+		fmt.Fprintf(b, "  Cost: $%.4f\n", *task.CostUSD)
+	}
 }
 
 // formatExecution appends a single execution's details to the builder.

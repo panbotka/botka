@@ -1,4 +1,4 @@
-import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, TaskNote, TaskTag, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo } from '../types'
+import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, TaskNote, TaskTag, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, TaskStatsAggregated, TaskStatsGroupBy, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -227,6 +227,19 @@ export function bulkUpdateTasks(
 
 export function fetchTaskStats(): Promise<TaskStats> {
   return requestData<TaskStats>('/tasks/stats')
+}
+
+export function fetchTaskStatsAggregated(params?: {
+  from?: string
+  to?: string
+  group_by?: TaskStatsGroupBy
+}): Promise<TaskStatsAggregated> {
+  const qs = new URLSearchParams()
+  if (params?.from) qs.set('from', params.from)
+  if (params?.to) qs.set('to', params.to)
+  if (params?.group_by) qs.set('group_by', params.group_by)
+  const q = qs.toString()
+  return requestData<TaskStatsAggregated>(`/stats/tasks${q ? `?${q}` : ''}`)
 }
 
 export function fetchTaskRawOutput(id: string): Promise<{ execution_id: string; attempt: number; raw_output: string }> {

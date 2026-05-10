@@ -106,22 +106,28 @@ type reorderItem struct {
 
 // taskListItem is the JSON representation of a task in list responses.
 type taskListItem struct {
-	ID             uuid.UUID         `json:"id"`
-	Title          string            `json:"title"`
-	Spec           string            `json:"spec"`
-	Status         models.TaskStatus `json:"status"`
-	Priority       int               `json:"priority"`
-	ProjectID      uuid.UUID         `json:"project_id"`
-	ProjectName    string            `json:"project_name"`
-	FailureReason  *string           `json:"failure_reason"`
-	FailureSummary *string           `json:"failure_summary"`
-	RetryCount     int               `json:"retry_count"`
-	StartedAt      *time.Time        `json:"started_at"`
-	CompletedAt    *time.Time        `json:"completed_at"`
-	CreatedAt      time.Time         `json:"created_at"`
-	UpdatedAt      time.Time         `json:"updated_at"`
-	Tags           []models.TaskTag  `json:"tags"`
-	NotesCount     int64             `json:"notes_count"`
+	ID                  uuid.UUID         `json:"id"`
+	Title               string            `json:"title"`
+	Spec                string            `json:"spec"`
+	Status              models.TaskStatus `json:"status"`
+	Priority            int               `json:"priority"`
+	ProjectID           uuid.UUID         `json:"project_id"`
+	ProjectName         string            `json:"project_name"`
+	FailureReason       *string           `json:"failure_reason"`
+	FailureSummary      *string           `json:"failure_summary"`
+	RetryCount          int               `json:"retry_count"`
+	StartedAt           *time.Time        `json:"started_at"`
+	CompletedAt         *time.Time        `json:"completed_at"`
+	InputTokens         *int64            `json:"input_tokens"`
+	OutputTokens        *int64            `json:"output_tokens"`
+	CacheReadTokens     *int64            `json:"cache_read_tokens"`
+	CacheCreationTokens *int64            `json:"cache_creation_tokens"`
+	CostUSD             *float64          `json:"cost_usd"`
+	Model               *string           `json:"model"`
+	CreatedAt           time.Time         `json:"created_at"`
+	UpdatedAt           time.Time         `json:"updated_at"`
+	Tags                []models.TaskTag  `json:"tags"`
+	NotesCount          int64             `json:"notes_count"`
 }
 
 // List returns tasks with optional filtering and pagination.
@@ -1070,22 +1076,28 @@ func toTaskListItem(t *models.Task, notesCount int64) taskListItem {
 		tags = []models.TaskTag{}
 	}
 	return taskListItem{
-		ID:             t.ID,
-		Title:          t.Title,
-		Spec:           t.Spec,
-		Status:         t.Status,
-		Priority:       t.Priority,
-		ProjectID:      t.ProjectID,
-		ProjectName:    t.Project.Name,
-		FailureReason:  t.FailureReason,
-		FailureSummary: t.FailureSummary,
-		RetryCount:     t.RetryCount,
-		StartedAt:      t.StartedAt,
-		CompletedAt:    t.CompletedAt,
-		CreatedAt:      t.CreatedAt,
-		UpdatedAt:      t.UpdatedAt,
-		Tags:           tags,
-		NotesCount:     notesCount,
+		ID:                  t.ID,
+		Title:               t.Title,
+		Spec:                t.Spec,
+		Status:              t.Status,
+		Priority:            t.Priority,
+		ProjectID:           t.ProjectID,
+		ProjectName:         t.Project.Name,
+		FailureReason:       t.FailureReason,
+		FailureSummary:      t.FailureSummary,
+		RetryCount:          t.RetryCount,
+		StartedAt:           t.StartedAt,
+		CompletedAt:         t.CompletedAt,
+		InputTokens:         t.InputTokens,
+		OutputTokens:        t.OutputTokens,
+		CacheReadTokens:     t.CacheReadTokens,
+		CacheCreationTokens: t.CacheCreationTokens,
+		CostUSD:             t.CostUSD,
+		Model:               t.Model,
+		CreatedAt:           t.CreatedAt,
+		UpdatedAt:           t.UpdatedAt,
+		Tags:                tags,
+		NotesCount:          notesCount,
 	}
 }
 

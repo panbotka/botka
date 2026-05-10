@@ -821,19 +821,24 @@ func (r *Runner) updateExecution(exec *models.TaskExecution, result *ExecutionRe
 // task row's running totals. Tasks may be retried, in which case the totals
 // reflect the sum across all attempts. Skips the write when no result event
 // was parsed (all token counts zero), so a crash during startup doesn't clobber
-// the prior nullable state with zeros.
+// the prior nullable state with zeros. The model column always reflects the
+// most recent attempt's model, since retries can change the active model.
 func (r *Runner) accumulateTaskUsage(task *models.Task, result *ExecutionResult) {
 	if result.InputTokens == 0 && result.OutputTokens == 0 &&
 		result.CacheReadTokens == 0 && result.CacheCreationTokens == 0 {
 		return
 	}
-	r.db.Model(task).Updates(map[string]interface{}{
+	updates := map[string]interface{}{
 		"input_tokens":          gorm.Expr("COALESCE(input_tokens, 0) + ?", result.InputTokens),
 		"output_tokens":         gorm.Expr("COALESCE(output_tokens, 0) + ?", result.OutputTokens),
 		"cache_read_tokens":     gorm.Expr("COALESCE(cache_read_tokens, 0) + ?", result.CacheReadTokens),
 		"cache_creation_tokens": gorm.Expr("COALESCE(cache_creation_tokens, 0) + ?", result.CacheCreationTokens),
 		"cost_usd":              gorm.Expr("COALESCE(cost_usd, 0) + ?", result.CostUSD),
-	})
+	}
+	if result.Model != "" {
+		updates["model"] = result.Model
+	}
+	r.db.Model(task).Updates(updates)
 }
 
 func (r *Runner) applyResult(task *models.Task, result *ExecutionResult) {
