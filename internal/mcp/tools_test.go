@@ -514,3 +514,67 @@ func TestHandleKillTask_notRunning(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+// TestParseBulkTaskIDs covers the parsing/validation of the task_ids list:
+// empty, oversize, invalid UUID, duplicates, and the happy path.
+func TestParseBulkTaskIDs(t *testing.T) {
+	t.Parallel()
+
+	id := uuid.New().String()
+	manyIDs := make([]string, bulkMaxIDs+1)
+	for i := range manyIDs {
+		manyIDs[i] = uuid.New().String()
+	}
+
+	tests := []struct {
+		name    string
+		input   []string
+		wantLen int
+		wantErr bool
+	}{
+		{name: "empty", input: nil, wantErr: true},
+		{name: "over cap", input: manyIDs, wantErr: true},
+		{name: "invalid uuid", input: []string{"not-a-uuid"}, wantErr: true},
+		{name: "duplicate", input: []string{id, id}, wantErr: true},
+		{name: "valid", input: []string{id}, wantLen: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ids, err := parseBulkTaskIDs(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error, got nil (ids=%v)", ids)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(ids) != tt.wantLen {
+				t.Errorf("got %d ids, want %d", len(ids), tt.wantLen)
+			}
+		})
+	}
+}
+
+// TestBulkApplier_InvalidOperation rejects unknown operations up front.
+func TestBulkApplier_InvalidOperation(t *testing.T) {
+	t.Parallel()
+	srv := &Server{}
+	if _, err := srv.buildBulkApplier("frobnicate", nil); err == nil {
+		t.Fatal("expected error for unknown operation")
+	}
+}
+
+// TestBulkApplier_SetPriorityRequiresPayload rejects set_priority without a payload.
+func TestBulkApplier_SetPriorityRequiresPayload(t *testing.T) {
+	t.Parallel()
+	srv := &Server{}
+	if _, err := srv.buildBulkApplier(bulkOpSetPriority, nil); err == nil {
+		t.Fatal("expected error for missing priority payload")
+	}
+	if _, err := srv.buildBulkApplier(bulkOpSetPriority, json.RawMessage(`"abc"`)); err == nil {
+		t.Fatal("expected error for non-object priority payload")
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -885,11 +886,11 @@ func TestTask_Stats(t *testing.T) {
 // bulkResp is the test-side decoder for the /tasks/bulk response.
 type bulkResp struct {
 	Data struct {
-		Results []struct {
-			ID      uuid.UUID `json:"id"`
-			Success bool      `json:"success"`
-			Error   string    `json:"error"`
-		} `json:"results"`
+		Succeeded []uuid.UUID `json:"succeeded"`
+		Failed    []struct {
+			ID    uuid.UUID `json:"id"`
+			Error string    `json:"error"`
+		} `json:"failed"`
 	} `json:"data"`
 }
 
@@ -902,11 +903,31 @@ func decodeBulkResp(t *testing.T, body []byte) bulkResp {
 	return resp
 }
 
+// failureFor returns the per-task error message for id, or "" if not in failed.
+func (r bulkResp) failureFor(id uuid.UUID) string {
+	for _, f := range r.Data.Failed {
+		if f.ID == id {
+			return f.Error
+		}
+	}
+	return ""
+}
+
+// succeededHas reports whether the response marks the id as succeeded.
+func (r bulkResp) succeededHas(id uuid.UUID) bool {
+	for _, s := range r.Data.Succeeded {
+		if s == id {
+			return true
+		}
+	}
+	return false
+}
+
 func TestTaskBulk_EmptyIDs(t *testing.T) {
 	db := setupTestDB(t)
 	r := taskRouter(db)
 
-	w := doRequest(r, http.MethodPost, "/api/v1/tasks/bulk", `{"ids":[],"action":"delete"}`)
+	w := doRequest(r, http.MethodPost, "/api/v1/tasks/bulk", `{"task_ids":[],"operation":"delete"}`)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
@@ -917,18 +938,33 @@ func TestTaskBulk_DuplicateID(t *testing.T) {
 	r := taskRouter(db)
 
 	id := uuid.New()
-	body := fmt.Sprintf(`{"ids":["%s","%s"],"action":"delete"}`, id, id)
+	body := fmt.Sprintf(`{"task_ids":["%s","%s"],"operation":"delete"}`, id, id)
 	w := doRequest(r, http.MethodPost, "/api/v1/tasks/bulk", body)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
-func TestTaskBulk_InvalidAction(t *testing.T) {
+func TestTaskBulk_OverCap(t *testing.T) {
 	db := setupTestDB(t)
 	r := taskRouter(db)
 
-	body := fmt.Sprintf(`{"ids":["%s"],"action":"frobnicate"}`, uuid.New())
+	ids := make([]string, bulkMaxIDs+1)
+	for i := range ids {
+		ids[i] = fmt.Sprintf(`"%s"`, uuid.New())
+	}
+	body := fmt.Sprintf(`{"task_ids":[%s],"operation":"delete"}`, strings.Join(ids, ","))
+	w := doRequest(r, http.MethodPost, "/api/v1/tasks/bulk", body)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTaskBulk_InvalidOperation(t *testing.T) {
+	db := setupTestDB(t)
+	r := taskRouter(db)
+
+	body := fmt.Sprintf(`{"task_ids":["%s"],"operation":"frobnicate"}`, uuid.New())
 	w := doRequest(r, http.MethodPost, "/api/v1/tasks/bulk", body)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
@@ -943,19 +979,15 @@ func TestTaskBulk_SetPriority(t *testing.T) {
 	t2 := createTestTask(t, db, proj.ID, models.TaskStatusQueued)
 	r := taskRouter(db)
 
-	body := fmt.Sprintf(`{"ids":["%s","%s"],"action":"set_priority","value":42}`, t1.ID, t2.ID)
+	body := fmt.Sprintf(`{"task_ids":["%s","%s"],"operation":"set_priority","payload":{"priority":42}}`,
+		t1.ID, t2.ID)
 	w := doRequest(r, http.MethodPost, "/api/v1/tasks/bulk", body)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	resp := decodeBulkResp(t, w.Body.Bytes())
-	if len(resp.Data.Results) != 2 {
-		t.Fatalf("expected 2 results, got %d", len(resp.Data.Results))
-	}
-	for _, r := range resp.Data.Results {
-		if !r.Success {
-			t.Errorf("expected success for %s, got error: %s", r.ID, r.Error)
-		}
+	if len(resp.Data.Succeeded) != 2 || len(resp.Data.Failed) != 0 {
+		t.Fatalf("expected 2 succeeded and 0 failed, got %+v", resp.Data)
 	}
 	var got1, got2 models.Task
 	db.First(&got1, "id = ?", t1.ID)
@@ -965,18 +997,18 @@ func TestTaskBulk_SetPriority(t *testing.T) {
 	}
 }
 
-func TestTaskBulk_SetPriority_InvalidValue(t *testing.T) {
+func TestTaskBulk_SetPriority_MissingPayload(t *testing.T) {
 	db := setupTestDB(t)
 	r := taskRouter(db)
 
-	body := fmt.Sprintf(`{"ids":["%s"],"action":"set_priority","value":"abc"}`, uuid.New())
+	body := fmt.Sprintf(`{"task_ids":["%s"],"operation":"set_priority"}`, uuid.New())
 	w := doRequest(r, http.MethodPost, "/api/v1/tasks/bulk", body)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
-func TestTaskBulk_SetStatus_Mixed(t *testing.T) {
+func TestTaskBulk_Cancel_Mixed(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)
 	proj := createTestProject(t, db)
@@ -985,124 +1017,95 @@ func TestTaskBulk_SetStatus_Mixed(t *testing.T) {
 	missing := uuid.New()
 	r := taskRouter(db)
 
-	body := fmt.Sprintf(`{"ids":["%s","%s","%s"],"action":"set_status","value":"queued"}`,
+	body := fmt.Sprintf(`{"task_ids":["%s","%s","%s"],"operation":"cancel"}`,
 		pending.ID, done.ID, missing)
 	w := doRequest(r, http.MethodPost, "/api/v1/tasks/bulk", body)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	resp := decodeBulkResp(t, w.Body.Bytes())
-	if len(resp.Data.Results) != 3 {
-		t.Fatalf("expected 3 results, got %d", len(resp.Data.Results))
+	if !resp.succeededHas(pending.ID) {
+		t.Errorf("pending: expected succeeded, got failed=%q", resp.failureFor(pending.ID))
 	}
-	byID := map[uuid.UUID]struct {
-		ok  bool
-		msg string
-	}{}
-	for _, r := range resp.Data.Results {
-		byID[r.ID] = struct {
-			ok  bool
-			msg string
-		}{r.Success, r.Error}
-	}
-	if !byID[pending.ID].ok {
-		t.Errorf("pending: expected success, got %q", byID[pending.ID].msg)
-	}
-	if byID[done.ID].ok {
+	if msg := resp.failureFor(done.ID); msg == "" {
 		t.Errorf("done: expected failure, got success")
 	}
-	if byID[missing].ok || byID[missing].msg != "task not found" {
-		t.Errorf("missing: expected 'task not found', got ok=%v msg=%q", byID[missing].ok, byID[missing].msg)
+	if msg := resp.failureFor(missing); msg != "task not found" {
+		t.Errorf("missing: expected 'task not found', got %q", msg)
 	}
 	var got models.Task
 	db.First(&got, "id = ?", pending.ID)
-	if got.Status != models.TaskStatusQueued {
-		t.Errorf("pending task: expected queued, got %s", got.Status)
+	if got.Status != models.TaskStatusCancelled {
+		t.Errorf("pending task: expected cancelled, got %s", got.Status)
 	}
 }
 
-func TestTaskBulk_SetStatus_RejectsNonAllowedTarget(t *testing.T) {
+func TestTaskBulk_Requeue_FailedToQueued(t *testing.T) {
 	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createTestProject(t, db)
+	failed := createTestTask(t, db, proj.ID, models.TaskStatusFailed)
 	r := taskRouter(db)
 
-	body := fmt.Sprintf(`{"ids":["%s"],"action":"set_status","value":"done"}`, uuid.New())
+	body := fmt.Sprintf(`{"task_ids":["%s"],"operation":"requeue"}`, failed.ID)
 	w := doRequest(r, http.MethodPost, "/api/v1/tasks/bulk", body)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	resp := decodeBulkResp(t, w.Body.Bytes())
+	if !resp.succeededHas(failed.ID) {
+		t.Fatalf("expected succeeded, got %+v", resp.Data)
+	}
+	var got models.Task
+	db.First(&got, "id = ?", failed.ID)
+	if got.Status != models.TaskStatusQueued {
+		t.Errorf("expected queued, got %s", got.Status)
 	}
 }
 
-func TestTaskBulk_SetStatus_RunningSkipped(t *testing.T) {
+func TestTaskBulk_SetPending_QueuedToPending(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createTestProject(t, db)
+	queued := createTestTask(t, db, proj.ID, models.TaskStatusQueued)
+	r := taskRouter(db)
+
+	body := fmt.Sprintf(`{"task_ids":["%s"],"operation":"set_pending"}`, queued.ID)
+	w := doRequest(r, http.MethodPost, "/api/v1/tasks/bulk", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	resp := decodeBulkResp(t, w.Body.Bytes())
+	if !resp.succeededHas(queued.ID) {
+		t.Fatalf("expected succeeded, got %+v", resp.Data)
+	}
+	var got models.Task
+	db.First(&got, "id = ?", queued.ID)
+	if got.Status != models.TaskStatusPending {
+		t.Errorf("expected pending, got %s", got.Status)
+	}
+}
+
+func TestTaskBulk_Cancel_RunningSkipped(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)
 	proj := createTestProject(t, db)
 	running := createTestTask(t, db, proj.ID, models.TaskStatusRunning)
 	r := taskRouter(db)
 
-	body := fmt.Sprintf(`{"ids":["%s"],"action":"set_status","value":"cancelled"}`, running.ID)
+	body := fmt.Sprintf(`{"task_ids":["%s"],"operation":"cancel"}`, running.ID)
 	w := doRequest(r, http.MethodPost, "/api/v1/tasks/bulk", body)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	resp := decodeBulkResp(t, w.Body.Bytes())
-	if len(resp.Data.Results) != 1 || resp.Data.Results[0].Success {
-		t.Fatalf("expected failure result, got %+v", resp.Data.Results)
-	}
-	if resp.Data.Results[0].Error != "cannot change status of a running task" {
-		t.Errorf("unexpected error: %q", resp.Data.Results[0].Error)
+	if msg := resp.failureFor(running.ID); msg != "cannot change status of a running task" {
+		t.Errorf("unexpected failure message: %q", msg)
 	}
 	var got models.Task
 	db.First(&got, "id = ?", running.ID)
 	if got.Status != models.TaskStatusRunning {
 		t.Errorf("running task should be unchanged, got %s", got.Status)
-	}
-}
-
-func TestTaskBulk_SetProject_Success(t *testing.T) {
-	db := setupTestDB(t)
-	cleanTables(t, db)
-	proj1 := createTestProject(t, db)
-	proj2 := models.Project{
-		Name:           "test-project-2",
-		Path:           "/tmp/test-project-2-" + uuid.New().String()[:8],
-		BranchStrategy: "main",
-		Active:         true,
-	}
-	if err := db.Create(&proj2).Error; err != nil {
-		t.Fatalf("create proj2: %v", err)
-	}
-	t1 := createTestTask(t, db, proj1.ID, models.TaskStatusPending)
-	r := taskRouter(db)
-
-	body := fmt.Sprintf(`{"ids":["%s"],"action":"set_project","value":"%s"}`, t1.ID, proj2.ID)
-	w := doRequest(r, http.MethodPost, "/api/v1/tasks/bulk", body)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	resp := decodeBulkResp(t, w.Body.Bytes())
-	if len(resp.Data.Results) != 1 || !resp.Data.Results[0].Success {
-		t.Fatalf("expected single success, got %+v", resp.Data.Results)
-	}
-	var got models.Task
-	db.First(&got, "id = ?", t1.ID)
-	if got.ProjectID != proj2.ID {
-		t.Errorf("expected project %s, got %s", proj2.ID, got.ProjectID)
-	}
-}
-
-func TestTaskBulk_SetProject_InactiveRejected(t *testing.T) {
-	db := setupTestDB(t)
-	cleanTables(t, db)
-	proj := createTestProject(t, db)
-	if err := db.Model(&proj).Update("active", false).Error; err != nil {
-		t.Fatalf("deactivate project: %v", err)
-	}
-	r := taskRouter(db)
-
-	body := fmt.Sprintf(`{"ids":["%s"],"action":"set_project","value":"%s"}`, uuid.New(), proj.ID)
-	w := doRequest(r, http.MethodPost, "/api/v1/tasks/bulk", body)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -1114,23 +1117,16 @@ func TestTaskBulk_Delete_RunningSkipped(t *testing.T) {
 	running := createTestTask(t, db, proj.ID, models.TaskStatusRunning)
 	r := taskRouter(db)
 
-	body := fmt.Sprintf(`{"ids":["%s","%s"],"action":"delete"}`, pending.ID, running.ID)
+	body := fmt.Sprintf(`{"task_ids":["%s","%s"],"operation":"delete"}`, pending.ID, running.ID)
 	w := doRequest(r, http.MethodPost, "/api/v1/tasks/bulk", body)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	resp := decodeBulkResp(t, w.Body.Bytes())
-	if len(resp.Data.Results) != 2 {
-		t.Fatalf("expected 2 results, got %d", len(resp.Data.Results))
-	}
-	byID := map[uuid.UUID]bool{}
-	for _, r := range resp.Data.Results {
-		byID[r.ID] = r.Success
-	}
-	if !byID[pending.ID] {
+	if !resp.succeededHas(pending.ID) {
 		t.Error("pending should be deleted successfully")
 	}
-	if byID[running.ID] {
+	if msg := resp.failureFor(running.ID); msg == "" {
 		t.Error("running should not be deleted")
 	}
 	var got1, got2 models.Task
@@ -1141,5 +1137,134 @@ func TestTaskBulk_Delete_RunningSkipped(t *testing.T) {
 	}
 	if got2.Status != models.TaskStatusRunning {
 		t.Errorf("running: expected unchanged, got %s", got2.Status)
+	}
+}
+
+func TestTaskBulk_AddTags_Success(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createTestProject(t, db)
+	task := createTestTask(t, db, proj.ID, models.TaskStatusPending)
+	tag1 := models.TaskTag{Name: "bug", Color: "#FF0000"}
+	tag2 := models.TaskTag{Name: "urgent", Color: "#00FF00"}
+	if err := db.Create(&tag1).Error; err != nil {
+		t.Fatalf("create tag1: %v", err)
+	}
+	if err := db.Create(&tag2).Error; err != nil {
+		t.Fatalf("create tag2: %v", err)
+	}
+	r := taskRouter(db)
+
+	body := fmt.Sprintf(
+		`{"task_ids":["%s"],"operation":"add_tags","payload":{"tag_ids":[%d,%d]}}`,
+		task.ID, tag1.ID, tag2.ID)
+	w := doRequest(r, http.MethodPost, "/api/v1/tasks/bulk", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	resp := decodeBulkResp(t, w.Body.Bytes())
+	if !resp.succeededHas(task.ID) {
+		t.Fatalf("expected succeeded, got %+v", resp.Data)
+	}
+	var assignments []models.TaskTagAssignment
+	db.Where("task_id = ?", task.ID).Find(&assignments)
+	if len(assignments) != 2 {
+		t.Errorf("expected 2 assignments, got %d", len(assignments))
+	}
+}
+
+func TestTaskBulk_AddTags_Idempotent(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createTestProject(t, db)
+	task := createTestTask(t, db, proj.ID, models.TaskStatusPending)
+	tag := models.TaskTag{Name: "bug", Color: "#FF0000"}
+	if err := db.Create(&tag).Error; err != nil {
+		t.Fatalf("create tag: %v", err)
+	}
+	if err := db.Create(&models.TaskTagAssignment{TaskID: task.ID, TagID: tag.ID}).Error; err != nil {
+		t.Fatalf("seed assignment: %v", err)
+	}
+	r := taskRouter(db)
+
+	body := fmt.Sprintf(
+		`{"task_ids":["%s"],"operation":"add_tags","payload":{"tag_ids":[%d]}}`,
+		task.ID, tag.ID)
+	w := doRequest(r, http.MethodPost, "/api/v1/tasks/bulk", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	resp := decodeBulkResp(t, w.Body.Bytes())
+	if !resp.succeededHas(task.ID) {
+		t.Fatalf("expected succeeded, got %+v", resp.Data)
+	}
+	var count int64
+	db.Model(&models.TaskTagAssignment{}).Where("task_id = ?", task.ID).Count(&count)
+	if count != 1 {
+		t.Errorf("expected 1 assignment after idempotent add, got %d", count)
+	}
+}
+
+func TestTaskBulk_RemoveTags_Success(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createTestProject(t, db)
+	task := createTestTask(t, db, proj.ID, models.TaskStatusPending)
+	tag1 := models.TaskTag{Name: "bug", Color: "#FF0000"}
+	tag2 := models.TaskTag{Name: "urgent", Color: "#00FF00"}
+	for _, tg := range []*models.TaskTag{&tag1, &tag2} {
+		if err := db.Create(tg).Error; err != nil {
+			t.Fatalf("create tag: %v", err)
+		}
+		if err := db.Create(&models.TaskTagAssignment{TaskID: task.ID, TagID: tg.ID}).Error; err != nil {
+			t.Fatalf("seed assignment: %v", err)
+		}
+	}
+	r := taskRouter(db)
+
+	body := fmt.Sprintf(
+		`{"task_ids":["%s"],"operation":"remove_tags","payload":{"tag_ids":[%d]}}`,
+		task.ID, tag1.ID)
+	w := doRequest(r, http.MethodPost, "/api/v1/tasks/bulk", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	resp := decodeBulkResp(t, w.Body.Bytes())
+	if !resp.succeededHas(task.ID) {
+		t.Fatalf("expected succeeded, got %+v", resp.Data)
+	}
+	var remaining []models.TaskTagAssignment
+	db.Where("task_id = ?", task.ID).Find(&remaining)
+	if len(remaining) != 1 || remaining[0].TagID != tag2.ID {
+		t.Errorf("expected only tag2 remaining, got %+v", remaining)
+	}
+}
+
+func TestTaskBulk_AddTags_UnknownTagRejected(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createTestProject(t, db)
+	task := createTestTask(t, db, proj.ID, models.TaskStatusPending)
+	r := taskRouter(db)
+
+	body := fmt.Sprintf(
+		`{"task_ids":["%s"],"operation":"add_tags","payload":{"tag_ids":[99999]}}`,
+		task.ID)
+	w := doRequest(r, http.MethodPost, "/api/v1/tasks/bulk", body)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTaskBulk_AddTags_EmptyTagIDsRejected(t *testing.T) {
+	db := setupTestDB(t)
+	r := taskRouter(db)
+
+	body := fmt.Sprintf(
+		`{"task_ids":["%s"],"operation":"add_tags","payload":{"tag_ids":[]}}`,
+		uuid.New())
+	w := doRequest(r, http.MethodPost, "/api/v1/tasks/bulk", body)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }

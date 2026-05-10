@@ -31,43 +31,61 @@ import {
   Trash2,
 } from 'lucide-react'
 
-import { bulkTaskAction, reorderTasks, updateTask } from '../api/client'
-import type { BulkTaskAction } from '../api/client'
+import { bulkUpdateTasks, reorderTasks, updateTask } from '../api/client'
+import type { BulkOperation, BulkPayload } from '../api/client'
 import { BulkActionsBar } from './BulkActionsBar'
+import { BulkResultToast, type BulkResultSummary } from './BulkResultToast'
 import { TaskTagChip } from './TaskTagChip'
-import type { Project, Task, TaskStatus } from '../types'
+import type { Task, TaskStatus } from '../types'
 
-// applyOptimisticBulk computes the post-action task list assuming every task
-// will accept the bulk action. Running tasks are left alone so their visual
-// state matches what the backend will return after refetch.
+// operationLabels maps each operation to a short past-tense verb suitable for
+// the result toast ("Cancel: 3 succeeded, 1 failed").
+const operationLabels: Record<BulkOperation, string> = {
+  cancel: 'Cancel',
+  requeue: 'Requeue',
+  set_pending: 'Move to pending',
+  set_priority: 'Set priority',
+  delete: 'Delete',
+  add_tags: 'Add tags',
+  remove_tags: 'Remove tags',
+}
+
+// applyOptimisticBulk computes the post-operation task list assuming every
+// task will accept it. Running tasks are left alone so their visual state
+// matches what the backend will return after refetch.
 function applyOptimisticBulk(
   tasks: Task[],
   ids: Set<string>,
-  action: BulkTaskAction,
-  value: number | string | undefined,
+  operation: BulkOperation,
+  payload: BulkPayload,
 ): Task[] {
-  switch (action) {
+  switch (operation) {
     case 'set_priority': {
-      const priority = value as number
+      const priority = (payload as { priority: number }).priority
       return tasks.map((t) =>
         ids.has(t.id) && t.status !== 'running' ? { ...t, priority } : t,
       )
     }
-    case 'set_status': {
-      const status = value as TaskStatus
-      return tasks.map((t) =>
-        ids.has(t.id) && t.status !== 'running' ? { ...t, status } : t,
-      )
-    }
-    case 'set_project': {
-      const projectId = value as string
-      return tasks.map((t) =>
-        ids.has(t.id) && t.status !== 'running' ? { ...t, project_id: projectId } : t,
-      )
-    }
+    case 'cancel':
+      return mapStatus(tasks, ids, 'cancelled')
+    case 'requeue':
+      return mapStatus(tasks, ids, 'queued')
+    case 'set_pending':
+      return mapStatus(tasks, ids, 'pending')
     case 'delete':
       return tasks.filter((t) => !ids.has(t.id) || t.status === 'running')
+    case 'add_tags':
+    case 'remove_tags':
+      // Tag changes don't affect this task list view's columns; refetch will
+      // pick them up. Avoid speculating about chip state.
+      return tasks
   }
+}
+
+function mapStatus(tasks: Task[], ids: Set<string>, status: TaskStatus): Task[] {
+  return tasks.map((t) =>
+    ids.has(t.id) && t.status !== 'running' ? { ...t, status } : t,
+  )
 }
 
 const statusBadge: Record<TaskStatus, { icon: typeof CheckCircle2; bg: string; text: string; label: string; pulse?: boolean; strike?: boolean }> = {
@@ -319,30 +337,22 @@ function SortableRow({ task, onClick, selected, onSelect, onStatusChange }: Sort
 
 interface TaskListProps {
   tasks: Task[]
-  projects: Project[]
   onReorder: () => Promise<void>
   selectedIds: Set<string>
   onSelectionChange: (ids: Set<string>) => void
   onStatusChange: () => void
 }
 
-export function TaskList({ tasks, projects, onReorder, selectedIds, onSelectionChange, onStatusChange }: TaskListProps) {
+export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, onStatusChange }: TaskListProps) {
   const navigate = useNavigate()
   const [items, setItems] = useState(tasks)
   const [reordering, setReordering] = useState(false)
-  const [bulkBanner, setBulkBanner] = useState<{ tone: 'error' | 'warn'; message: string } | null>(null)
+  const [bulkSummary, setBulkSummary] = useState<BulkResultSummary | null>(null)
 
   // Sync when parent tasks change (new fetch)
   if (tasks !== items && !reordering) {
     setItems(tasks)
   }
-
-  // Auto-dismiss the bulk feedback banner so it doesn't linger after the next refetch.
-  useEffect(() => {
-    if (!bulkBanner) return
-    const id = setTimeout(() => setBulkBanner(null), 6000)
-    return () => clearTimeout(id)
-  }, [bulkBanner])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -425,43 +435,39 @@ export function TaskList({ tasks, projects, onReorder, selectedIds, onSelectionC
   const allSelected = items.length > 0 && items.every((t) => selectedIds.has(t.id))
 
   const handleBulkAction = useCallback(
-    async (action: BulkTaskAction, value?: number | string) => {
+    async (operation: BulkOperation, payload?: BulkPayload) => {
       const ids = Array.from(selectedIds)
       if (ids.length === 0) return
 
       const idSet = new Set(ids)
       const snapshot = items
-      setItems((prev) => applyOptimisticBulk(prev, idSet, action, value))
+      setItems((prev) => applyOptimisticBulk(prev, idSet, operation, payload))
 
       try {
-        const { results } = await bulkTaskAction(ids, action, value)
-        const succeeded = results.filter((r) => r.success).length
-        const failed = results.length - succeeded
+        const result = await bulkUpdateTasks(ids, operation, payload)
 
-        if (succeeded === 0) {
+        if (result.succeeded.length === 0) {
           // Server-side validation rejected every task — undo the optimistic mutation.
           setItems(snapshot)
-          const firstError = results.find((r) => !r.success)?.error ?? 'no tasks updated'
-          setBulkBanner({ tone: 'error', message: `Bulk action failed: ${firstError}` })
-        } else if (failed > 0) {
-          const firstError = results.find((r) => !r.success)?.error ?? 'unknown error'
-          setBulkBanner({
-            tone: 'warn',
-            message: `${succeeded} updated, ${failed} skipped: ${firstError}`,
-          })
         }
 
+        setBulkSummary({
+          operation: operationLabels[operation],
+          succeeded: result.succeeded.length,
+          failed: result.failed,
+        })
+
         // Drop successfully-modified tasks from the selection; failed ones stay selected for retry.
-        const successIds = new Set(results.filter((r) => r.success).map((r) => r.id))
-        if (successIds.size > 0) {
+        if (result.succeeded.length > 0) {
           const next = new Set(selectedIds)
-          for (const id of successIds) next.delete(id)
+          for (const id of result.succeeded) next.delete(id)
           onSelectionChange(next)
         }
 
         onStatusChange()
       } catch (err) {
-        // Network or 4xx — revert the optimistic mutation and rethrow so the modal shows the error.
+        // Network or 4xx (whole-request validation failed) — revert and rethrow
+        // so the modal shows the error inline.
         setItems(snapshot)
         throw err
       }
@@ -479,26 +485,8 @@ export function TaskList({ tasks, projects, onReorder, selectedIds, onSelectionC
 
   return (
     <div>
-      {bulkBanner && (
-        <div
-          className={clsx(
-            'mb-3 flex items-start gap-2 rounded-lg border px-3 py-2 text-sm',
-            bulkBanner.tone === 'error'
-              ? 'border-red-200 bg-red-50 text-red-800'
-              : 'border-amber-200 bg-amber-50 text-amber-800',
-          )}
-          role="status"
-        >
-          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-          <span className="flex-1">{bulkBanner.message}</span>
-          <button
-            onClick={() => setBulkBanner(null)}
-            className="text-xs font-medium opacity-70 hover:opacity-100"
-            aria-label="Dismiss"
-          >
-            Dismiss
-          </button>
-        </div>
+      {bulkSummary && (
+        <BulkResultToast summary={bulkSummary} onDismiss={() => setBulkSummary(null)} />
       )}
       <div className="overflow-x-clip overflow-y-visible rounded-lg border border-zinc-200">
         <table className="w-full text-left">
@@ -545,7 +533,6 @@ export function TaskList({ tasks, projects, onReorder, selectedIds, onSelectionC
       {selectedIds.size > 0 && (
         <BulkActionsBar
           count={selectedIds.size}
-          projects={projects}
           onAction={handleBulkAction}
           onClear={() => onSelectionChange(new Set())}
         />

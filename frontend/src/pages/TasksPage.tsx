@@ -254,7 +254,6 @@ export default function TasksPage() {
         <>
           <TaskList
             tasks={tasks}
-            projects={projects}
             onReorder={refetchAll}
             selectedIds={selectedIds}
             onSelectionChange={handleSelectionChange}

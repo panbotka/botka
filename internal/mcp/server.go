@@ -221,6 +221,7 @@ func (s *Server) toolHandlers() map[string]toolHandler {
 		"list_tasks":           s.handleListTasks,
 		"get_task":             s.handleGetTask,
 		"update_task":          s.handleUpdateTask,
+		"bulk_update_tasks":    s.handleBulkUpdateTasks,
 		"list_projects":        s.handleListProjects,
 		"get_runner_status":    s.handleGetRunnerStatus,
 		"start_runner":         s.handleStartRunner,
@@ -359,6 +360,32 @@ func taskToolDefinitions() []toolDef {
 					"pending", "queued", "cancelled", "done",
 				),
 			}, "task_id"),
+		},
+		{
+			Name: "bulk_update_tasks",
+			Description: "Apply one operation to up to 100 tasks. Each task is " +
+				"processed in its own transaction; per-task validation failures " +
+				"are reported individually rather than aborting the batch.",
+			InputSchema: schema(map[string]interface{}{
+				"task_ids": map[string]interface{}{
+					"type":        "array",
+					"items":       map[string]interface{}{"type": "string", "format": "uuid"},
+					"maxItems":    bulkMaxIDs,
+					"description": "UUIDs of tasks to operate on (max 100)",
+				},
+				"operation": enumProp(
+					"Operation to apply",
+					"cancel", "requeue", "delete", "set_priority",
+					"set_pending", "add_tags", "remove_tags",
+				),
+				"payload": map[string]interface{}{
+					"type": "object",
+					"description": "Operation-specific payload. Required for " +
+						"set_priority ({\"priority\": <int>}) and add_tags / " +
+						"remove_tags ({\"tag_ids\": [<int>, ...]}). Omit for cancel, " +
+						"requeue, set_pending, and delete.",
+				},
+			}, "task_ids", "operation"),
 		},
 		{
 			Name:        "list_projects",

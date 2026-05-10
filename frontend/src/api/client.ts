@@ -183,22 +183,41 @@ export function batchUpdateTaskStatus(ids: string[], status: string): Promise<{ 
   })
 }
 
-export type BulkTaskAction = 'set_priority' | 'set_status' | 'set_project' | 'delete'
+export type BulkOperation =
+  | 'cancel'
+  | 'requeue'
+  | 'set_pending'
+  | 'delete'
+  | 'set_priority'
+  | 'add_tags'
+  | 'remove_tags'
 
-export interface BulkTaskResult {
+export type BulkPayload =
+  | { priority: number }
+  | { tag_ids: number[] }
+  | undefined
+
+export interface BulkFailure {
   id: string
-  success: boolean
-  error?: string
+  error: string
 }
 
-export function bulkTaskAction(
-  ids: string[],
-  action: BulkTaskAction,
-  value?: number | string,
-): Promise<{ results: BulkTaskResult[] }> {
-  const body: { ids: string[]; action: BulkTaskAction; value?: number | string } = { ids, action }
-  if (value !== undefined) body.value = value
-  return requestData<{ results: BulkTaskResult[] }>('/tasks/bulk', {
+export interface BulkResult {
+  succeeded: string[]
+  failed: BulkFailure[]
+}
+
+export function bulkUpdateTasks(
+  task_ids: string[],
+  operation: BulkOperation,
+  payload?: BulkPayload,
+): Promise<BulkResult> {
+  const body: { task_ids: string[]; operation: BulkOperation; payload?: BulkPayload } = {
+    task_ids,
+    operation,
+  }
+  if (payload !== undefined) body.payload = payload
+  return requestData<BulkResult>('/tasks/bulk', {
     method: 'POST',
     body: JSON.stringify(body),
   })

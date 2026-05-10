@@ -1,38 +1,59 @@
 import { useState, useEffect, useMemo } from 'react'
 import { clsx } from 'clsx'
-import { ArrowUpDown, ListChecks, FolderOpen, Trash2, X, AlertTriangle } from 'lucide-react'
+import {
+  ArrowUpDown,
+  Trash2,
+  X,
+  AlertTriangle,
+  Ban,
+  RefreshCw,
+  Inbox,
+  Tag,
+  TagIcon,
+} from 'lucide-react'
 
-import type { BulkTaskAction } from '../api/client'
-import type { Project, TaskStatus } from '../types'
+import { fetchTaskTags } from '../api/client'
+import type { BulkOperation, BulkPayload } from '../api/client'
+import type { TaskTag } from '../types'
+import { TaskTagChip } from './TaskTagChip'
 
-const SETTABLE_STATUSES: { value: TaskStatus; label: string }[] = [
-  { value: 'pending', label: 'Pending' },
-  { value: 'queued', label: 'Queued' },
-  { value: 'cancelled', label: 'Cancelled' },
-]
-
-type ActiveModal = 'priority' | 'status' | 'project' | 'delete' | null
+type ActiveModal = 'priority' | 'add-tags' | 'remove-tags' | 'delete' | null
 
 interface BulkActionsBarProps {
   count: number
-  projects: Project[]
-  /** Apply an action; rejecting the promise leaves the modal open with the error. */
-  onAction: (action: BulkTaskAction, value?: number | string) => Promise<void>
+  /** Apply an operation; rejecting the promise leaves the modal open with the error. */
+  onAction: (operation: BulkOperation, payload?: BulkPayload) => Promise<void>
   onClear: () => void
 }
 
-export function BulkActionsBar({ count, projects, onAction, onClear }: BulkActionsBarProps) {
+export function BulkActionsBar({ count, onAction, onClear }: BulkActionsBarProps) {
   const [modal, setModal] = useState<ActiveModal>(null)
+  const [pending, setPending] = useState<BulkOperation | null>(null)
 
-  // Close modal automatically if selection clears (e.g., via Esc / Deselect).
+  // Close any open modal automatically if the selection drains.
   useEffect(() => {
-    if (count === 0) setModal(null)
+    if (count === 0) {
+      setModal(null)
+      setPending(null)
+    }
   }, [count])
 
   const close = () => setModal(null)
 
-  const apply = async (action: BulkTaskAction, value?: number | string) => {
-    await onAction(action, value)
+  // applyDirect runs operations that have no payload (cancel/requeue/set_pending).
+  // The button shows a brief disabled/spinner state to swallow double-clicks.
+  const applyDirect = async (operation: BulkOperation) => {
+    if (pending) return
+    setPending(operation)
+    try {
+      await onAction(operation)
+    } finally {
+      setPending(null)
+    }
+  }
+
+  const applyWithPayload = async (operation: BulkOperation, payload: BulkPayload) => {
+    await onAction(operation, payload)
     close()
   }
 
@@ -48,14 +69,44 @@ export function BulkActionsBar({ count, projects, onAction, onClear }: BulkActio
             {count} selected
           </span>
           <span className="h-4 w-px bg-zinc-200" aria-hidden="true" />
-          <BarButton icon={<ArrowUpDown className="h-3.5 w-3.5" />} onClick={() => setModal('priority')}>
+          <BarButton
+            icon={<Ban className="h-3.5 w-3.5" />}
+            disabled={pending === 'cancel'}
+            onClick={() => applyDirect('cancel')}
+          >
+            Cancel
+          </BarButton>
+          <BarButton
+            icon={<RefreshCw className="h-3.5 w-3.5" />}
+            disabled={pending === 'requeue'}
+            onClick={() => applyDirect('requeue')}
+          >
+            Requeue
+          </BarButton>
+          <BarButton
+            icon={<Inbox className="h-3.5 w-3.5" />}
+            disabled={pending === 'set_pending'}
+            onClick={() => applyDirect('set_pending')}
+          >
+            Move to pending
+          </BarButton>
+          <BarButton
+            icon={<ArrowUpDown className="h-3.5 w-3.5" />}
+            onClick={() => setModal('priority')}
+          >
             Priority
           </BarButton>
-          <BarButton icon={<ListChecks className="h-3.5 w-3.5" />} onClick={() => setModal('status')}>
-            Status
+          <BarButton
+            icon={<Tag className="h-3.5 w-3.5" />}
+            onClick={() => setModal('add-tags')}
+          >
+            Add tags
           </BarButton>
-          <BarButton icon={<FolderOpen className="h-3.5 w-3.5" />} onClick={() => setModal('project')}>
-            Project
+          <BarButton
+            icon={<TagIcon className="h-3.5 w-3.5" />}
+            onClick={() => setModal('remove-tags')}
+          >
+            Remove tags
           </BarButton>
           <BarButton
             icon={<Trash2 className="h-3.5 w-3.5" />}
@@ -79,29 +130,26 @@ export function BulkActionsBar({ count, projects, onAction, onClear }: BulkActio
         <PriorityModal
           count={count}
           onCancel={close}
-          onConfirm={(p) => apply('set_priority', p)}
+          onConfirm={(p) => applyWithPayload('set_priority', { priority: p })}
         />
       )}
-      {modal === 'status' && (
-        <StatusModal
+      {(modal === 'add-tags' || modal === 'remove-tags') && (
+        <TagsModal
           count={count}
+          mode={modal}
           onCancel={close}
-          onConfirm={(s) => apply('set_status', s)}
-        />
-      )}
-      {modal === 'project' && (
-        <ProjectModal
-          count={count}
-          projects={projects}
-          onCancel={close}
-          onConfirm={(p) => apply('set_project', p)}
+          onConfirm={(tagIDs) =>
+            applyWithPayload(modal === 'add-tags' ? 'add_tags' : 'remove_tags', {
+              tag_ids: tagIDs,
+            })
+          }
         />
       )}
       {modal === 'delete' && (
         <DeleteModal
           count={count}
           onCancel={close}
-          onConfirm={() => apply('delete')}
+          onConfirm={() => applyWithPayload('delete', undefined)}
         />
       )}
     </>
@@ -112,18 +160,21 @@ function BarButton({
   children,
   icon,
   onClick,
+  disabled,
   tone = 'default',
 }: {
   children: React.ReactNode
   icon: React.ReactNode
   onClick: () => void
+  disabled?: boolean
   tone?: 'default' | 'danger'
 }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       className={clsx(
-        'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors cursor-pointer',
+        'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50',
         tone === 'danger'
           ? 'border border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
           : 'border border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100',
@@ -138,7 +189,6 @@ function BarButton({
 // ─── Modals ─────────────────────────────────────────────────────────────────
 
 function ModalShell({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
-  // Esc closes the modal.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -220,125 +270,98 @@ function PriorityModal({
   )
 }
 
-function StatusModal({
+function TagsModal({
   count,
+  mode,
   onCancel,
   onConfirm,
 }: {
   count: number
+  mode: 'add-tags' | 'remove-tags'
   onCancel: () => void
-  onConfirm: (status: TaskStatus) => Promise<void>
+  onConfirm: (tagIDs: number[]) => Promise<void>
 }) {
-  const [status, setStatus] = useState<TaskStatus>('queued')
+  const [tags, setTags] = useState<TaskTag[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  useEffect(() => {
+    fetchTaskTags()
+      .then((list) => setTags(list))
+      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load tags'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const sorted = useMemo(
+    () => tags.slice().sort((a, b) => a.name.localeCompare(b.name)),
+    [tags],
+  )
+
+  const toggle = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   const submit = async () => {
+    if (selected.size === 0) return
     setError(null)
     setSubmitting(true)
     try {
-      await onConfirm(status)
+      await onConfirm(Array.from(selected))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update tasks')
       setSubmitting(false)
     }
   }
 
+  const title = mode === 'add-tags' ? 'Add tags' : 'Remove tags'
+  const verb = mode === 'add-tags' ? 'add to' : 'remove from'
+  const action = mode === 'add-tags' ? 'Add' : 'Remove'
+
   return (
-    <ModalShell title="Change status" onClose={onCancel}>
+    <ModalShell title={title} onClose={onCancel}>
       <p className="mt-2 text-sm text-zinc-600">
-        Set status for {count} task{count === 1 ? '' : 's'}.
-        Running tasks will be skipped automatically.
+        Select tags to {verb} {count} task{count === 1 ? '' : 's'}.
       </p>
-      <div className="mt-3 flex flex-col gap-2">
-        {SETTABLE_STATUSES.map((s) => (
-          <label
-            key={s.value}
-            className={clsx(
-              'flex items-center gap-3 rounded-md border px-3 py-2 text-sm cursor-pointer transition-colors',
-              status === s.value
-                ? 'border-blue-400 bg-blue-50 text-blue-900'
-                : 'border-zinc-200 bg-white dark:bg-zinc-50 text-zinc-700 hover:bg-zinc-50',
-            )}
-          >
-            <input
-              type="radio"
-              name="bulk-status"
-              value={s.value}
-              checked={status === s.value}
-              onChange={() => setStatus(s.value)}
-              className="h-3.5 w-3.5"
-            />
-            {s.label}
-          </label>
-        ))}
+      <div className="mt-3 max-h-60 overflow-auto rounded-md border border-zinc-200 bg-white dark:bg-zinc-50">
+        {loading && <p className="p-3 text-sm text-zinc-500">Loading tags…</p>}
+        {!loading && sorted.length === 0 && (
+          <p className="p-3 text-sm text-zinc-500">No tags exist yet.</p>
+        )}
+        {!loading &&
+          sorted.map((tag) => {
+            const checked = selected.has(tag.id)
+            return (
+              <label
+                key={tag.id}
+                className={clsx(
+                  'flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm hover:bg-zinc-50',
+                  checked && 'bg-zinc-50',
+                )}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggle(tag.id)}
+                  className="h-3.5 w-3.5 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+                />
+                <TaskTagChip tag={tag} />
+              </label>
+            )
+          })}
       </div>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
       <ModalButtons
         onCancel={onCancel}
         onConfirm={submit}
-        confirmLabel={submitting ? 'Applying…' : 'Apply'}
-        confirmDisabled={submitting}
-      />
-    </ModalShell>
-  )
-}
-
-function ProjectModal({
-  count,
-  projects,
-  onCancel,
-  onConfirm,
-}: {
-  count: number
-  projects: Project[]
-  onCancel: () => void
-  onConfirm: (projectId: string) => Promise<void>
-}) {
-  const activeProjects = useMemo(
-    () => projects.filter((p) => p.active).sort((a, b) => a.name.localeCompare(b.name)),
-    [projects],
-  )
-  const [projectId, setProjectId] = useState(activeProjects[0]?.id ?? '')
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const submit = async () => {
-    if (!projectId) return
-    setError(null)
-    setSubmitting(true)
-    try {
-      await onConfirm(projectId)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update tasks')
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <ModalShell title="Move to project" onClose={onCancel}>
-      <p className="mt-2 text-sm text-zinc-600">
-        Move {count} task{count === 1 ? '' : 's'} to a different project. Running tasks will be skipped.
-      </p>
-      <select
-        value={projectId}
-        onChange={(e) => setProjectId(e.target.value)}
-        autoFocus
-        className="mt-3 w-full rounded-md border border-zinc-200 bg-white dark:bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
-      >
-        {activeProjects.length === 0 && <option value="">No active projects</option>}
-        {activeProjects.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </select>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-      <ModalButtons
-        onCancel={onCancel}
-        onConfirm={submit}
-        confirmLabel={submitting ? 'Applying…' : 'Apply'}
-        confirmDisabled={!projectId || submitting}
+        confirmLabel={submitting ? 'Applying…' : action}
+        confirmDisabled={selected.size === 0 || submitting}
       />
     </ModalShell>
   )

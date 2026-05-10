@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"botka/internal/box"
 	"botka/internal/models"
@@ -382,49 +383,66 @@ func (h *TaskHandler) BatchUpdateStatus(c *gin.Context) {
 // the response has already been written to the client.
 var errBatchAborted = errors.New("batch aborted")
 
-// Bulk action identifiers accepted by /tasks/bulk.
+// Bulk operation identifiers accepted by POST /tasks/bulk.
 const (
-	bulkActionSetPriority = "set_priority"
-	bulkActionSetStatus   = "set_status"
-	bulkActionSetProject  = "set_project"
-	bulkActionDelete      = "delete"
+	bulkOpCancel      = "cancel"
+	bulkOpRequeue     = "requeue"
+	bulkOpSetPending  = "set_pending"
+	bulkOpDelete      = "delete"
+	bulkOpSetPriority = "set_priority"
+	bulkOpAddTags     = "add_tags"
+	bulkOpRemoveTags  = "remove_tags"
 )
 
-// bulkRequest is the JSON body for the POST /tasks/bulk endpoint.
+// bulkMaxIDs caps how many task IDs a single bulk request may target. Bounds
+// execution time and matches the spec.
+const bulkMaxIDs = 100
+
+// bulkRequest is the JSON body for POST /tasks/bulk.
 type bulkRequest struct {
-	IDs    []uuid.UUID     `json:"ids"`
-	Action string          `json:"action"`
-	Value  json.RawMessage `json:"value"`
+	TaskIDs   []uuid.UUID     `json:"task_ids"`
+	Operation string          `json:"operation"`
+	Payload   json.RawMessage `json:"payload"`
 }
 
-// bulkResult reports the outcome of a single task in a bulk operation.
-type bulkResult struct {
-	ID      uuid.UUID `json:"id"`
-	Success bool      `json:"success"`
-	Error   string    `json:"error,omitempty"`
+// bulkPriorityPayload is the payload shape for the set_priority operation.
+type bulkPriorityPayload struct {
+	Priority int `json:"priority"`
 }
 
-// bulkApplier applies a bulk action to a single task, returning an event to
+// bulkTagsPayload is the payload shape for the add_tags / remove_tags operations.
+type bulkTagsPayload struct {
+	TagIDs []int64 `json:"tag_ids"`
+}
+
+// bulkFailure reports a per-task failure in a bulk operation response.
+type bulkFailure struct {
+	ID    uuid.UUID `json:"id"`
+	Error string    `json:"error"`
+}
+
+// bulkResponse is the JSON envelope returned by the bulk endpoint.
+type bulkResponse struct {
+	Succeeded []uuid.UUID   `json:"succeeded"`
+	Failed    []bulkFailure `json:"failed"`
+}
+
+// bulkApplier applies a bulk operation to a single task, returning an event to
 // publish on success (or nil when no event should fire) and an error on
 // failure.
 type bulkApplier func(id uuid.UUID) (*runner.TaskEvent, error)
 
-// Bulk applies an action to many tasks, returning per-ID success/error results.
-// The request is validated up front (action, value shape, ID list) and then
-// each task is processed in its own transaction so a single failure cannot
-// abort the rest of the batch.
+// Bulk applies an operation to many tasks, returning per-ID succeeded/failed
+// arrays. Each task is processed in its own transaction so one validation
+// failure (e.g. invalid status transition) does not roll back the rest.
 func (h *TaskHandler) Bulk(c *gin.Context) {
 	var req bulkRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if len(req.IDs) == 0 {
-		respondError(c, http.StatusBadRequest, "ids must not be empty")
-		return
-	}
-	if dup := firstDuplicate(req.IDs); dup != nil {
-		respondError(c, http.StatusBadRequest, fmt.Sprintf("duplicate id: %s", dup))
+	if errMsg := validateBulkRequest(req); errMsg != "" {
+		respondError(c, http.StatusBadRequest, errMsg)
 		return
 	}
 
@@ -434,15 +452,18 @@ func (h *TaskHandler) Bulk(c *gin.Context) {
 		return
 	}
 
-	results := make([]bulkResult, 0, len(req.IDs))
-	events := make([]runner.TaskEvent, 0, len(req.IDs))
-	for _, id := range req.IDs {
+	resp := bulkResponse{
+		Succeeded: make([]uuid.UUID, 0, len(req.TaskIDs)),
+		Failed:    make([]bulkFailure, 0),
+	}
+	events := make([]runner.TaskEvent, 0, len(req.TaskIDs))
+	for _, id := range req.TaskIDs {
 		evt, err := apply(id)
 		if err != nil {
-			results = append(results, bulkResult{ID: id, Success: false, Error: err.Error()})
+			resp.Failed = append(resp.Failed, bulkFailure{ID: id, Error: err.Error()})
 			continue
 		}
-		results = append(results, bulkResult{ID: id, Success: true})
+		resp.Succeeded = append(resp.Succeeded, id)
 		if evt != nil {
 			events = append(events, *evt)
 		}
@@ -452,7 +473,23 @@ func (h *TaskHandler) Bulk(c *gin.Context) {
 		h.taskEvents.Publish(evt)
 	}
 
-	respondOK(c, gin.H{"results": results})
+	respondOK(c, resp)
+}
+
+// validateBulkRequest checks the structural validity of a bulk request:
+// non-empty IDs, no duplicates, within the cap. Operation/payload validity is
+// checked separately by buildBulkApplier so it can return per-operation hints.
+func validateBulkRequest(req bulkRequest) string {
+	if len(req.TaskIDs) == 0 {
+		return "task_ids must not be empty"
+	}
+	if len(req.TaskIDs) > bulkMaxIDs {
+		return fmt.Sprintf("task_ids exceeds maximum of %d", bulkMaxIDs)
+	}
+	if dup := firstDuplicate(req.TaskIDs); dup != nil {
+		return fmt.Sprintf("duplicate id: %s", dup)
+	}
+	return ""
 }
 
 // firstDuplicate returns a pointer to the first duplicated ID in the slice,
@@ -468,74 +505,88 @@ func firstDuplicate(ids []uuid.UUID) *uuid.UUID {
 	return nil
 }
 
-// buildBulkApplier validates the request value for the given action and
-// returns a closure that applies the action to a single task ID. Returns a
+// statusOpTargets maps the simple status-transition operations to their target
+// status. The transition itself is still validated per task against
+// allowedTransitions, so e.g. requeue on a `done` task fails with a clear error.
+var statusOpTargets = map[string]models.TaskStatus{
+	bulkOpCancel:     models.TaskStatusCancelled,
+	bulkOpRequeue:    models.TaskStatusQueued,
+	bulkOpSetPending: models.TaskStatusPending,
+}
+
+// buildBulkApplier validates the request payload for the given operation and
+// returns a closure that applies the operation to a single task ID. Returns a
 // non-empty error string when the request itself is malformed.
 func (h *TaskHandler) buildBulkApplier(req bulkRequest) (bulkApplier, string) {
-	switch req.Action {
-	case bulkActionSetPriority:
-		var priority int
-		if err := unmarshalBulkValue(req.Value, &priority); err != nil {
-			return nil, "invalid value: expected integer priority"
-		}
+	if target, ok := statusOpTargets[req.Operation]; ok {
 		return func(id uuid.UUID) (*runner.TaskEvent, error) {
-			return applyBulkSetPriority(h.db, id, priority)
+			return applyBulkSetStatus(h.db, id, target)
 		}, ""
+	}
 
-	case bulkActionSetStatus:
-		var status models.TaskStatus
-		if err := unmarshalBulkValue(req.Value, &status); err != nil {
-			return nil, "invalid value: expected status string"
-		}
-		if status != models.TaskStatusPending &&
-			status != models.TaskStatusQueued &&
-			status != models.TaskStatusCancelled {
-			return nil, "status must be pending, queued, or cancelled"
-		}
-		return func(id uuid.UUID) (*runner.TaskEvent, error) {
-			return applyBulkSetStatus(h.db, id, status)
-		}, ""
-
-	case bulkActionSetProject:
-		var projectIDStr string
-		if err := unmarshalBulkValue(req.Value, &projectIDStr); err != nil {
-			return nil, "invalid value: expected project id string"
-		}
-		projectID, err := uuid.Parse(projectIDStr)
-		if err != nil {
-			return nil, "invalid project id"
-		}
-		var proj models.Project
-		if err := h.db.First(&proj, "id = ?", projectID).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, "project not found"
-			}
-			return nil, "failed to validate project"
-		}
-		if !proj.Active {
-			return nil, "project is not active"
-		}
-		return func(id uuid.UUID) (*runner.TaskEvent, error) {
-			return applyBulkSetProject(h.db, id, projectID)
-		}, ""
-
-	case bulkActionDelete:
+	switch req.Operation {
+	case bulkOpDelete:
 		return func(id uuid.UUID) (*runner.TaskEvent, error) {
 			return applyBulkDelete(h.db, id)
 		}, ""
 
+	case bulkOpSetPriority:
+		var p bulkPriorityPayload
+		if err := json.Unmarshal(req.Payload, &p); err != nil || len(req.Payload) == 0 {
+			return nil, "payload must be {\"priority\": <int>}"
+		}
+		return func(id uuid.UUID) (*runner.TaskEvent, error) {
+			return applyBulkSetPriority(h.db, id, p.Priority)
+		}, ""
+
+	case bulkOpAddTags, bulkOpRemoveTags:
+		tagIDs, errMsg := h.parseTagsPayload(req.Payload)
+		if errMsg != "" {
+			return nil, errMsg
+		}
+		op := req.Operation
+		return func(id uuid.UUID) (*runner.TaskEvent, error) {
+			if op == bulkOpAddTags {
+				return nil, applyBulkAddTags(h.db, id, tagIDs)
+			}
+			return nil, applyBulkRemoveTags(h.db, id, tagIDs)
+		}, ""
+
 	default:
-		return nil, fmt.Sprintf("invalid action: %s", req.Action)
+		return nil, fmt.Sprintf("invalid operation: %s", req.Operation)
 	}
 }
 
-// unmarshalBulkValue decodes a bulk request value into v, treating an empty
-// payload as an unmarshal error rather than zero-value success.
-func unmarshalBulkValue(raw json.RawMessage, v interface{}) error {
+// parseTagsPayload decodes and validates the payload for add_tags/remove_tags:
+// the tag_ids list must be non-empty, free of duplicates, and reference real
+// tags. Validating once up front lets per-task work skip the lookup.
+func (h *TaskHandler) parseTagsPayload(raw json.RawMessage) ([]int64, string) {
 	if len(raw) == 0 {
-		return errors.New("missing value")
+		return nil, "payload must be {\"tag_ids\": [<int>, ...]}"
 	}
-	return json.Unmarshal(raw, v)
+	var p bulkTagsPayload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, "payload must be {\"tag_ids\": [<int>, ...]}"
+	}
+	if len(p.TagIDs) == 0 {
+		return nil, "tag_ids must not be empty"
+	}
+	seen := make(map[int64]struct{}, len(p.TagIDs))
+	for _, id := range p.TagIDs {
+		seen[id] = struct{}{}
+	}
+	ids := make([]int64, 0, len(seen))
+	for id := range seen {
+		ids = append(ids, id)
+	}
+	var count int64
+	if err := h.db.Model(&models.TaskTag{}).Where("id IN ?", ids).Count(&count).Error; err != nil {
+		return nil, "failed to validate tag_ids"
+	}
+	if count != int64(len(ids)) {
+		return nil, "one or more tag_ids do not exist"
+	}
+	return ids, ""
 }
 
 // applyBulkSetPriority sets the priority of a single task in a transaction.
@@ -581,33 +632,6 @@ func applyBulkSetStatus(db *gorm.DB, id uuid.UUID, status models.TaskStatus) (*r
 	return event, nil
 }
 
-// applyBulkSetProject reassigns a task to a different project. The caller has
-// already verified the target project exists and is active.
-func applyBulkSetProject(db *gorm.DB, id, projectID uuid.UUID) (*runner.TaskEvent, error) {
-	var event *runner.TaskEvent
-	err := db.Transaction(func(tx *gorm.DB) error {
-		task, err := lockTaskForUpdate(tx, id)
-		if err != nil {
-			return err
-		}
-		if task.Status == models.TaskStatusRunning {
-			return errors.New("cannot change project of a running task")
-		}
-		if task.ProjectID == projectID {
-			return nil
-		}
-		if err := tx.Model(&task).Update("project_id", projectID).Error; err != nil {
-			return err
-		}
-		event = &runner.TaskEvent{TaskID: task.ID, Status: task.Status, ProjectID: projectID}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return event, nil
-}
-
 // applyBulkDelete soft-deletes a task by setting its status to deleted.
 func applyBulkDelete(db *gorm.DB, id uuid.UUID) (*runner.TaskEvent, error) {
 	var event *runner.TaskEvent
@@ -632,6 +656,42 @@ func applyBulkDelete(db *gorm.DB, id uuid.UUID) (*runner.TaskEvent, error) {
 		return nil, err
 	}
 	return event, nil
+}
+
+// applyBulkAddTags attaches the given tag IDs to a task. Existing assignments
+// are preserved (ON CONFLICT DO NOTHING) so the operation is idempotent. The
+// caller has already validated tag IDs exist.
+func applyBulkAddTags(db *gorm.DB, taskID uuid.UUID, tagIDs []int64) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		var task models.Task
+		if err := tx.Select("id").First(&task, "id = ?", taskID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("task not found")
+			}
+			return err
+		}
+		assignments := make([]models.TaskTagAssignment, 0, len(tagIDs))
+		for _, tagID := range tagIDs {
+			assignments = append(assignments, models.TaskTagAssignment{TaskID: taskID, TagID: tagID})
+		}
+		return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&assignments).Error
+	})
+}
+
+// applyBulkRemoveTags detaches the given tag IDs from a task. Missing
+// assignments are ignored. The caller has already validated tag IDs exist.
+func applyBulkRemoveTags(db *gorm.DB, taskID uuid.UUID, tagIDs []int64) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		var task models.Task
+		if err := tx.Select("id").First(&task, "id = ?", taskID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("task not found")
+			}
+			return err
+		}
+		return tx.Where("task_id = ? AND tag_id IN ?", taskID, tagIDs).
+			Delete(&models.TaskTagAssignment{}).Error
+	})
 }
 
 // lockTaskForUpdate fetches a task row with FOR UPDATE locking. Returns a
