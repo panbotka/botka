@@ -310,6 +310,9 @@ func setupRouter(
 	threadSourceHandler := handlers.NewThreadSourceHandler(db)
 	handlers.RegisterThreadSourceRoutes(v1, threadSourceHandler)
 
+	folderHandler := handlers.NewFolderHandler(db)
+	handlers.RegisterFolderRoutes(v1, folderHandler)
+
 	signalHandler := handlers.NewSignalHandler(db, signalClient)
 	handlers.RegisterSignalRoutes(v1, signalHandler)
 

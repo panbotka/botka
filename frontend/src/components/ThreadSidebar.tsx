@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import type { Persona, Thread, Project, GlobalSearchResults } from '../types'
+import type { Persona, Thread, ThreadFolder, Project, GlobalSearchResults } from '../types'
 import { formatDate as formatDateOnly } from '../utils/dateFormat'
 import { api, globalSearch, ApiError } from '../api/client'
 import { downloadExport } from '../utils/exportThread'
@@ -9,7 +9,8 @@ import BoxStatusBadge from './BoxStatusBadge'
 import {
   Plus, Search, Pin, Archive, MoreVertical, Pencil,
   Trash2, Download,
-  X, ChevronDown, FolderGit2, MessageSquare, Server,
+  X, ChevronDown, ChevronRight, Folder, FolderPlus, FolderOpen,
+  FolderGit2, MessageSquare, Server,
   ListTodo, FileText,
 } from 'lucide-react'
 import { THREAD_COLORS } from '../utils/threadColors'
@@ -41,10 +42,12 @@ function taskStatusBadgeClass(status: string): string {
 
 interface Props {
   threads: Thread[]
+  folders?: ThreadFolder[]
   activeThreadId: number | null
   onSelectThread: (id: number) => void
   onNewThread: (personaId?: number) => void
   onThreadsChange: () => void
+  onFoldersChange?: () => void
   showArchived: boolean
   onToggleArchived: () => void
   personas: Persona[]
@@ -56,12 +59,50 @@ interface Props {
   onNavigate?: (path: string) => void
 }
 
+const FOLDER_COLLAPSED_KEY = 'botka:folders:collapsed'
+
+type DragData =
+  | { kind: 'thread'; id: number }
+  | { kind: 'folder'; id: number }
+  | null
+
+function loadCollapsedSet(): Set<number> {
+  try {
+    const raw = localStorage.getItem(FOLDER_COLLAPSED_KEY)
+    if (!raw) return new Set()
+    const parsed = JSON.parse(raw) as number[]
+    return new Set(parsed)
+  } catch {
+    return new Set()
+  }
+}
+
+function saveCollapsedSet(set: Set<number>) {
+  try {
+    localStorage.setItem(FOLDER_COLLAPSED_KEY, JSON.stringify([...set]))
+  } catch { /* ignore */ }
+}
+
+// Counts threads transitively under the given folder for empty-state cue.
+function subtreeThreadCount(
+  folder: ThreadFolder,
+  threadsByFolder: Map<number, Thread[]>,
+): number {
+  let n = (threadsByFolder.get(folder.id) ?? []).length
+  for (const child of folder.children) {
+    n += subtreeThreadCount(child, threadsByFolder)
+  }
+  return n
+}
+
 export default function ThreadSidebar({
   threads,
+  folders = [],
   activeThreadId,
   onSelectThread,
   onNewThread,
   onThreadsChange,
+  onFoldersChange,
   showArchived,
   onToggleArchived,
   personas,
@@ -84,6 +125,42 @@ export default function ThreadSidebar({
   const [searchLoading, setSearchLoading] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<number>>(() => loadCollapsedSet())
+  const [folderMenuOpenId, setFolderMenuOpenId] = useState<number | null>(null)
+  const [editingFolderId, setEditingFolderId] = useState<number | null>(null)
+  const [editFolderName, setEditFolderName] = useState('')
+  const [draggingItem, setDraggingItem] = useState<DragData>(null)
+  const [dropTargetFolderId, setDropTargetFolderId] = useState<number | 'root' | null>(null)
+  const folderMenuRef = useRef<HTMLDivElement>(null)
+
+  // Close folder menu on outside click or Escape.
+  useEffect(() => {
+    if (folderMenuOpenId === null) return
+    const handleClick = (e: MouseEvent) => {
+      if (folderMenuRef.current && !folderMenuRef.current.contains(e.target as Node)) {
+        setFolderMenuOpenId(null)
+      }
+    }
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFolderMenuOpenId(null)
+    }
+    document.addEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [folderMenuOpenId])
+
+  const toggleFolderCollapsed = useCallback((id: number) => {
+    setCollapsedFolders(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      saveCollapsedSet(next)
+      return next
+    })
+  }, [])
 
   // Close menu on outside click or Escape
   useEffect(() => {
@@ -262,8 +339,26 @@ export default function ThreadSidebar({
   }, [isLocalFiltering, parsedQuery, projectMap])
 
   const pinnedThreads = useMemo(() => threads.filter(t => t.pinned && !t.archived && matchesFilters(t)), [threads, matchesFilters])
-  const regularThreads = useMemo(() => threads.filter(t => !t.pinned && !t.archived && matchesFilters(t)), [threads, matchesFilters])
+  // Regular threads at the root level (no folder) — folders' own threads are
+  // rendered inside the folder tree below.
+  const regularThreads = useMemo(
+    () => threads.filter(t => !t.pinned && !t.archived && !t.folder_id && matchesFilters(t)),
+    [threads, matchesFilters],
+  )
   const archivedThreads = useMemo(() => threads.filter(t => t.archived && matchesFilters(t)), [threads, matchesFilters])
+  // Group non-archived, non-pinned threads by their folder_id for the tree.
+  const threadsByFolder = useMemo(() => {
+    const map = new Map<number, Thread[]>()
+    for (const t of threads) {
+      if (t.archived || t.pinned) continue
+      if (!t.folder_id) continue
+      if (!matchesFilters(t)) continue
+      const list = map.get(t.folder_id) ?? []
+      list.push(t)
+      map.set(t.folder_id, list)
+    }
+    return map
+  }, [threads, matchesFilters])
 
   const renderThread = (thread: Thread) => {
     const isSelected = activeThreadId === thread.id
@@ -278,6 +373,7 @@ export default function ThreadSidebar({
       className={`group flex items-stretch gap-2 px-3 py-2.5 mb-0.5
                  rounded-xl cursor-pointer transition-all duration-150
                  ${thread.archived ? 'opacity-50' : ''}
+                 ${draggingItem?.kind === 'thread' && draggingItem.id === thread.id ? 'opacity-50' : ''}
                  ${isSelected
                    ? 'bg-zinc-200/70 text-zinc-900' + (isStreaming ? ' ring-1 ring-emerald-400/50' : hasProcess ? ' ring-1 ring-emerald-400/30' : '')
                    : (isStreaming
@@ -286,6 +382,9 @@ export default function ThreadSidebar({
                        ? 'bg-emerald-50/50 hover:bg-emerald-50'
                        : 'hover:bg-zinc-100') + ' text-zinc-700 hover:text-zinc-900'}`}
       style={threadColorEntry ? { borderLeft: `3px solid ${threadColorEntry.swatch}40` } : undefined}
+      draggable={!readOnly}
+      onDragStart={startThreadDrag(thread.id)}
+      onDragEnd={endDrag}
       onClick={() => onSelectThread(thread.id)}
     >
       {editingId === thread.id ? (
@@ -726,9 +825,256 @@ export default function ThreadSidebar({
     )
   })()
 
+  // ── Folder operations ────────────────────────────────────────────────────
+
+  const handleCreateFolder = async (parentId: number | null) => {
+    const name = window.prompt(parentId ? 'New subfolder name:' : 'New folder name:')
+    if (!name || !name.trim()) return
+    try {
+      await api.createFolder(name.trim(), parentId)
+      onFoldersChange?.()
+    } catch (err) {
+      if (err instanceof ApiError) showToast(err.message)
+    }
+  }
+
+  const handleRenameFolder = async (id: number) => {
+    const name = editFolderName.trim()
+    setEditingFolderId(null)
+    if (!name) return
+    try {
+      await api.updateFolder(id, { name })
+      onFoldersChange?.()
+    } catch (err) {
+      if (err instanceof ApiError) showToast(err.message)
+    }
+  }
+
+  const handleDeleteFolder = async (id: number) => {
+    if (!window.confirm('Delete this folder? It must be empty.')) return
+    try {
+      await api.deleteFolder(id)
+      onFoldersChange?.()
+    } catch (err) {
+      if (err instanceof ApiError) showToast(err.message)
+    }
+  }
+
+  const handleMoveThread = async (threadId: number, folderId: number | null) => {
+    try {
+      await api.moveThreadToFolder(threadId, folderId)
+      onThreadsChange()
+    } catch (err) {
+      if (err instanceof ApiError) showToast(err.message)
+    }
+  }
+
+  const handleMoveFolder = async (folderId: number, parentId: number | null) => {
+    try {
+      await api.updateFolder(folderId, parentId === null ? { clearParent: true } : { parentId })
+      onFoldersChange?.()
+    } catch (err) {
+      if (err instanceof ApiError) showToast(err.message)
+    }
+  }
+
+  // Drag-and-drop helpers. We store the dragged item in component state so we
+  // can read it on drop without round-tripping through the DataTransfer API,
+  // which has restrictions on payload reads during dragover.
+  const startThreadDrag = (id: number) => (e: React.DragEvent) => {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', `thread:${id}`)
+    setDraggingItem({ kind: 'thread', id })
+  }
+
+  const startFolderDrag = (id: number) => (e: React.DragEvent) => {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', `folder:${id}`)
+    setDraggingItem({ kind: 'folder', id })
+  }
+
+  const endDrag = () => {
+    setDraggingItem(null)
+    setDropTargetFolderId(null)
+  }
+
+  const handleFolderDrop = (folderId: number) => (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDropTargetFolderId(null)
+    if (!draggingItem) return
+    if (draggingItem.kind === 'thread') {
+      handleMoveThread(draggingItem.id, folderId)
+    } else if (draggingItem.kind === 'folder' && draggingItem.id !== folderId) {
+      handleMoveFolder(draggingItem.id, folderId)
+    }
+    setDraggingItem(null)
+  }
+
+  const handleRootDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDropTargetFolderId(null)
+    if (!draggingItem) return
+    if (draggingItem.kind === 'thread') {
+      handleMoveThread(draggingItem.id, null)
+    } else if (draggingItem.kind === 'folder') {
+      handleMoveFolder(draggingItem.id, null)
+    }
+    setDraggingItem(null)
+  }
+
+  const allowDrop = (target: number | 'root') => (e: React.DragEvent) => {
+    if (!draggingItem) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDropTargetFolderId(target)
+  }
+
+  const renderFolderNode = (folder: ThreadFolder, depth: number): React.ReactNode => {
+    const collapsed = collapsedFolders.has(folder.id)
+    const folderThreads = threadsByFolder.get(folder.id) ?? []
+    const totalInSubtree = subtreeThreadCount(folder, threadsByFolder)
+    const isEmpty = totalInSubtree === 0 && folder.children.length === 0
+    const isDropTarget = dropTargetFolderId === folder.id
+
+    return (
+      <div key={`folder-${folder.id}`}>
+        <div
+          className={`group flex items-center gap-1 pr-1 py-1 mb-0.5 rounded-lg
+                     transition-colors cursor-pointer
+                     ${isDropTarget ? 'bg-amber-50 ring-1 ring-amber-300' : 'hover:bg-zinc-100'}
+                     ${draggingItem?.kind === 'folder' && draggingItem.id === folder.id ? 'opacity-50' : ''}`}
+          style={{ paddingLeft: `${8 + depth * 14}px` }}
+          draggable={!readOnly}
+          onDragStart={startFolderDrag(folder.id)}
+          onDragEnd={endDrag}
+          onDragOver={allowDrop(folder.id)}
+          onDragLeave={() => setDropTargetFolderId(prev => (prev === folder.id ? null : prev))}
+          onDrop={handleFolderDrop(folder.id)}
+          onClick={() => toggleFolderCollapsed(folder.id)}
+        >
+          <button
+            type="button"
+            className="text-zinc-400 hover:text-zinc-700 cursor-pointer flex-shrink-0"
+            onClick={(e) => { e.stopPropagation(); toggleFolderCollapsed(folder.id) }}
+            aria-label={collapsed ? 'Expand folder' : 'Collapse folder'}
+          >
+            {collapsed
+              ? <ChevronRight className="w-3.5 h-3.5" />
+              : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+          {collapsed
+            ? <Folder className={`w-3.5 h-3.5 flex-shrink-0 ${isEmpty ? 'text-zinc-300' : 'text-amber-500'}`} />
+            : <FolderOpen className={`w-3.5 h-3.5 flex-shrink-0 ${isEmpty ? 'text-zinc-300' : 'text-amber-500'}`} />}
+          {editingFolderId === folder.id ? (
+            <input
+              value={editFolderName}
+              onChange={(e) => setEditFolderName(e.target.value)}
+              onBlur={() => handleRenameFolder(folder.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleRenameFolder(folder.id)
+                if (e.key === 'Escape') setEditingFolderId(null)
+              }}
+              autoFocus
+              className="flex-1 bg-transparent border-b border-amber-500/50 outline-none text-zinc-900 text-sm"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <>
+              <span className={`flex-1 text-sm truncate ${isEmpty ? 'text-zinc-400 italic' : 'text-zinc-700'}`}>
+                {folder.name}
+              </span>
+              {folderThreads.length > 0 && (
+                <span className="text-[10px] text-zinc-400 px-1.5 py-0.5 rounded-full bg-zinc-100 flex-shrink-0">
+                  {folderThreads.length}
+                </span>
+              )}
+              {!readOnly && (
+                <div
+                  className="relative flex-shrink-0"
+                  ref={folderMenuOpenId === folder.id ? folderMenuRef : undefined}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    onClick={() => setFolderMenuOpenId(folderMenuOpenId === folder.id ? null : folder.id)}
+                    className={`w-6 h-6 flex items-center justify-center rounded transition-colors cursor-pointer
+                               opacity-0 group-hover:opacity-100
+                               ${folderMenuOpenId === folder.id ? 'text-zinc-700 bg-zinc-200 opacity-100' : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200'}`}
+                    title="Folder actions"
+                    aria-label="Folder actions"
+                  >
+                    <MoreVertical className="w-3.5 h-3.5" />
+                  </button>
+                  {folderMenuOpenId === folder.id && (
+                    <div className="absolute right-0 top-full mt-1 z-50 w-44
+                                    bg-zinc-100 border border-zinc-200 rounded-xl
+                                    shadow-lg shadow-zinc-200/50 py-1 overflow-hidden">
+                      <button
+                        onClick={() => {
+                          setEditingFolderId(folder.id)
+                          setEditFolderName(folder.name)
+                          setFolderMenuOpenId(null)
+                        }}
+                        className="w-full flex items-center gap-3 px-3 py-2
+                                   text-sm text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                      >
+                        <Pencil className="w-4 h-4 flex-shrink-0 text-zinc-400" />
+                        Rename
+                      </button>
+                      <button
+                        onClick={() => { handleCreateFolder(folder.id); setFolderMenuOpenId(null) }}
+                        className="w-full flex items-center gap-3 px-3 py-2
+                                   text-sm text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                      >
+                        <FolderPlus className="w-4 h-4 flex-shrink-0 text-zinc-400" />
+                        New subfolder
+                      </button>
+                      <div className="my-1 mx-2 border-t border-zinc-100" />
+                      <button
+                        onClick={() => { handleDeleteFolder(folder.id); setFolderMenuOpenId(null) }}
+                        className="w-full flex items-center gap-3 px-3 py-2
+                                   text-sm text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4 flex-shrink-0" />
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        {!collapsed && (
+          <div>
+            {folder.children.map(child => renderFolderNode(child, depth + 1))}
+            {folderThreads.map(t => (
+              <div key={`f-thread-${t.id}`} style={{ paddingLeft: `${(depth + 1) * 14}px` }}>
+                {renderThread(t)}
+              </div>
+            ))}
+            {isEmpty && (
+              <div
+                className="text-[11px] text-zinc-400 italic py-1.5"
+                style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}
+              >
+                Empty
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   // Thread list view
   const threadListView = (
-    <>
+    <div
+      onDragOver={allowDrop('root')}
+      onDragLeave={() => setDropTargetFolderId(prev => (prev === 'root' ? null : prev))}
+      onDrop={handleRootDrop}
+      className={dropTargetFolderId === 'root' ? 'bg-amber-50/40 rounded-lg' : ''}
+    >
       {pinnedThreads.length > 0 && (
         <>
           <div className="px-3 py-1.5 text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
@@ -743,6 +1089,34 @@ export default function ThreadSidebar({
         </div>
       )}
       {regularThreads.map(renderThread)}
+      {folders.length > 0 && (
+        <>
+          <div className="px-3 py-1.5 text-[11px] font-medium text-zinc-400 uppercase tracking-wider flex items-center justify-between">
+            <span>Folders</span>
+            {!readOnly && (
+              <button
+                onClick={() => handleCreateFolder(null)}
+                className="p-1 -mr-1 rounded hover:bg-zinc-200 text-zinc-400 hover:text-zinc-700 cursor-pointer"
+                title="New folder"
+                aria-label="New folder"
+              >
+                <FolderPlus className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          {folders.map(f => renderFolderNode(f, 0))}
+        </>
+      )}
+      {!readOnly && folders.length === 0 && (
+        <button
+          onClick={() => handleCreateFolder(null)}
+          className="mx-3 my-2 px-3 py-1.5 flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-700
+                     hover:bg-zinc-100 rounded-lg cursor-pointer transition-colors"
+        >
+          <FolderPlus className="w-3.5 h-3.5" />
+          New folder
+        </button>
+      )}
       {archivedSectionVisible && archivedThreads.length > 0 && (
         <>
           <div className="my-1.5 mx-3 border-t border-zinc-100" />
@@ -752,12 +1126,12 @@ export default function ThreadSidebar({
           {archivedThreads.map(renderThread)}
         </>
       )}
-      {threads.length === 0 && (
+      {threads.length === 0 && folders.length === 0 && (
         <div className="px-3 py-8 text-center text-zinc-400 text-sm">
           No conversations yet
         </div>
       )}
-    </>
+    </div>
   )
 
   // Mobile full-screen mode

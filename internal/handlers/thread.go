@@ -37,6 +37,7 @@ func RegisterThreadRoutes(rg *gin.RouterGroup, h *ThreadHandler) {
 	rg.POST("/threads", h.Create)
 	rg.GET("/threads/:id", h.GetByID)
 	rg.PUT("/threads/:id", h.Rename)
+	rg.PATCH("/threads/:id", h.Patch)
 	rg.DELETE("/threads/:id", h.Delete)
 	rg.PUT("/threads/:id/pin", h.Pin)
 	rg.DELETE("/threads/:id/pin", h.Unpin)
@@ -275,6 +276,64 @@ func (h *ThreadHandler) Rename(c *gin.Context) {
 		return
 	}
 
+	if err := h.db.Model(&models.Thread{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		respondError(c, http.StatusInternalServerError, "failed to update thread")
+		return
+	}
+
+	respondOK(c, gin.H{"status": "ok"})
+}
+
+type patchThreadRequest struct {
+	FolderID    *int64 `json:"folder_id,omitempty"`
+	ClearFolder bool   `json:"clear_folder,omitempty"`
+}
+
+// Patch is a partial update for a thread. Currently it supports moving the
+// thread between folders (folder_id). Pass clear_folder=true to move a thread
+// back to root level; folder_id with a value moves it into that folder.
+func (h *ThreadHandler) Patch(c *gin.Context) {
+	id, err := paramInt64(c, "id")
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "invalid thread id")
+		return
+	}
+
+	var thread models.Thread
+	if err := h.db.First(&thread, id).Error; err != nil {
+		respondError(c, http.StatusNotFound, "thread not found")
+		return
+	}
+
+	var req patchThreadRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	updates := map[string]interface{}{}
+
+	if req.ClearFolder || req.FolderID != nil {
+		var newFolder *int64
+		if !req.ClearFolder {
+			newFolder = req.FolderID
+		}
+		if newFolder != nil {
+			var folder models.ThreadFolder
+			if err := h.db.First(&folder, *newFolder).Error; err != nil {
+				respondError(c, http.StatusBadRequest, "folder not found")
+				return
+			}
+		}
+		updates["folder_id"] = newFolder
+	}
+
+	if len(updates) == 0 {
+		respondError(c, http.StatusBadRequest, "no fields to update")
+		return
+	}
+
+	updates["updated_at"] = time.Now()
 	if err := h.db.Model(&models.Thread{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "failed to update thread")
 		return

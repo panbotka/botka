@@ -1,4 +1,4 @@
-import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, TaskNote, TaskTag, Thread, ThreadDetail, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, TaskStatsAggregated, TaskStatsGroupBy, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo } from '../types'
+import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, TaskNote, TaskTag, Thread, ThreadDetail, ThreadFolder, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, TaskStatsAggregated, TaskStatsGroupBy, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -409,6 +409,54 @@ export function updateCustomContext(threadId: number, customContext: string): Pr
   return request<void>(`/threads/${threadId}/custom-context`, {
     method: 'PUT',
     body: JSON.stringify({ custom_context: customContext }),
+  })
+}
+
+// Thread Folders
+
+export function fetchFolders(): Promise<ThreadFolder[]> {
+  return requestData<ThreadFolder[]>('/folders')
+}
+
+export function createFolder(name: string, parentId?: number | null): Promise<ThreadFolder> {
+  return requestData<ThreadFolder>('/folders', {
+    method: 'POST',
+    body: JSON.stringify({ name, parent_id: parentId ?? null }),
+  })
+}
+
+export interface UpdateFolderInput {
+  name?: string
+  parentId?: number | null
+  clearParent?: boolean
+  position?: number
+  siblingIds?: number[]
+}
+
+export function updateFolder(id: number, input: UpdateFolderInput): Promise<void> {
+  const body: Record<string, unknown> = {}
+  if (input.name !== undefined) body.name = input.name
+  if (input.clearParent) body.clear_parent = true
+  else if (input.parentId !== undefined) body.parent_id = input.parentId
+  if (input.position !== undefined) body.position = input.position
+  if (input.siblingIds !== undefined) body.sibling_ids = input.siblingIds
+  return request<void>(`/folders/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+}
+
+export function deleteFolder(id: number): Promise<void> {
+  return request<void>(`/folders/${id}`, { method: 'DELETE' })
+}
+
+export function moveThreadToFolder(threadId: number, folderId: number | null): Promise<void> {
+  const body: Record<string, unknown> = folderId === null
+    ? { clear_folder: true }
+    : { folder_id: folderId }
+  return request<void>(`/threads/${threadId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
   })
 }
 
@@ -1289,6 +1337,12 @@ export const api = {
   switchBranch,
   updateThreadTags,
   updateThreadProject,
+  // Thread Folders
+  fetchFolders,
+  createFolder,
+  updateFolder,
+  deleteFolder,
+  moveThreadToFolder,
   // Thread Sources
   fetchThreadSources,
   createThreadSource,

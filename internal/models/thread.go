@@ -20,6 +20,7 @@ type Thread struct {
 	PersonaName     string     `gorm:"size:255;not null;default:''" json:"persona_name"`
 	ProjectID       *uuid.UUID `gorm:"type:uuid" json:"project_id"`
 	Project         *Project   `gorm:"foreignKey:ProjectID" json:"project,omitempty"`
+	FolderID        *int64     `json:"folder_id"`
 	Pinned          bool       `gorm:"not null;default:false" json:"pinned"`
 	Archived        bool       `gorm:"not null;default:false" json:"archived"`
 	Color           string     `gorm:"size:20;not null;default:''" json:"color"`

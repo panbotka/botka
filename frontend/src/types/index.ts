@@ -239,6 +239,7 @@ export interface Thread {
   persona_icon?: string
   persona_name?: string
   project_id?: string
+  folder_id?: number | null
   pinned: boolean
   archived: boolean
   color?: string
@@ -250,6 +251,17 @@ export interface Thread {
   last_message_preview?: string
   last_message_at?: string
   signal_bridge_active?: boolean
+}
+
+export interface ThreadFolder {
+  id: number
+  name: string
+  parent_id: number | null
+  position: number
+  thread_count: number
+  children: ThreadFolder[]
+  created_at: string
+  updated_at: string
 }
 
 export interface SignalBridge {

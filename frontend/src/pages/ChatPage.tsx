@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import type { Tag, Thread, Persona, Project } from '../types'
+import type { Tag, Thread, ThreadFolder, Persona, Project } from '../types'
 import { api } from '../api/client'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useProcesses } from '../hooks/useProcesses'
@@ -33,6 +33,7 @@ export default function ChatPage() {
   )
   const [showArchived, setShowArchived] = useState(false)
   const [tags, setTags] = useState<Tag[]>([])
+  const [folders, setFolders] = useState<ThreadFolder[]>([])
   const [personas, setPersonas] = useState<Persona[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [pendingStarterMessage, setPendingStarterMessage] = useState<string | null>(null)
@@ -103,6 +104,10 @@ export default function ChatPage() {
     try { setTags(await api.fetchTags()) } catch { /* ignore */ }
   }, [])
 
+  const loadFolders = useCallback(async () => {
+    try { setFolders(await api.fetchFolders()) } catch { /* ignore */ }
+  }, [])
+
   const loadPersonas = useCallback(async () => {
     try { setPersonas(await api.fetchPersonas()) } catch { /* ignore */ }
   }, [])
@@ -114,11 +119,13 @@ export default function ChatPage() {
   useEffect(() => {
     loadThreads()
     loadTags()
+    loadFolders()
     loadPersonas()
     loadProjects()
-  }, [loadThreads, loadTags, loadPersonas, loadProjects, showArchived])
+  }, [loadThreads, loadTags, loadFolders, loadPersonas, loadProjects, showArchived])
 
   useRefreshOnFocus(loadThreads)
+  useRefreshOnFocus(loadFolders)
 
   // On desktop, auto-select first thread if none selected
   useEffect(() => {
@@ -154,6 +161,11 @@ export default function ChatPage() {
     loadThreads()
   }, [loadThreads])
 
+  const handleFoldersChange = useCallback(() => {
+    loadFolders()
+    loadThreads()
+  }, [loadFolders, loadThreads])
+
   const handleProjectChange = useCallback(async (threadId: number, projectId: string | null) => {
     try {
       await api.updateThreadProject(threadId, projectId)
@@ -175,10 +187,12 @@ export default function ChatPage() {
   // Shared sidebar props
   const sidebarProps = {
     threads,
+    folders,
     activeThreadId,
     onSelectThread: (id: number) => selectThread(id),
     onNewThread: handleNewThread,
     onThreadsChange: handleThreadsChange,
+    onFoldersChange: handleFoldersChange,
     showArchived,
     onToggleArchived: handleToggleArchived,
     personas,
