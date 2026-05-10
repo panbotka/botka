@@ -391,6 +391,19 @@ export function switchBranch(threadId: number, forkMessageId: number, childId: n
   })
 }
 
+export function forkThread(threadId: number, fromMessageId: number, newTitle?: string): Promise<Thread> {
+  const body: Record<string, unknown> = { from_message_id: fromMessageId }
+  if (newTitle) body.new_title = newTitle
+  return requestData<Thread>(`/threads/${threadId}/fork`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export function fetchThreadForks(threadId: number): Promise<Thread[]> {
+  return requestData<Thread[]>(`/threads/${threadId}/forks`)
+}
+
 export function updateThreadTags(id: number, tagIds: number[]): Promise<void> {
   return requestData<void>(`/threads/${id}/tags`, {
     method: 'PUT',
@@ -1352,6 +1365,8 @@ export const api = {
   renameThread,
   updateModel,
   switchBranch,
+  forkThread,
+  fetchThreadForks,
   updateThreadTags,
   updateThreadProject,
   // Thread Folders

@@ -251,6 +251,8 @@ export interface Thread {
   last_message_preview?: string
   last_message_at?: string
   signal_bridge_active?: boolean
+  parent_thread_id?: number | null
+  forked_from_message_id?: number | null
 }
 
 export interface ThreadFolder {

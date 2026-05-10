@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"botka/internal/handlers"
 	"botka/internal/models"
 )
 
@@ -278,6 +279,45 @@ func (s *Server) handleGetThreadContext(raw json.RawMessage) (interface{}, error
 		"custom_context": thread.CustomContext,
 		"length":         len(thread.CustomContext),
 	}, nil
+}
+
+// forkThreadArgs holds the arguments for the fork_thread tool.
+type forkThreadArgs struct {
+	ThreadID      int64  `json:"thread_id"`
+	FromMessageID int64  `json:"from_message_id"`
+	NewTitle      string `json:"new_title"`
+}
+
+// handleForkThread creates a new thread that copies the source thread's
+// settings, tags, sources, and messages up to and including from_message_id.
+// The new thread has no Claude session and starts a fresh context.
+func (s *Server) handleForkThread(raw json.RawMessage) (interface{}, error) {
+	var args forkThreadArgs
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if args.ThreadID <= 0 {
+		return nil, errors.New("thread_id is required")
+	}
+	if args.FromMessageID <= 0 {
+		return nil, errors.New("from_message_id is required")
+	}
+
+	newThread, _, err := handlers.ForkThread(s.db, args.ThreadID, args.FromMessageID, args.NewTitle)
+	if err != nil {
+		return nil, err
+	}
+
+	result := map[string]interface{}{
+		"id":                     newThread.ID,
+		"title":                  newThread.Title,
+		"parent_thread_id":       newThread.ParentThreadID,
+		"forked_from_message_id": newThread.ForkedFromMessageID,
+	}
+	if newThread.Model != nil {
+		result["model"] = *newThread.Model
+	}
+	return result, nil
 }
 
 // setThreadContextArgs holds the arguments for the set_thread_context tool.

@@ -18,6 +18,7 @@ interface Props {
   onEdit?: (messageId: number, content: string) => void;
   onRegenerate?: () => void;
   onBranch?: () => void;
+  onFork?: () => void;
   onHide?: () => void;
   onSwitchBranch?: (childId: number) => void;
   onImageClick?: (attachment: Attachment, allImages: Attachment[]) => void;
@@ -221,7 +222,7 @@ function AttachmentPreviews({ imageAttachments, pdfAttachments, textAttachments,
   );
 }
 
-export default function MessageBubble({ message, isStreaming, isLastAssistant, isPending, forkPoint, onEdit, onRegenerate, onBranch, onHide, onSwitchBranch, onImageClick, onRemoveQueued, onOptionSelect }: Props) {
+export default function MessageBubble({ message, isStreaming, isLastAssistant, isPending, forkPoint, onEdit, onRegenerate, onBranch, onFork, onHide, onSwitchBranch, onImageClick, onRemoveQueued, onOptionSelect }: Props) {
   const isUser = message.role === 'user';
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
@@ -435,6 +436,7 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
                 onEdit={onEdit ? () => setEditing(true) : undefined}
                 onRegenerate={onRegenerate}
                 onBranch={onBranch}
+                onFork={onFork}
                 onHide={onHide}
               />
             </div>

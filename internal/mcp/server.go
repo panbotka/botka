@@ -239,6 +239,7 @@ func (s *Server) toolHandlers() map[string]toolHandler {
 		"update_thread_source": s.handleUpdateThreadSource,
 		"get_thread_context":   s.handleGetThreadContext,
 		"set_thread_context":   s.handleSetThreadContext,
+		"fork_thread":          s.handleForkThread,
 		"search_messages":      s.handleSearchMessages,
 	}
 }
@@ -569,6 +570,15 @@ func threadToolDefinitions() []toolDef {
 				"thread_id": prop("integer", "Thread ID"),
 				"content":   prop("string", "Custom context content (replaces existing)"),
 			}, "thread_id", "content"),
+		},
+		{
+			Name:        "fork_thread",
+			Description: "Fork a thread at a specific message into a new thread. Copies settings, tags, sources, and messages up to and including from_message_id; the new thread starts with a fresh Claude session.",
+			InputSchema: schema(map[string]interface{}{
+				"thread_id":       prop("integer", "Source thread ID"),
+				"from_message_id": prop("integer", "Last message ID to include in the fork (inclusive)"),
+				"new_title":       prop("string", "Optional title for the new thread (defaults to '<source title> (fork)')"),
+			}, "thread_id", "from_message_id"),
 		},
 	}
 }

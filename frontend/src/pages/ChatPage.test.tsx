@@ -28,6 +28,9 @@ vi.mock('../components/BoxRunningIndicator', () => ({
 vi.mock('../components/ThreadSettingsPanel', () => ({
   default: () => <div data-testid="thread-settings-panel" />,
 }))
+vi.mock('../components/ThreadForkBadges', () => ({
+  default: () => <div data-testid="thread-fork-badges" />,
+}))
 
 vi.mock('../hooks/useIsMobile', () => ({
   useIsMobile: () => false,

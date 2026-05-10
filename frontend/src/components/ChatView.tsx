@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type DragEvent } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import type { Message, Thread, ThreadDetail, Attachment, ForkPoint } from '../types';
 import { api, interruptThread, streamChat, streamRegenerate, streamEdit, streamBranch, streamSubscribe, fetchSessionHealth, toggleMessageHidden } from '../api/client';
 import type { SessionHealthData } from '../api/client';
@@ -14,6 +14,7 @@ import ToolCallPanel from './ToolCallPanel';
 import AskUserPanel from './AskUserPanel';
 import StreamErrorBlock from './StreamErrorBlock';
 import Lightbox from './Lightbox';
+import ForkThreadModal from './ForkThreadModal';
 import { COMMANDS } from './SlashCommandMenu';
 import { downloadExport } from '../utils/exportThread';
 import type { ExportFormat } from '../utils/exportThread';
@@ -52,6 +53,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
   const [branchFromId, setBranchFromId] = useState<number | null>(null);
   const [planMode, setPlanMode] = useState(false);
   const [inThreadSearchOpen, setInThreadSearchOpen] = useState(false);
+  const [forkFromMessage, setForkFromMessage] = useState<Message | null>(null);
 
   // --- Refs ---
   const dragCounterRef = useRef(0);
@@ -70,6 +72,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
 
   // --- Routing ---
   const location = useLocation();
+  const navigate = useNavigate();
 
   // --- SSE Manager ---
   const sseManager = useSSEManager();
@@ -689,6 +692,21 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     }
   }, [threadId, sseManager, reloadThread]);
 
+  // --- Fork ---
+
+  const handleForkRequest = useCallback((messageId: number) => {
+    const msg = messages.find((m) => m.id === messageId);
+    if (!msg) return;
+    setForkFromMessage(msg);
+  }, [messages]);
+
+  const handleForkConfirm = useCallback(async (newTitle: string) => {
+    if (!forkFromMessage || !threadId) return;
+    const newThread = await api.forkThread(threadId, forkFromMessage.id, newTitle);
+    setForkFromMessage(null);
+    navigate(`/chat/${newThread.id}`);
+  }, [forkFromMessage, threadId, navigate]);
+
   // --- Hide/Unhide ---
 
   const handleHide = useCallback(async (messageId: number) => {
@@ -880,6 +898,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
                 onEdit={msg.role === 'user' && !isStreamingThisThread ? handleEdit : undefined}
                 onRegenerate={msg.id === lastAssistantId && !isStreamingThisThread ? handleRegenerate : undefined}
                 onBranch={msg.role === 'assistant' && !isStreamingThisThread ? () => handleBranch(msg.id) : undefined}
+                onFork={!isStreamingThisThread ? () => handleForkRequest(msg.id) : undefined}
                 onHide={!isStreamingThisThread ? () => handleHide(msg.id) : undefined}
                 onSwitchBranch={fp ? (childId: number) => handleSwitchBranch(forkId, childId) : undefined}
                 onImageClick={(att, allImages) => setLightbox({ attachment: att, allImages })}
@@ -1151,6 +1170,14 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
           attachment={lightbox.attachment}
           allImages={lightbox.allImages}
           onClose={() => setLightbox(null)}
+        />
+      )}
+      {forkFromMessage && (
+        <ForkThreadModal
+          sourceTitle={thread?.title || 'Conversation'}
+          forkPointPreview={forkFromMessage.content.slice(0, 200)}
+          onConfirm={handleForkConfirm}
+          onCancel={() => setForkFromMessage(null)}
         />
       )}
       {dragOver && (

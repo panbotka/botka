@@ -25,9 +25,13 @@ type Thread struct {
 	Archived        bool       `gorm:"not null;default:false" json:"archived"`
 	Color           string     `gorm:"size:20;not null;default:''" json:"color"`
 	ClaudeSessionID *string    `gorm:"size:100" json:"claude_session_id"`
-	Tags            []Tag      `gorm:"many2many:thread_tags" json:"tags,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	// ParentThreadID points to the thread this one was forked from (NULL for normal threads).
+	// ForkedFromMessageID records the inclusive fork point in the parent thread.
+	ParentThreadID      *int64    `json:"parent_thread_id"`
+	ForkedFromMessageID *int64    `json:"forked_from_message_id"`
+	Tags                []Tag     `gorm:"many2many:thread_tags" json:"tags,omitempty"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 // TableName returns the database table name for the Thread model.

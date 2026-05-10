@@ -127,6 +127,7 @@ func TestDispatch_toolsList(t *testing.T) {
 		"update_thread_source": false,
 		"get_thread_context":   false,
 		"set_thread_context":   false,
+		"fork_thread":          false,
 	}
 	for _, tool := range tools {
 		toolMap, ok := tool.(map[string]interface{})

@@ -13,6 +13,7 @@ import ProjectPicker, { isBoxProject } from '../components/ProjectPicker'
 import CommandButtons from '../components/CommandButtons'
 import BoxRunningIndicator from '../components/BoxRunningIndicator'
 import ThreadSettingsPanel from '../components/ThreadSettingsPanel'
+import ThreadForkBadges from '../components/ThreadForkBadges'
 import { MessageSquare, ArrowLeft, Settings } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
@@ -237,6 +238,7 @@ export default function ChatPage() {
               </div>
               {activeThread && (
                 <>
+                  <ThreadForkBadges thread={activeThread} onSelectThread={selectThread} />
                   {activeProject && isBoxProject(activeProject) && (
                     <BoxRunningIndicator />
                   )}
@@ -344,6 +346,7 @@ export default function ChatPage() {
               </div>
               {activeThread && (
                 <>
+                  <ThreadForkBadges thread={activeThread} onSelectThread={selectThread} />
                   {activeProject && isBoxProject(activeProject) && (
                     <BoxRunningIndicator />
                   )}

@@ -49,6 +49,8 @@ func RegisterThreadRoutes(rg *gin.RouterGroup, h *ThreadHandler) {
 	rg.DELETE("/threads/:id/messages", h.ClearMessages)
 	rg.PUT("/threads/:id/tags", h.SetTags)
 	rg.PUT("/threads/:id/custom-context", h.UpdateCustomContext)
+	rg.POST("/threads/:id/fork", h.Fork)
+	rg.GET("/threads/:id/forks", h.ListForks)
 }
 
 // threadListRow is used for the list query which includes a last message preview.
