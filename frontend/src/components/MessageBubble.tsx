@@ -284,7 +284,10 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
   };
 
   return (
-    <div className={`group animate-message-in ${isUser ? 'flex justify-end' : 'flex justify-start'} mb-6`}>
+    <div
+      data-message-id={message.id}
+      className={`group animate-message-in ${isUser ? 'flex justify-end' : 'flex justify-start'} mb-6`}
+    >
       {!isUser && (
         <div className="mt-1 mr-3 hidden md:block">
           <AssistantAvatar />

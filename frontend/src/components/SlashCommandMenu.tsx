@@ -11,6 +11,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: '/model', description: 'Switch the active model' },
   { name: '/export', description: 'Export thread (md or json)' },
   { name: '/search', description: 'Open the search panel' },
+  { name: '/find', description: 'Find in this thread (Cmd+F)' },
   { name: '/clear', description: "Clear this thread's messages" },
   { name: '/compact', description: 'Compact Claude context' },
   { name: '/reset', description: 'Reset Claude session (fresh start)' },

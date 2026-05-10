@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, ListTodo, FolderGit2, MessageSquare, FileText, Loader2 } from 'lucide-react'
+import { Search, Loader2, User, Bot, Settings as SettingsIcon, MessageSquare } from 'lucide-react'
 import { clsx } from 'clsx'
-import { globalSearch } from '../api/client'
-import type { GlobalSearchResults } from '../types'
+import { searchMessagesFTS } from '../api/client'
+import type { MessageSearchHit } from '../types'
 
 interface Props {
   open: boolean
@@ -11,129 +11,81 @@ interface Props {
   initialQuery?: string
 }
 
-type ResultItem = {
-  id: string
-  type: 'task' | 'project' | 'thread' | 'message'
-  title: string
-  subtitle?: string
-  path: string
-}
+const PAGE_SIZE = 30
+const DEBOUNCE_MS = 250
 
-function toItems(data: GlobalSearchResults): ResultItem[] {
-  const items: ResultItem[] = []
-
-  for (const th of data.threads) {
-    items.push({
-      id: `thread-${th.id}`,
-      type: 'thread',
-      title: th.title || 'Untitled thread',
-      path: `/chat/${th.id}`,
-    })
-  }
-
-  for (const t of data.tasks) {
-    items.push({
-      id: `task-${t.id}`,
-      type: 'task',
-      title: t.title,
-      subtitle: [t.status, t.project_name].filter(Boolean).join(' \u00b7 '),
-      path: `/tasks/${t.id}`,
-    })
-  }
-
-  for (const p of data.projects) {
-    items.push({
-      id: `project-${p.id}`,
-      type: 'project',
-      title: p.name,
-      subtitle: p.path,
-      path: `/projects/${p.id}`,
-    })
-  }
-
-  for (const m of data.messages) {
-    items.push({
-      id: `message-${m.id}`,
-      type: 'message',
-      title: m.thread_title || 'Untitled thread',
-      subtitle: stripHtml(m.snippet),
-      path: `/chat/${m.thread_id}`,
-    })
-  }
-
-  return items
-}
-
-function stripHtml(s: string): string {
-  return s.replace(/<[^>]*>/g, '')
-}
-
-const sectionLabels: Record<ResultItem['type'], string> = {
-  task: 'Tasks',
-  project: 'Projects',
-  thread: 'Threads',
-  message: 'Messages',
-}
-
-const sectionIcons: Record<ResultItem['type'], typeof ListTodo> = {
-  task: ListTodo,
-  project: FolderGit2,
-  thread: MessageSquare,
-  message: FileText,
+const roleIcon = (role: string) => {
+  if (role === 'user') return User
+  if (role === 'assistant') return Bot
+  return SettingsIcon
 }
 
 export default function SearchOverlay({ open, onClose, initialQuery }: Props) {
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<ResultItem[]>([])
+  const [hits, setHits] = useState<MessageSearchHit[]>([])
+  const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+  // Track the in-flight search query so a fast typist's stale responses
+  // can't overwrite newer ones.
+  const requestSeqRef = useRef(0)
 
-  // Focus input on open
+  // Reset state and focus on open
   useEffect(() => {
     if (open) {
       setQuery(initialQuery ?? '')
-      setResults([])
+      setHits([])
+      setTotal(0)
       setSelectedIndex(0)
       setTimeout(() => inputRef.current?.focus(), 0)
     }
   }, [open, initialQuery])
 
-  // Debounced search
-  const doSearch = useCallback((q: string) => {
+  // Debounced first-page search
+  useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (q.length < 2) {
-      setResults([])
+    if (!open) return
+    const trimmed = query.trim()
+    if (trimmed.length < 2) {
+      requestSeqRef.current += 1
+      setHits([])
+      setTotal(0)
       setLoading(false)
       return
     }
     setLoading(true)
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const data = await globalSearch(q)
-        setResults(toItems(data))
-      } catch {
-        setResults([])
-      } finally {
-        setLoading(false)
-      }
-    }, 300)
-  }, [])
+    debounceRef.current = setTimeout(() => {
+      const seq = ++requestSeqRef.current
+      searchMessagesFTS({ query: trimmed, limit: PAGE_SIZE, offset: 0 })
+        .then((resp) => {
+          if (seq !== requestSeqRef.current) return
+          setHits(resp.data)
+          setTotal(resp.total)
+        })
+        .catch(() => {
+          if (seq !== requestSeqRef.current) return
+          setHits([])
+          setTotal(0)
+        })
+        .finally(() => {
+          if (seq === requestSeqRef.current) setLoading(false)
+        })
+    }, DEBOUNCE_MS)
 
-  useEffect(() => {
-    doSearch(query)
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-  }, [query, doSearch])
+  }, [query, open])
 
   // Reset selection when results change
   useEffect(() => {
     setSelectedIndex(0)
-  }, [results.length])
+  }, [hits.length])
 
   // Scroll selected item into view
   useEffect(() => {
@@ -142,43 +94,61 @@ export default function SearchOverlay({ open, onClose, initialQuery }: Props) {
   }, [selectedIndex])
 
   const handleNavigate = useCallback(
-    (item: ResultItem) => {
+    (hit: MessageSearchHit) => {
       onClose()
-      navigate(item.path)
+      navigate(`/chat/${hit.thread_id}?msg=${hit.message_id}`)
     },
     [onClose, navigate],
   )
+
+  const handleLoadMore = useCallback(() => {
+    const trimmed = query.trim()
+    if (trimmed.length < 2 || loadingMore || hits.length >= total) return
+    setLoadingMore(true)
+    const seq = requestSeqRef.current
+    searchMessagesFTS({ query: trimmed, limit: PAGE_SIZE, offset: hits.length })
+      .then((resp) => {
+        if (seq !== requestSeqRef.current) return
+        setHits((prev) => [...prev, ...resp.data])
+        setTotal(resp.total)
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (seq === requestSeqRef.current) setLoadingMore(false)
+      })
+  }, [query, hits.length, total, loadingMore])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setSelectedIndex((prev) => (prev + 1) % Math.max(results.length, 1))
+        setSelectedIndex((prev) => (prev + 1) % Math.max(hits.length, 1))
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
-        setSelectedIndex((prev) => (prev - 1 + results.length) % Math.max(results.length, 1))
-      } else if (e.key === 'Enter' && results.length > 0) {
+        setSelectedIndex((prev) => (prev - 1 + hits.length) % Math.max(hits.length, 1))
+      } else if (e.key === 'Enter' && hits.length > 0) {
         e.preventDefault()
-        const item = results[selectedIndex]
-        if (item) handleNavigate(item)
+        const hit = hits[selectedIndex]
+        if (hit) handleNavigate(hit)
       } else if (e.key === 'Escape') {
         e.preventDefault()
         onClose()
       }
     },
-    [results, selectedIndex, onClose, handleNavigate],
+    [hits, selectedIndex, onClose, handleNavigate],
   )
 
   if (!open) return null
 
-  // Group items by type for section headers
-  let lastType = ''
+  const trimmed = query.trim()
+  const hasQuery = trimmed.length >= 2
+  const hasMore = hits.length < total
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
       <div
-        className="relative bg-white dark:bg-zinc-100 border border-zinc-200 rounded-2xl shadow-2xl shadow-black/20 w-full max-w-lg mx-4 overflow-hidden animate-palette-in"
+        className="relative bg-white dark:bg-zinc-100 border border-zinc-200 rounded-2xl shadow-2xl shadow-black/20 w-full max-w-2xl mx-4 overflow-hidden animate-palette-in"
         onKeyDown={handleKeyDown}
       >
         {/* Search input */}
@@ -189,7 +159,7 @@ export default function SearchOverlay({ open, onClose, initialQuery }: Props) {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search threads, tasks, projects, messages..."
+            placeholder="Search messages across all threads..."
             className="flex-1 bg-transparent text-sm text-zinc-900 placeholder-zinc-400 outline-none"
           />
           {loading && <Loader2 className="w-4 h-4 text-zinc-400 animate-spin flex-shrink-0" />}
@@ -206,57 +176,87 @@ export default function SearchOverlay({ open, onClose, initialQuery }: Props) {
           </kbd>
         </div>
 
+        {/* Total / status header */}
+        {hasQuery && !loading && (
+          <div className="px-4 py-1.5 text-[11px] text-zinc-500 border-b border-zinc-100 bg-zinc-50/50 flex items-center justify-between">
+            <span>
+              Total: <span className="font-medium text-zinc-700">{total}</span> {total === 1 ? 'match' : 'matches'}
+            </span>
+            {total > 0 && (
+              <span className="flex items-center gap-1 text-zinc-400">
+                <kbd className="text-[10px] bg-white px-1 py-0.5 rounded border border-zinc-200 font-mono">↑↓</kbd>
+                <span>navigate</span>
+                <kbd className="text-[10px] bg-white px-1 py-0.5 rounded border border-zinc-200 font-mono ml-1">↵</kbd>
+                <span>open</span>
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Results */}
-        <div ref={listRef} className="max-h-80 overflow-y-auto py-1">
-          {query.length >= 2 && !loading && results.length === 0 && (
-            <div className="px-4 py-8 text-center text-sm text-zinc-400">
-              No results for &ldquo;{query}&rdquo;
+        <div ref={listRef} className="max-h-[60vh] overflow-y-auto py-1">
+          {!hasQuery && (
+            <div className="px-4 py-10 text-center text-sm text-zinc-400">
+              <MessageSquare className="w-6 h-6 mx-auto mb-2 text-zinc-300" />
+              <p>Type at least 2 characters to search across messages.</p>
             </div>
           )}
 
-          {query.length < 2 && (
-            <div className="px-4 py-8 text-center text-sm text-zinc-400">
-              Type at least 2 characters to search
+          {hasQuery && !loading && hits.length === 0 && (
+            <div className="px-4 py-10 text-center text-sm text-zinc-400">
+              No messages match &ldquo;{trimmed}&rdquo;.
             </div>
           )}
 
-          {results.map((item, i) => {
-            const showHeader = item.type !== lastType
-            lastType = item.type
-            const Icon = sectionIcons[item.type]
-
+          {hits.map((hit, i) => {
+            const Icon = roleIcon(hit.role)
             return (
-              <div key={item.id}>
-                {showHeader && (
-                  <div className="px-4 pt-2 pb-1 text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
-                    {sectionLabels[item.type]}
-                  </div>
+              <button
+                type="button"
+                key={`${hit.message_id}`}
+                data-selected={i === selectedIndex}
+                className={clsx(
+                  'w-full text-left px-4 py-2.5 cursor-pointer transition-colors',
+                  i === selectedIndex
+                    ? 'bg-zinc-200/80 text-zinc-900'
+                    : 'text-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-200',
                 )}
-                <button
-                  type="button"
-                  data-selected={i === selectedIndex}
-                  className={clsx(
-                    'w-full text-left px-4 py-2 flex items-center gap-3 cursor-pointer transition-colors text-sm',
-                    i === selectedIndex
-                      ? 'bg-zinc-200 text-zinc-900'
-                      : 'text-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-200',
-                  )}
-                  onClick={() => handleNavigate(item)}
-                  onMouseEnter={() => setSelectedIndex(i)}
-                >
-                  <span className="flex-shrink-0 w-5 h-5 flex items-center justify-center text-zinc-400">
-                    <Icon className="w-4 h-4" />
+                onClick={() => handleNavigate(hit)}
+                onMouseEnter={() => setSelectedIndex(i)}
+              >
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span
+                    className="text-[10px] font-semibold tracking-wider text-zinc-500 truncate"
+                    style={{ fontVariant: 'small-caps', textTransform: 'lowercase' }}
+                  >
+                    {hit.thread_title || 'Untitled thread'}
                   </span>
-                  <div className="flex-1 min-w-0">
-                    <span className="truncate block">{item.title}</span>
-                    {item.subtitle && (
-                      <span className="text-zinc-400 text-xs truncate block">{item.subtitle}</span>
-                    )}
-                  </div>
-                </button>
-              </div>
+                  <span className="text-zinc-300">·</span>
+                  <Icon className="w-3 h-3 text-zinc-400 flex-shrink-0" aria-label={hit.role} />
+                  <span className="text-[10px] text-zinc-400 capitalize">{hit.role}</span>
+                </div>
+                <div
+                  className="text-sm text-zinc-700 leading-snug [&_mark]:bg-amber-200 [&_mark]:text-zinc-900 [&_mark]:rounded-sm [&_mark]:px-0.5"
+                  // The server escapes everything except <mark>, so this is safe.
+                  dangerouslySetInnerHTML={{ __html: hit.content_snippet }}
+                />
+              </button>
             )
           })}
+
+          {hasMore && hasQuery && (
+            <div className="px-4 py-2 flex justify-center">
+              <button
+                type="button"
+                onClick={handleLoadMore}
+                disabled={loadingMore}
+                className="text-xs text-zinc-500 hover:text-zinc-800 transition-colors px-3 py-1.5 rounded-md hover:bg-zinc-100 cursor-pointer disabled:opacity-50 disabled:cursor-wait flex items-center gap-1.5"
+              >
+                {loadingMore && <Loader2 className="w-3 h-3 animate-spin" />}
+                Load more ({total - hits.length} remaining)
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

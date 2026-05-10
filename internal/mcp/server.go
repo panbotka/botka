@@ -239,6 +239,7 @@ func (s *Server) toolHandlers() map[string]toolHandler {
 		"update_thread_source": s.handleUpdateThreadSource,
 		"get_thread_context":   s.handleGetThreadContext,
 		"set_thread_context":   s.handleSetThreadContext,
+		"search_messages":      s.handleSearchMessages,
 	}
 }
 
@@ -307,7 +308,27 @@ func toolDefinitions() []toolDef {
 	defs = append(defs, projectToolDefinitions()...)
 	defs = append(defs, commandToolDefinitions()...)
 	defs = append(defs, threadToolDefinitions()...)
+	defs = append(defs, searchToolDefinitions()...)
 	return defs
+}
+
+// searchToolDefinitions returns tool definitions for cross-thread search.
+func searchToolDefinitions() []toolDef {
+	return []toolDef{
+		{
+			Name: "search_messages",
+			Description: "Full-text search across chat messages, optionally " +
+				"restricted to one thread. Results are ranked by relevance " +
+				"and include a highlighted snippet (<mark>...</mark>) plus " +
+				"thread context. Returns {data, total} where total is the " +
+				"unpaginated match count.",
+			InputSchema: schema(map[string]interface{}{
+				"query":     prop("string", "Search terms (mixed-language, no operator syntax)"),
+				"thread_id": prop("integer", "Restrict to a single thread (omit for cross-thread)"),
+				"limit":     prop("integer", "Max results (default 30, max 100)"),
+			}, "query"),
+		},
+	}
 }
 
 // taskToolDefinitions returns tool definitions for task management operations.

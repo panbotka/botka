@@ -277,6 +277,17 @@ body {
   animation: palette-in 0.15s ease-out;
 }
 
+/* Brief amber halo around a message after jumping to it from search. */
+@keyframes message-flash {
+  0%   { box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.55); }
+  100% { box-shadow: 0 0 0 4px rgba(245, 158, 11, 0); }
+}
+
+.animate-message-flash {
+  border-radius: 1rem;
+  animation: message-flash 1.5s ease-out;
+}
+
 /* Loading dots */
 .loading-dots span {
   @apply w-2 h-2 bg-zinc-400 rounded-full;

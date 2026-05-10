@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type DragEvent } from 'react';
+import { useLocation } from 'react-router-dom';
 import type { Message, Thread, ThreadDetail, Attachment, ForkPoint } from '../types';
 import { api, interruptThread, streamChat, streamRegenerate, streamEdit, streamBranch, streamSubscribe, fetchSessionHealth, toggleMessageHidden } from '../api/client';
 import type { SessionHealthData } from '../api/client';
@@ -7,6 +8,7 @@ import { useSSEManager, useSSESession } from '../context/SSEContext';
 import type { ActiveToolCall } from '../context/SSEContext';
 import MessageBubble from './MessageBubble';
 import ChatInput, { isAllowedFile, getFileExtension, MAX_FILE_SIZE } from './ChatInput';
+import InThreadSearch from './InThreadSearch';
 import type { ChatInputHandle } from './ChatInput';
 import ToolCallPanel from './ToolCallPanel';
 import AskUserPanel from './AskUserPanel';
@@ -49,6 +51,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
   const [sessionHealth, setSessionHealth] = useState<SessionHealthData | null>(null);
   const [branchFromId, setBranchFromId] = useState<number | null>(null);
   const [planMode, setPlanMode] = useState(false);
+  const [inThreadSearchOpen, setInThreadSearchOpen] = useState(false);
 
   // --- Refs ---
   const dragCounterRef = useRef(0);
@@ -64,6 +67,9 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
 
   // --- Settings ---
   const { resolvedTheme } = useSettings();
+
+  // --- Routing ---
+  const location = useLocation();
 
   // --- SSE Manager ---
   const sseManager = useSSEManager();
@@ -150,6 +156,21 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
       if (e.key === 'Tab' && e.shiftKey) {
         e.preventDefault();
         setPlanMode(p => !p);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [threadId]);
+
+  // Cmd+F / Ctrl+F opens the in-thread search affordance, overriding the
+  // browser's find-in-page (which is unhelpful for chat scrollback because
+  // most messages render lazily and aren't all in the DOM yet anyway).
+  useEffect(() => {
+    if (!threadId) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'f' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        setInThreadSearchOpen(true);
       }
     };
     window.addEventListener('keydown', handler);
@@ -282,6 +303,43 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
       .finally(() => setLoading(false));
   }, [threadId]);
 
+  // scrollToAndFlashMessage centers a message in the chat scroller and adds a
+  // brief amber halo so the user can spot it. Used by both the ?msg= URL
+  // effect (jumps from the global search palette) and the in-thread search
+  // affordance.
+  const scrollToAndFlashMessage = useCallback((targetId: number) => {
+    const container = scrollContainerRef.current;
+    if (!container) return false;
+    const el = container.querySelector(`[data-message-id="${targetId}"]`) as HTMLElement | null;
+    if (!el) return false;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Suppress the bottom-stick auto-scroll while the user is reading.
+    isAtBottomRef.current = false;
+    el.classList.remove('animate-message-flash');
+    // Re-trigger the animation by forcing a reflow before re-adding it.
+    void el.offsetWidth;
+    el.classList.add('animate-message-flash');
+    window.setTimeout(() => el.classList.remove('animate-message-flash'), 1600);
+    return true;
+  }, []);
+
+  // --- Jump to a specific message via ?msg= query param (set by search) ---
+  // Wait until messages have rendered, then scroll the target into view and
+  // briefly flash a halo so the user can spot it. We disable the auto-scroll
+  // override so it doesn't fight the jump.
+  useEffect(() => {
+    if (!threadId || messages.length === 0) return;
+    const params = new URLSearchParams(location.search);
+    const msgParam = params.get('msg');
+    if (!msgParam) return;
+    const targetId = Number(msgParam);
+    if (!Number.isFinite(targetId)) return;
+
+    // Wait one paint so the bubble is mounted in the DOM.
+    const timer = window.setTimeout(() => scrollToAndFlashMessage(targetId), 50);
+    return () => window.clearTimeout(timer);
+  }, [threadId, messages.length, location.search, scrollToAndFlashMessage]);
+
   // --- Reconnect to active backend stream on mount ---
   // Handles browser refresh and returning to a thread with an active backend process.
   // If the SSE manager already has an active session, skip (it's already consuming the stream).
@@ -372,18 +430,25 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
+    // If the URL is requesting a jump to a specific message (?msg=...), the
+    // jump-to-message effect will scroll for us; skip the bottom-stick scroll
+    // so the two don't fight.
+    const hasMsgJump = new URLSearchParams(location.search).has('msg');
     const isThreadSwitch = prevThreadIdRef.current !== threadId;
     if (isThreadSwitch) {
       prevThreadIdRef.current = threadId ?? null;
-      needsScrollAfterLoadRef.current = true;
-      isAtBottomRef.current = true;
-      requestAnimationFrame(() => {
-        bottomRef.current?.scrollIntoView();
-      });
+      needsScrollAfterLoadRef.current = !hasMsgJump;
+      isAtBottomRef.current = !hasMsgJump;
+      if (!hasMsgJump) {
+        requestAnimationFrame(() => {
+          bottomRef.current?.scrollIntoView();
+        });
+      }
       return;
     }
     if (needsScrollAfterLoadRef.current) {
       needsScrollAfterLoadRef.current = false;
+      if (hasMsgJump) return;
       isAtBottomRef.current = true;
       requestAnimationFrame(() => {
         bottomRef.current?.scrollIntoView();
@@ -399,7 +464,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     if (isAtBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, streamingContent, streamingThinking, threadId]);
+  }, [messages, streamingContent, streamingThinking, threadId, location.search]);
 
   // --- Stream completion handler ---
 
@@ -653,6 +718,10 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
         onOpenSearch?.();
         break;
 
+      case '/find':
+        setInThreadSearchOpen(true);
+        break;
+
       case '/status': {
         try {
           const status = await api.getStatus();
@@ -779,6 +848,14 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {threadId !== null && (
+        <InThreadSearch
+          threadId={threadId}
+          open={inThreadSearchOpen}
+          onClose={() => setInThreadSearchOpen(false)}
+          onSelect={scrollToAndFlashMessage}
+        />
+      )}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-6 transition-colors duration-200" style={{ backgroundColor: getThreadBackground(thread?.color, resolvedTheme) }}>
         <div className="max-w-3xl mx-auto">
           {loading && (

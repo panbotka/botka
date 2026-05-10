@@ -426,6 +426,22 @@ export interface GlobalSearchResults {
   messages: GlobalSearchMessageResult[]
 }
 
+// Cross-thread message full-text search hits (GET /api/v1/search/messages).
+export interface MessageSearchHit {
+  message_id: number
+  thread_id: number
+  thread_title: string
+  role: string
+  created_at: string
+  content_snippet: string
+  rank: number
+}
+
+export interface MessageSearchResponse {
+  data: MessageSearchHit[]
+  total: number
+}
+
 // ── Box server dashboard ──
 
 export interface BoxServiceStatus {

@@ -1,4 +1,4 @@
-import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, TaskNote, TaskTag, Thread, ThreadDetail, ThreadFolder, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, TaskStatsAggregated, TaskStatsGroupBy, GlobalSearchResults, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo } from '../types'
+import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, TaskNote, TaskTag, Thread, ThreadDetail, ThreadFolder, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, TaskStatsAggregated, TaskStatsGroupBy, GlobalSearchResults, MessageSearchResponse, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -527,6 +527,23 @@ export function globalSearch(query: string, limit?: number): Promise<GlobalSearc
   const params = new URLSearchParams({ q: query })
   if (limit != null) params.set('limit', String(limit))
   return requestData<GlobalSearchResults>(`/search/global?${params}`)
+}
+
+export interface SearchMessagesParams {
+  query: string
+  limit?: number
+  offset?: number
+  threadId?: number
+}
+
+// searchMessagesFTS hits the cross-thread full-text message endpoint. Returns
+// the envelope directly (data + total) so callers can drive pagination.
+export function searchMessagesFTS(params: SearchMessagesParams): Promise<MessageSearchResponse> {
+  const qs = new URLSearchParams({ q: params.query })
+  if (params.limit != null) qs.set('limit', String(params.limit))
+  if (params.offset != null) qs.set('offset', String(params.offset))
+  if (params.threadId != null) qs.set('thread_id', String(params.threadId))
+  return request<MessageSearchResponse>(`/search/messages?${qs.toString()}`)
 }
 
 // Tags
@@ -1357,6 +1374,7 @@ export const api = {
   // Search
   searchMessages,
   globalSearch,
+  searchMessagesFTS,
   // Tags
   fetchTags,
   createTag,
