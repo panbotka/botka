@@ -147,7 +147,7 @@ func (r *Runner) loadMaxWorkersFromDB() {
 		return
 	}
 	n, err := strconv.Atoi(value)
-	if err != nil || n < 1 {
+	if err != nil || n < 0 {
 		return
 	}
 	r.maxWorkers = n

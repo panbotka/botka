@@ -2159,7 +2159,7 @@ function RunnerTab() {
   }, [])
 
   async function handleChange(value: number) {
-    if (value < 1 || value > 10) return
+    if (value < 0 || value > 10) return
     setMaxWorkers(value)
     setSaving(true)
     setError('')
@@ -2203,12 +2203,12 @@ function RunnerTab() {
           Max Workers
         </label>
         <p className="mt-0.5 text-xs text-zinc-500">
-          Maximum concurrent task execution slots (1–10)
+          Maximum concurrent task execution slots (0–10, 0 = disabled)
         </p>
         <div className="mt-2 flex items-center gap-3">
           <input
             type="number"
-            min={1}
+            min={0}
             max={10}
             value={maxWorkers ?? 2}
             onChange={(e) => {
@@ -2217,6 +2217,11 @@ function RunnerTab() {
             }}
             className="w-20 rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm tabular-nums text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
           />
+          {maxWorkers === 0 && (
+            <span className="rounded-md bg-zinc-200 px-2 py-0.5 text-xs font-medium text-zinc-700">
+              Disabled
+            </span>
+          )}
           {saving && <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />}
         </div>
         {error && <p className="mt-1 text-xs text-red-500">{error}</p>}

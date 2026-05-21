@@ -305,7 +305,7 @@ function RunnerControls({ status, onStart, onPause, onStop, onClearRateLimit, to
             </span>
           )}
           <span className="text-sm text-zinc-500">
-            {trackedCount}/{status.max_workers} active
+            {status.max_workers === 0 ? 'Disabled' : `${trackedCount}/${status.max_workers} active`}
           </span>
           {orphanedCount > 0 && (
             <span

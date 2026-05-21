@@ -103,7 +103,7 @@ export function RunnerStatus({ status, onStart, onPause, onStop, onClearRateLimi
               </span>
             )}
             <span className="text-sm text-zinc-500">
-              {trackedCount}/{status.max_workers} active
+              {status.max_workers === 0 ? 'Disabled' : `${trackedCount}/${status.max_workers} active`}
             </span>
             {orphanedCount > 0 && (
               <span

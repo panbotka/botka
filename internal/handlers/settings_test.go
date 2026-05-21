@@ -65,7 +65,7 @@ func TestSettings_UpdateMaxWorkers(t *testing.T) {
 	}
 }
 
-func TestSettings_UpdateMaxWorkers_InvalidLow(t *testing.T) {
+func TestSettings_UpdateMaxWorkers_Zero_OK(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)
 
@@ -74,6 +74,32 @@ func TestSettings_UpdateMaxWorkers_InvalidLow(t *testing.T) {
 	RegisterSettingsRoutes(router.Group("/api/v1"), h)
 
 	w := doRequest(router, http.MethodPut, "/api/v1/settings", `{"max_workers": 0}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			MaxWorkers int `json:"max_workers"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Data.MaxWorkers != 0 {
+		t.Errorf("expected max_workers=0, got %d", resp.Data.MaxWorkers)
+	}
+}
+
+func TestSettings_UpdateMaxWorkers_InvalidLow(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	h := NewSettingsHandler(db)
+	router := gin.New()
+	RegisterSettingsRoutes(router.Group("/api/v1"), h)
+
+	w := doRequest(router, http.MethodPut, "/api/v1/settings", `{"max_workers": -1}`)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}

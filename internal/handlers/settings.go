@@ -78,8 +78,8 @@ func (h *SettingsHandler) Update(c *gin.Context) {
 
 	if req.MaxWorkers != nil {
 		n := *req.MaxWorkers
-		if n < 1 || n > 10 {
-			respondError(c, http.StatusBadRequest, "max_workers must be between 1 and 10")
+		if n < 0 || n > 10 {
+			respondError(c, http.StatusBadRequest, "max_workers must be between 0 and 10")
 			return
 		}
 
