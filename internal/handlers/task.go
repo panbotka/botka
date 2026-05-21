@@ -325,13 +325,17 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		return
 	}
 
-	updates := buildTaskUpdates(req)
+	updates := buildTaskUpdates(req, task)
 	if len(updates) == 0 {
 		respondOK(c, task)
 		return
 	}
 	oldStatus := task.Status
 	if err := h.db.Model(&task).Updates(updates).Error; err != nil {
+		if isUniqueViolation(err) {
+			respondError(c, http.StatusConflict, "another task on this project is already running")
+			return
+		}
 		respondError(c, http.StatusInternalServerError, "failed to update task")
 		return
 	}
@@ -954,9 +958,14 @@ func validateCreateRequest(req *createTaskRequest) error {
 }
 
 // validateUpdate checks whether the update is allowed for the given task.
+// Status transitions are unrestricted on the single-task update path so manual
+// Claude-Code work can reflect lifecycle (queued→running, running→failed,
+// etc.). The "running" lock still applies to title/spec/priority so executor-
+// owned metadata cannot be edited mid-execution.
 func validateUpdate(task models.Task, req updateTaskRequest) string {
-	if task.Status == models.TaskStatusRunning {
-		return "cannot update a running task"
+	if task.Status == models.TaskStatusRunning &&
+		(req.Title != nil || req.Spec != nil || req.Priority != nil) {
+		return "cannot edit title, spec, or priority of a running task"
 	}
 	if req.Title != nil {
 		if msg := validateMaxLength("title", *req.Title, maxTitleLength); msg != "" {
@@ -968,20 +977,17 @@ func validateUpdate(task models.Task, req updateTaskRequest) string {
 			return msg
 		}
 	}
-	if req.Status != nil && *req.Status != task.Status {
-		if !req.Status.IsValid() {
-			return "invalid status value"
-		}
-		allowed, ok := allowedTransitions[task.Status]
-		if !ok || !allowed[*req.Status] {
-			return "invalid status transition"
-		}
+	if req.Status != nil && *req.Status != task.Status && !req.Status.IsValid() {
+		return "invalid status value"
 	}
 	return ""
 }
 
-// buildTaskUpdates converts non-nil update request fields into a GORM update map.
-func buildTaskUpdates(req updateTaskRequest) map[string]interface{} {
+// buildTaskUpdates converts non-nil update request fields into a GORM update
+// map. When status changes, started_at and completed_at are auto-managed:
+// →running sets started_at only if currently null; →done/failed/needs_review/
+// cancelled always sets completed_at (mirroring runner.finalizeTask).
+func buildTaskUpdates(req updateTaskRequest, current models.Task) map[string]interface{} {
 	updates := map[string]interface{}{}
 	if req.Title != nil {
 		updates["title"] = *req.Title
@@ -992,10 +998,28 @@ func buildTaskUpdates(req updateTaskRequest) map[string]interface{} {
 	if req.Priority != nil {
 		updates["priority"] = *req.Priority
 	}
-	if req.Status != nil {
+	if req.Status != nil && *req.Status != current.Status {
 		updates["status"] = *req.Status
+		applyStatusTimestamps(updates, *req.Status, current)
 	}
 	return updates
+}
+
+// applyStatusTimestamps writes started_at / completed_at into the update map
+// based on the target status. Shared between REST and MCP update paths.
+func applyStatusTimestamps(updates map[string]interface{}, newStatus models.TaskStatus, current models.Task) {
+	now := time.Now()
+	switch newStatus {
+	case models.TaskStatusRunning:
+		if current.StartedAt == nil {
+			updates["started_at"] = now
+		}
+	case models.TaskStatusDone,
+		models.TaskStatusFailed,
+		models.TaskStatusNeedsReview,
+		models.TaskStatusCancelled:
+		updates["completed_at"] = now
+	}
 }
 
 // isCompletedFilter returns true if the status filter contains only completed statuses

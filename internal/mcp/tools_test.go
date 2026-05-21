@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -105,27 +106,33 @@ func TestUpdateTaskArgs_buildUpdates(t *testing.T) {
 			wantChanged: []string{"title", "spec", "priority"},
 		},
 		{
-			name:        "valid status transition pending to queued",
+			name:        "status transition pending to queued",
 			args:        updateTaskArgs{Status: strPtr("queued")},
 			current:     models.TaskStatusPending,
 			wantChanged: []string{"status"},
 		},
 		{
-			name:        "valid status transition failed to queued",
+			name:        "status transition failed to queued",
 			args:        updateTaskArgs{Status: strPtr("queued")},
 			current:     models.TaskStatusFailed,
 			wantChanged: []string{"status"},
 		},
 		{
-			name:    "invalid status transition pending to done",
-			args:    updateTaskArgs{Status: strPtr("done")},
-			current: models.TaskStatusPending,
-			wantErr: true,
+			name:        "status transition pending to done (allowed)",
+			args:        updateTaskArgs{Status: strPtr("done")},
+			current:     models.TaskStatusPending,
+			wantChanged: []string{"status"},
 		},
 		{
-			name:    "invalid status transition done to queued",
-			args:    updateTaskArgs{Status: strPtr("queued")},
-			current: models.TaskStatusDone,
+			name:        "status transition done to queued (allowed)",
+			args:        updateTaskArgs{Status: strPtr("queued")},
+			current:     models.TaskStatusDone,
+			wantChanged: []string{"status"},
+		},
+		{
+			name:    "unknown status value rejected",
+			args:    updateTaskArgs{Status: strPtr("bogus")},
+			current: models.TaskStatusPending,
 			wantErr: true,
 		},
 		{
@@ -139,7 +146,7 @@ func TestUpdateTaskArgs_buildUpdates(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			updates, changed, err := tt.args.buildUpdates(tt.current)
+			updates, changed, err := tt.args.buildUpdates(models.Task{Status: tt.current})
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error, got nil")
@@ -160,6 +167,71 @@ func TestUpdateTaskArgs_buildUpdates(t *testing.T) {
 			}
 			if tt.wantChanged == nil && len(updates) != 0 {
 				t.Errorf("expected empty updates, got %v", updates)
+			}
+		})
+	}
+}
+
+// TestUpdateTaskArgs_buildUpdates_Timestamps verifies that status changes
+// trigger the expected started_at / completed_at side effects.
+func TestUpdateTaskArgs_buildUpdates_Timestamps(t *testing.T) {
+	t.Parallel()
+
+	strPtr := func(s string) *string { return &s }
+	prior := time.Now().Add(-time.Hour)
+
+	tests := []struct {
+		name          string
+		args          updateTaskArgs
+		current       models.Task
+		wantStartedAt bool
+		wantCompleted bool
+	}{
+		{
+			name:          "queued to running sets started_at",
+			args:          updateTaskArgs{Status: strPtr("running")},
+			current:       models.Task{Status: models.TaskStatusQueued},
+			wantStartedAt: true,
+		},
+		{
+			name:          "running with prior started_at preserves it",
+			args:          updateTaskArgs{Status: strPtr("running")},
+			current:       models.Task{Status: models.TaskStatusFailed, StartedAt: &prior},
+			wantStartedAt: false,
+		},
+		{
+			name:          "running to failed sets completed_at",
+			args:          updateTaskArgs{Status: strPtr("failed")},
+			current:       models.Task{Status: models.TaskStatusRunning},
+			wantCompleted: true,
+		},
+		{
+			name:          "running to done sets completed_at",
+			args:          updateTaskArgs{Status: strPtr("done")},
+			current:       models.Task{Status: models.TaskStatusRunning},
+			wantCompleted: true,
+		},
+		{
+			name:    "queued to pending sets neither",
+			args:    updateTaskArgs{Status: strPtr("pending")},
+			current: models.Task{Status: models.TaskStatusQueued},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			updates, _, err := tt.args.buildUpdates(tt.current)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			_, gotStarted := updates["started_at"]
+			_, gotCompleted := updates["completed_at"]
+			if gotStarted != tt.wantStartedAt {
+				t.Errorf("started_at: got %v, want %v (updates=%v)", gotStarted, tt.wantStartedAt, updates)
+			}
+			if gotCompleted != tt.wantCompleted {
+				t.Errorf("completed_at: got %v, want %v (updates=%v)", gotCompleted, tt.wantCompleted, updates)
 			}
 		})
 	}
@@ -383,7 +455,10 @@ func TestUpdateTaskArgs_buildUpdatesFieldCounts(t *testing.T) {
 		{"spec only", updateTaskArgs{Spec: strPtr("new spec")}, models.TaskStatusPending, 1, []string{"spec"}, false},
 		{"priority only", updateTaskArgs{Priority: intPtr(5)}, models.TaskStatusPending, 1, []string{"priority"}, false},
 		{"valid status transition", updateTaskArgs{Status: strPtr("queued")}, models.TaskStatusPending, 1, []string{"status"}, false},
-		{"invalid transition from done", updateTaskArgs{Status: strPtr("queued")}, models.TaskStatusDone, 0, nil, true},
+		// done→queued is now allowed; emits status + completed_at? No: completed_at only on terminal targets.
+		// Target is queued (non-terminal), so just status.
+		{"done to queued allowed", updateTaskArgs{Status: strPtr("queued")}, models.TaskStatusDone, 1, []string{"status"}, false},
+		{"unknown status value", updateTaskArgs{Status: strPtr("bogus")}, models.TaskStatusPending, 0, nil, true},
 		{"all fields", updateTaskArgs{Title: strPtr("new title"), Spec: strPtr("new spec"), Priority: intPtr(5)}, models.TaskStatusPending, 3, []string{"title", "spec", "priority"}, false},
 		{"no changes", updateTaskArgs{}, models.TaskStatusPending, 0, nil, false},
 	}
@@ -391,7 +466,7 @@ func TestUpdateTaskArgs_buildUpdatesFieldCounts(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			updates, changed, err := tt.args.buildUpdates(tt.current)
+			updates, changed, err := tt.args.buildUpdates(models.Task{Status: tt.current})
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error")

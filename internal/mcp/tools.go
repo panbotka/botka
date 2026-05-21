@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 
 	"botka/internal/models"
@@ -379,10 +381,14 @@ type updateTaskArgs struct {
 	Status   *string `json:"status"`
 }
 
-// buildUpdates constructs the update map and list of changed fields.
-// Returns an error if the status transition is not allowed.
+// buildUpdates constructs the update map and list of changed fields. Status
+// transitions are unrestricted on this path so manual Claude-Code work can
+// reflect lifecycle (queued→running, running→failed, etc.). When status
+// changes, started_at / completed_at are auto-managed to match the REST path
+// and the runner's finalizeTask. Returns an error only when the requested
+// status value is not in models.ValidStatuses.
 func (a *updateTaskArgs) buildUpdates(
-	current models.TaskStatus,
+	current models.Task,
 ) (map[string]interface{}, []string, error) {
 	updates := map[string]interface{}{}
 	var changed []string
@@ -401,22 +407,40 @@ func (a *updateTaskArgs) buildUpdates(
 	}
 	if a.Status != nil {
 		newStatus := models.TaskStatus(*a.Status)
-		if newStatus != current {
-			allowed := allowedTransitions[current]
-			if !allowed[newStatus] {
-				return nil, nil, fmt.Errorf(
-					"invalid status transition from %s to %s",
-					current, newStatus,
-				)
-			}
+		if !newStatus.IsValid() {
+			return nil, nil, fmt.Errorf("invalid status value: %s", *a.Status)
 		}
-		updates["status"] = newStatus
-		changed = append(changed, "status")
+		if newStatus != current.Status {
+			updates["status"] = newStatus
+			changed = append(changed, "status")
+			applyStatusTimestamps(updates, newStatus, current)
+		}
 	}
 	return updates, changed, nil
 }
 
+// applyStatusTimestamps writes started_at / completed_at into the update map
+// based on the target status, mirroring handlers.applyStatusTimestamps. Kept
+// here to avoid an import cycle between mcp and handlers.
+func applyStatusTimestamps(updates map[string]interface{}, newStatus models.TaskStatus, current models.Task) {
+	now := time.Now()
+	switch newStatus {
+	case models.TaskStatusRunning:
+		if current.StartedAt == nil {
+			updates["started_at"] = now
+		}
+	case models.TaskStatusDone,
+		models.TaskStatusFailed,
+		models.TaskStatusNeedsReview,
+		models.TaskStatusCancelled:
+		updates["completed_at"] = now
+	}
+}
+
 // handleUpdateTask updates a task's title, spec, priority, or status.
+// Running tasks accept status-only updates so callers can mark them
+// done/failed/needs_review; title/spec/priority edits are still rejected
+// while running.
 func (s *Server) handleUpdateTask(raw json.RawMessage) (interface{}, error) {
 	var args updateTaskArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
@@ -428,11 +452,12 @@ func (s *Server) handleUpdateTask(raw json.RawMessage) (interface{}, error) {
 		return nil, err
 	}
 
-	if task.Status == models.TaskStatusRunning {
-		return nil, errors.New("cannot update a running task")
+	if task.Status == models.TaskStatusRunning &&
+		(args.Title != nil || args.Spec != nil || args.Priority != nil) {
+		return nil, errors.New("cannot edit title, spec, or priority of a running task")
 	}
 
-	updates, changed, err := args.buildUpdates(task.Status)
+	updates, changed, err := args.buildUpdates(task)
 	if err != nil {
 		return nil, err
 	}
@@ -441,11 +466,22 @@ func (s *Server) handleUpdateTask(raw json.RawMessage) (interface{}, error) {
 	}
 
 	if err := s.db.Model(&task).Updates(updates).Error; err != nil {
+		if isUniqueViolation(err) {
+			return nil, errors.New("another task on this project is already running")
+		}
 		return nil, fmt.Errorf("failed to update task: %w", err)
 	}
 
 	return fmt.Sprintf("Updated task %s: %s",
 		task.ID, strings.Join(changed, ", ")), nil
+}
+
+// isUniqueViolation reports whether err is a PostgreSQL unique_violation
+// (SQLSTATE 23505). Used to translate the idx_one_running_per_project index
+// collision into a clean caller-facing error.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 // statusCount holds a status string and its count for aggregation queries.

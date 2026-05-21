@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -59,54 +60,48 @@ func TestValidateCreateRequest_InvalidStatus(t *testing.T) {
 	}
 }
 
-func TestValidateUpdate_RunningBlocked(t *testing.T) {
+func TestValidateUpdate_RunningBlocksNonStatusEdits(t *testing.T) {
 	task := models.Task{Status: models.TaskStatusRunning}
 	title := "new title"
 	req := updateTaskRequest{Title: &title}
-	if msg := validateUpdate(task, req); msg != "cannot update a running task" {
-		t.Fatalf("expected running blocked, got %q", msg)
+	want := "cannot edit title, spec, or priority of a running task"
+	if msg := validateUpdate(task, req); msg != want {
+		t.Fatalf("expected %q, got %q", want, msg)
 	}
 }
 
-func TestValidateUpdate_InvalidTransition(t *testing.T) {
-	task := models.Task{Status: models.TaskStatusDone}
-	s := models.TaskStatusQueued
-	req := updateTaskRequest{Status: &s}
-	if msg := validateUpdate(task, req); msg != "invalid status transition" {
-		t.Fatalf("expected invalid transition, got %q", msg)
-	}
-}
-
-func TestValidateUpdate_ValidTransition(t *testing.T) {
-	task := models.Task{Status: models.TaskStatusPending}
-	s := models.TaskStatusQueued
+func TestValidateUpdate_RunningAllowsStatusOnly(t *testing.T) {
+	task := models.Task{Status: models.TaskStatusRunning}
+	s := models.TaskStatusFailed
 	req := updateTaskRequest{Status: &s}
 	if msg := validateUpdate(task, req); msg != "" {
-		t.Fatalf("expected no error, got %q", msg)
+		t.Fatalf("expected running→failed allowed, got %q", msg)
 	}
 }
 
-func TestValidateUpdate_FailedToPending(t *testing.T) {
-	task := models.Task{Status: models.TaskStatusFailed}
-	s := models.TaskStatusPending
-	req := updateTaskRequest{Status: &s}
-	if msg := validateUpdate(task, req); msg != "" {
-		t.Fatalf("expected failed→pending allowed, got %q", msg)
+func TestValidateUpdate_AllStatusTransitionsAllowed(t *testing.T) {
+	cases := []struct {
+		from, to models.TaskStatus
+	}{
+		{models.TaskStatusDone, models.TaskStatusQueued},
+		{models.TaskStatusFailed, models.TaskStatusDone},
+		{models.TaskStatusQueued, models.TaskStatusRunning},
+		{models.TaskStatusPending, models.TaskStatusRunning},
+		{models.TaskStatusCancelled, models.TaskStatusRunning},
 	}
-}
-
-func TestValidateUpdate_FailedToDoneRejected(t *testing.T) {
-	task := models.Task{Status: models.TaskStatusFailed}
-	s := models.TaskStatusDone
-	req := updateTaskRequest{Status: &s}
-	if msg := validateUpdate(task, req); msg != "invalid status transition" {
-		t.Fatalf("expected failed→done rejected, got %q", msg)
+	for _, tc := range cases {
+		task := models.Task{Status: tc.from}
+		s := tc.to
+		req := updateTaskRequest{Status: &s}
+		if msg := validateUpdate(task, req); msg != "" {
+			t.Errorf("%s→%s: expected allowed, got %q", tc.from, tc.to, msg)
+		}
 	}
 }
 
 func TestBuildTaskUpdates_NilFieldsOmitted(t *testing.T) {
 	req := updateTaskRequest{}
-	updates := buildTaskUpdates(req)
+	updates := buildTaskUpdates(req, models.Task{Status: models.TaskStatusPending})
 	if len(updates) != 0 {
 		t.Fatalf("expected empty map, got %d entries", len(updates))
 	}
@@ -118,7 +113,7 @@ func TestBuildTaskUpdates_NonNilIncluded(t *testing.T) {
 	pri := 5
 	s := models.TaskStatusQueued
 	req := updateTaskRequest{Title: &title, Spec: &spec, Priority: &pri, Status: &s}
-	updates := buildTaskUpdates(req)
+	updates := buildTaskUpdates(req, models.Task{Status: models.TaskStatusPending})
 	if len(updates) != 4 {
 		t.Fatalf("expected 4 entries, got %d", len(updates))
 	}
@@ -133,6 +128,62 @@ func TestBuildTaskUpdates_NonNilIncluded(t *testing.T) {
 	}
 	if updates["status"] != models.TaskStatusQueued {
 		t.Errorf("status mismatch: %v", updates["status"])
+	}
+}
+
+func TestBuildTaskUpdates_StartedAtSetOnRunningWhenNull(t *testing.T) {
+	s := models.TaskStatusRunning
+	req := updateTaskRequest{Status: &s}
+	updates := buildTaskUpdates(req, models.Task{Status: models.TaskStatusQueued})
+	if _, ok := updates["started_at"]; !ok {
+		t.Errorf("expected started_at to be set, got %v", updates)
+	}
+}
+
+func TestBuildTaskUpdates_StartedAtUntouchedWhenAlreadySet(t *testing.T) {
+	s := models.TaskStatusRunning
+	req := updateTaskRequest{Status: &s}
+	prior := time.Now().Add(-time.Hour)
+	updates := buildTaskUpdates(req, models.Task{
+		Status:    models.TaskStatusFailed,
+		StartedAt: &prior,
+	})
+	if _, ok := updates["started_at"]; ok {
+		t.Errorf("expected started_at to be untouched, got %v", updates)
+	}
+}
+
+func TestBuildTaskUpdates_CompletedAtSetOnTerminal(t *testing.T) {
+	for _, target := range []models.TaskStatus{
+		models.TaskStatusDone,
+		models.TaskStatusFailed,
+		models.TaskStatusNeedsReview,
+		models.TaskStatusCancelled,
+	} {
+		s := target
+		req := updateTaskRequest{Status: &s}
+		updates := buildTaskUpdates(req, models.Task{Status: models.TaskStatusRunning})
+		if _, ok := updates["completed_at"]; !ok {
+			t.Errorf("%s: expected completed_at to be set, got %v", target, updates)
+		}
+	}
+}
+
+func TestBuildTaskUpdates_NoTimestampOnNonStatusTargets(t *testing.T) {
+	for _, target := range []models.TaskStatus{
+		models.TaskStatusPending,
+		models.TaskStatusQueued,
+		models.TaskStatusDeleted,
+	} {
+		s := target
+		req := updateTaskRequest{Status: &s}
+		updates := buildTaskUpdates(req, models.Task{Status: models.TaskStatusFailed})
+		if _, ok := updates["started_at"]; ok {
+			t.Errorf("%s: unexpected started_at: %v", target, updates)
+		}
+		if _, ok := updates["completed_at"]; ok {
+			t.Errorf("%s: unexpected completed_at: %v", target, updates)
+		}
 	}
 }
 
@@ -565,7 +616,7 @@ func TestTaskUpdate_Success(t *testing.T) {
 	}
 }
 
-func TestTaskUpdate_RunningConflict(t *testing.T) {
+func TestTaskUpdate_RunningRejectsTitleEdit(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)
 	proj := createTestProject(t, db)
@@ -580,7 +631,32 @@ func TestTaskUpdate_RunningConflict(t *testing.T) {
 	}
 }
 
-func TestTaskUpdate_InvalidTransition(t *testing.T) {
+func TestTaskUpdate_RunningAllowsStatusChange(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createTestProject(t, db)
+	task := createTestTask(t, db, proj.ID, models.TaskStatusRunning)
+	r := taskRouter(db)
+
+	body := `{"status":"failed"}`
+	w := doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/tasks/%s", task.ID), body)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]json.RawMessage
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	var got models.Task
+	json.Unmarshal(resp["data"], &got)
+	if got.Status != models.TaskStatusFailed {
+		t.Errorf("expected status failed, got %s", got.Status)
+	}
+	if got.CompletedAt == nil {
+		t.Errorf("expected completed_at to be set on running→failed")
+	}
+}
+
+func TestTaskUpdate_DoneToPendingAllowed(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)
 	proj := createTestProject(t, db)
@@ -590,8 +666,52 @@ func TestTaskUpdate_InvalidTransition(t *testing.T) {
 	body := `{"status":"pending"}`
 	w := doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/tasks/%s", task.ID), body)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTaskUpdate_QueuedToRunning_SetsStartedAt(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createTestProject(t, db)
+	task := createTestTask(t, db, proj.ID, models.TaskStatusQueued)
+	r := taskRouter(db)
+
+	body := `{"status":"running"}`
+	w := doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/tasks/%s", task.ID), body)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]json.RawMessage
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	var got models.Task
+	json.Unmarshal(resp["data"], &got)
+	if got.Status != models.TaskStatusRunning {
+		t.Errorf("expected status running, got %s", got.Status)
+	}
+	if got.StartedAt == nil {
+		t.Errorf("expected started_at to be set on →running")
+	}
+}
+
+func TestTaskUpdate_ConcurrentRunning_409(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createTestProject(t, db)
+	createTestTask(t, db, proj.ID, models.TaskStatusRunning)
+	other := createTestTask(t, db, proj.ID, models.TaskStatusQueued)
+	r := taskRouter(db)
+
+	body := `{"status":"running"}`
+	w := doRequest(r, http.MethodPut, fmt.Sprintf("/api/v1/tasks/%s", other.ID), body)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "already running") {
+		t.Errorf("expected message about another task already running, got %s", w.Body.String())
 	}
 }
 
