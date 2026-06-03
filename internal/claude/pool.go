@@ -680,6 +680,9 @@ func buildStreamArgs(cfg RunConfig) []string {
 		args = append(args, "--model", cfg.Model)
 	}
 
+	// Always run at highest reasoning effort, regardless of per-model defaults.
+	args = append(args, "--effort", "high")
+
 	if cfg.SystemPromptFile != "" && !cfg.Resume {
 		args = append(args, "--append-system-prompt-file", cfg.SystemPromptFile)
 	}

@@ -299,6 +299,8 @@ func (e *Executor) spawnClaude(
 	claudeArgs := []string{
 		"--dangerously-skip-permissions", "--verbose",
 		"--output-format", "stream-json",
+		// Always run at highest reasoning effort, regardless of per-model defaults.
+		"--effort", "high",
 	}
 	if mcpConfigPath != "" {
 		claudeArgs = append(claudeArgs, "--mcp-config", mcpConfigPath)

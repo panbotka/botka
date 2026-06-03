@@ -257,6 +257,9 @@ func (cs *CronScheduler) runExecution(job *models.CronJob, execution *models.Cro
 		args = append(args, "--model", *job.Model)
 	}
 
+	// Always run at highest reasoning effort, regardless of per-model defaults.
+	args = append(args, "--effort", "high")
+
 	cmd := exec.CommandContext(ctx, cs.claudePath, args...) //nolint:gosec // args are controlled
 	cmd.Dir = projectPath
 	cmd.Env = claude.SanitizedEnv()
