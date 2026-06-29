@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useImperativeHandle, forwardRef, type FormEvent, type KeyboardEvent } from 'react';
+import { Plus, Search, Trash2 } from 'lucide-react';
 import { useAutoResize } from '../hooks/useAutoResize';
 import { useInputHistory } from '../hooks/useInputHistory';
 import { useVoiceInput } from '../hooks/useVoiceInput';
@@ -353,6 +354,37 @@ const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ thread
               e.target.value = '';
             }}
           />
+          {/* Quick-action chips — reuse the existing slash-command dispatch */}
+          <button
+            type="button"
+            onClick={() => onSlashCommand('/new', '')}
+            className="flex items-center gap-1 px-2 min-h-[36px] rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 text-xs transition-colors"
+            title="Nový chat"
+            aria-label="Nový chat"
+          >
+            <Plus size={16} />
+            <span className="hidden sm:inline">Nový</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onSlashCommand('/find', '')}
+            className="flex items-center gap-1 px-2 min-h-[36px] rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 text-xs transition-colors"
+            title="Hledat"
+            aria-label="Hledat"
+          >
+            <Search size={16} />
+            <span className="hidden sm:inline">Hledat</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onSlashCommand('/clear', '')}
+            className="flex items-center gap-1 px-2 min-h-[36px] rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 text-xs transition-colors"
+            title="Smazat historii"
+            aria-label="Smazat historii"
+          >
+            <Trash2 size={16} />
+            <span className="hidden sm:inline">Smazat</span>
+          </button>
           <textarea
             ref={textareaRef}
             value={value}
