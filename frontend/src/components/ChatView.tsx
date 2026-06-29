@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, type DragEvent } from 'react';
 import { useLocation } from 'react-router-dom';
 import type { Message, Thread, ThreadDetail, Attachment } from '../types';
-import { api, interruptThread, streamChat, streamRegenerate, streamEdit, streamBranch, streamSubscribe, fetchSessionHealth, toggleMessageHidden } from '../api/client';
+import { api, interruptThread, streamChat, streamRegenerate, streamEdit, streamSubscribe, fetchSessionHealth, toggleMessageHidden } from '../api/client';
 import type { SessionHealthData } from '../api/client';
 import type { StreamChunk } from '../api/client';
 import { useSSEManager, useSSESession } from '../context/SSEContext';
@@ -120,11 +120,11 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
   onTitleUpdateRef.current = onTitleUpdate;
 
   // Track completion context for the current stream
-  const completionContextRef = useRef<{ isBranching: boolean; isEdit: boolean }>({ isBranching: false, isEdit: false });
+  const completionContextRef = useRef<{ isEdit: boolean }>({ isEdit: false });
 
   // Refs to break circular dependency between startStream and handleCompletion
   const handleStreamCompletionRef = useRef<(tid: number) => void>(() => {});
-  const startStreamRef = useRef<(content: string, files?: File[], branchParentId?: number | null) => void>(() => {});
+  const startStreamRef = useRef<(content: string, files?: File[]) => void>(() => {});
 
   // --- Utility callbacks ---
 
@@ -362,7 +362,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
           yield* stream;
         }
 
-        completionContextRef.current = { isBranching: false, isEdit: false };
+        completionContextRef.current = { isEdit: false };
 
         sseManager.runStream(threadId, () => wrappedStream());
       } catch (err) {
@@ -521,11 +521,10 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
 
   // --- Start a stream via the SSE manager ---
 
-  const startStreamInManager = useCallback((content: string, files?: File[], branchParentId?: number | null) => {
+  const startStreamInManager = useCallback((content: string, files?: File[]) => {
     if (!threadId) return;
 
-    const isBranching = branchParentId != null;
-    completionContextRef.current = { isBranching, isEdit: false };
+    completionContextRef.current = { isEdit: false };
 
     setStreamError(null);
     stopHealthPolling();
@@ -535,9 +534,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
 
     sseManager.runStream(
       threadId,
-      (signal) => isBranching
-        ? streamBranch(threadId, branchParentId, content, signal)
-        : streamChat(threadId, content, signal, files, planMode),
+      (signal) => streamChat(threadId, content, signal, files, planMode),
       { retryStreamFn: (signal) => streamRegenerate(threadId, signal) },
     );
   }, [threadId, planMode, sseManager, stopHealthPolling, onStreamingChange]);
@@ -545,8 +542,8 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
   startStreamRef.current = startStreamInManager;
 
   // --- Wrapper for backward compat ---
-  const sendToBackend = useCallback((content: string, files?: File[], branchParentId?: number | null) => {
-    startStreamInManager(content, files, branchParentId);
+  const sendToBackend = useCallback((content: string, files?: File[]) => {
+    startStreamInManager(content, files);
   }, [startStreamInManager]);
 
   // --- Send message ---
@@ -595,7 +592,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
       return prev;
     });
 
-    completionContextRef.current = { isBranching: false, isEdit: false };
+    completionContextRef.current = { isEdit: false };
     setStreamError(null);
     onStreamingChange?.(threadId);
 
@@ -621,7 +618,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
       ];
     });
 
-    completionContextRef.current = { isBranching: false, isEdit: true };
+    completionContextRef.current = { isEdit: true };
     setStreamError(null);
     onStreamingChange?.(threadId);
 
