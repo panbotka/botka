@@ -1,10 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import type { Message, Attachment, ForkPoint } from '../types';
+import type { Message, Attachment } from '../types';
 import { formatTime, formatDateTime } from '../utils/dateFormat';
 import MarkdownContent from './MarkdownContent';
 import ThinkingSection from './ThinkingSection';
 import MessageActions from './MessageActions';
-import BranchIndicator from './BranchIndicator';
 import ToolCallPanel from './ToolCallPanel';
 import { Wrench, ChevronDown, EyeOff } from 'lucide-react';
 import { linkifyText } from '../utils/linkifyText';
@@ -14,13 +13,9 @@ interface Props {
   isStreaming?: boolean;
   isLastAssistant?: boolean;
   isPending?: boolean;
-  forkPoint?: ForkPoint;
   onEdit?: (messageId: number, content: string) => void;
   onRegenerate?: () => void;
-  onBranch?: () => void;
-  onFork?: () => void;
   onHide?: () => void;
-  onSwitchBranch?: (childId: number) => void;
   onImageClick?: (attachment: Attachment, allImages: Attachment[]) => void;
   onRemoveQueued?: () => void;
   onOptionSelect?: (text: string) => void;
@@ -222,7 +217,7 @@ function AttachmentPreviews({ imageAttachments, pdfAttachments, textAttachments,
   );
 }
 
-export default function MessageBubble({ message, isStreaming, isLastAssistant, isPending, forkPoint, onEdit, onRegenerate, onBranch, onFork, onHide, onSwitchBranch, onImageClick, onRemoveQueued, onOptionSelect }: Props) {
+export default function MessageBubble({ message, isStreaming, isLastAssistant, isPending, onEdit, onRegenerate, onHide, onImageClick, onRemoveQueued, onOptionSelect }: Props) {
   const isUser = message.role === 'user';
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
@@ -435,14 +430,9 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
                 isHidden={message.hidden}
                 onEdit={onEdit ? () => setEditing(true) : undefined}
                 onRegenerate={onRegenerate}
-                onBranch={onBranch}
-                onFork={onFork}
                 onHide={onHide}
               />
             </div>
-            {forkPoint && onSwitchBranch && (
-              <BranchIndicator forkPoint={forkPoint} onSwitch={onSwitchBranch} />
-            )}
             {!isUser && message.prompt_tokens != null && message.completion_tokens != null && (
               <TokenBadge promptTokens={message.prompt_tokens} completionTokens={message.completion_tokens} />
             )}

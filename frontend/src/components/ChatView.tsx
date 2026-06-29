@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type DragEvent } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import type { Message, Thread, ThreadDetail, Attachment, ForkPoint } from '../types';
+import { useLocation } from 'react-router-dom';
+import type { Message, Thread, ThreadDetail, Attachment } from '../types';
 import { api, interruptThread, streamChat, streamRegenerate, streamEdit, streamBranch, streamSubscribe, fetchSessionHealth, toggleMessageHidden } from '../api/client';
 import type { SessionHealthData } from '../api/client';
 import type { StreamChunk } from '../api/client';
@@ -14,7 +14,6 @@ import ToolCallPanel from './ToolCallPanel';
 import AskUserPanel from './AskUserPanel';
 import StreamErrorBlock from './StreamErrorBlock';
 import Lightbox from './Lightbox';
-import ForkThreadModal from './ForkThreadModal';
 import { COMMANDS } from './SlashCommandMenu';
 import { downloadExport } from '../utils/exportThread';
 import type { ExportFormat } from '../utils/exportThread';
@@ -47,13 +46,10 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
   const [streamError, setStreamError] = useState<string | null>(null);
   const [streamErrorRaw, setStreamErrorRaw] = useState<string | null>(null);
   const [memorySuggestions, setMemorySuggestions] = useState<string[]>([]);
-  const [forkPoints, setForkPoints] = useState<Record<string, ForkPoint>>({});
   const [usageInfo, setUsageInfo] = useState<{ cost_usd?: number; input_tokens?: number; output_tokens?: number } | null>(null);
   const [sessionHealth, setSessionHealth] = useState<SessionHealthData | null>(null);
-  const [branchFromId, setBranchFromId] = useState<number | null>(null);
   const [planMode, setPlanMode] = useState(false);
   const [inThreadSearchOpen, setInThreadSearchOpen] = useState(false);
-  const [forkFromMessage, setForkFromMessage] = useState<Message | null>(null);
 
   // --- Refs ---
   const dragCounterRef = useRef(0);
@@ -72,7 +68,6 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
 
   // --- Routing ---
   const location = useLocation();
-  const navigate = useNavigate();
 
   // --- SSE Manager ---
   const sseManager = useSSEManager();
@@ -108,7 +103,6 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     api.getThread(threadId).then((data: ThreadDetail) => {
       if (currentThreadIdRef.current === threadId) {
         setMessages(data.messages);
-        setForkPoints(data.fork_points || {});
       }
     }).catch(() => {});
   }, [threadId]);
@@ -242,7 +236,6 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     try {
       const data: ThreadDetail = await api.getThread(threadId);
       setMessages(data.messages);
-      setForkPoints(data.fork_points || {});
     } catch {
       // ignore
     }
@@ -290,8 +283,6 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     messageQueueRef.current = [];
     setQueuedIds(new Set());
     setMemorySuggestions([]);
-    setBranchFromId(null);
-    setForkPoints({});
     if (!threadId) {
       setMessages([]);
       return;
@@ -300,7 +291,6 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     api.getThread(threadId)
       .then((data: ThreadDetail) => {
         setMessages(data.messages);
-        setForkPoints(data.fork_points || {});
       })
       .catch(() => setMessages([]))
       .finally(() => setLoading(false));
@@ -382,7 +372,6 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
           api.getThread(threadId).then((data: ThreadDetail) => {
             if (currentThreadIdRef.current === threadId) {
               setMessages(data.messages);
-              setForkPoints(data.fork_points || {});
             }
           }).catch(() => {});
         }
@@ -494,10 +483,6 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     if (session.gotResponse) playCompletionSound();
 
     const ctx = completionContextRef.current;
-    if (ctx.isBranching && currentThreadIdRef.current === tid) {
-      setBranchFromId(null);
-      reloadThread();
-    }
     if (ctx.isEdit && currentThreadIdRef.current === tid) {
       reloadThread();
     }
@@ -528,7 +513,6 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     api.getThread(threadId).then((data: ThreadDetail) => {
       if (currentThreadIdRef.current === threadId) {
         setMessages(data.messages);
-        setForkPoints(data.fork_points || {});
         broadcastThreadUpdated(threadId);
       }
     }).catch(() => {});
@@ -571,23 +555,6 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     if (!threadId) return;
     userSentRef.current = true;
 
-    if (branchFromId != null) {
-      const branchIdx = messages.findIndex((m) => m.id === branchFromId);
-      if (branchIdx !== -1) {
-        const truncated = messages.slice(0, branchIdx + 1);
-        const userMsg: Message = {
-          id: Date.now(),
-          thread_id: threadId,
-          role: 'user',
-          content: content || '(attached files)',
-          created_at: new Date().toISOString(),
-        };
-        setMessages([...truncated, userMsg]);
-      }
-      sendToBackend(content, undefined, branchFromId);
-      return;
-    }
-
     const userMsg: Message = {
       id: Date.now(),
       thread_id: threadId,
@@ -606,7 +573,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     }
 
     sendToBackend(content, files);
-  }, [threadId, sendToBackend, branchFromId, messages, sseManager, broadcastNewMessage]);
+  }, [threadId, sendToBackend, sseManager, broadcastNewMessage]);
 
   // --- Stop (interrupt) ---
 
@@ -673,39 +640,6 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     setQueuedIds(new Set(messageQueueRef.current.map((q) => q.id)));
     setMessages((prev) => prev.filter((m) => m.id !== msgId));
   }, []);
-
-  // --- Branching ---
-
-  const handleBranch = useCallback((messageId: number) => {
-    if (threadId && sseManager.hasActiveSession(threadId)) return;
-    setBranchFromId(messageId);
-    chatInputRef.current?.focus();
-  }, [sseManager, threadId]);
-
-  const handleSwitchBranch = useCallback(async (forkMessageId: number, childId: number) => {
-    if (!threadId || sseManager.hasActiveSession(threadId)) return;
-    try {
-      await api.switchBranch(threadId, forkMessageId, childId);
-      await reloadThread();
-    } catch {
-      // ignore
-    }
-  }, [threadId, sseManager, reloadThread]);
-
-  // --- Fork ---
-
-  const handleForkRequest = useCallback((messageId: number) => {
-    const msg = messages.find((m) => m.id === messageId);
-    if (!msg) return;
-    setForkFromMessage(msg);
-  }, [messages]);
-
-  const handleForkConfirm = useCallback(async (newTitle: string) => {
-    if (!forkFromMessage || !threadId) return;
-    const newThread = await api.forkThread(threadId, forkFromMessage.id, newTitle);
-    setForkFromMessage(null);
-    navigate(`/chat/${newThread.id}`);
-  }, [forkFromMessage, threadId, navigate]);
 
   // --- Hide/Unhide ---
 
@@ -885,22 +819,16 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
               </div>
             </div>
           )}
-          {messages.map((msg, idx) => {
-            const fp = forkPoints[String(msg.id)] || (idx === 0 ? forkPoints["0"] : undefined);
-            const forkId = forkPoints[String(msg.id)] ? msg.id : 0;
+          {messages.map((msg) => {
             return (
               <MessageBubble
                 key={msg.id}
                 message={msg}
                 isLastAssistant={msg.id === lastAssistantId}
                 isPending={queuedIds.has(msg.id)}
-                forkPoint={fp}
                 onEdit={msg.role === 'user' && !isStreamingThisThread ? handleEdit : undefined}
                 onRegenerate={msg.id === lastAssistantId && !isStreamingThisThread ? handleRegenerate : undefined}
-                onBranch={msg.role === 'assistant' && !isStreamingThisThread ? () => handleBranch(msg.id) : undefined}
-                onFork={!isStreamingThisThread ? () => handleForkRequest(msg.id) : undefined}
                 onHide={!isStreamingThisThread ? () => handleHide(msg.id) : undefined}
-                onSwitchBranch={fp ? (childId: number) => handleSwitchBranch(forkId, childId) : undefined}
                 onImageClick={(att, allImages) => setLightbox({ attachment: att, allImages })}
                 onRemoveQueued={queuedIds.has(msg.id) ? () => removeQueuedMessage(msg.id) : undefined}
                 onOptionSelect={msg.id === lastAssistantId && !isStreamingThisThread ? (text) => handleSend(text) : undefined}
@@ -1085,25 +1013,6 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
           </div>
         </div>
       )}
-      {branchFromId != null && (
-        <div className="max-w-3xl mx-auto w-full px-4">
-          <div className="flex items-center gap-3 text-sm px-4 py-2 rounded-xl mb-1 bg-indigo-50 text-indigo-700 border border-indigo-200">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 flex-shrink-0 text-indigo-500">
-              <path fillRule="evenodd" d="M4.75 2a.75.75 0 0 1 .75.75v3.5c0 .414.336.75.75.75h2.032l-.721-.72a.75.75 0 0 1 1.06-1.061l2 2a.75.75 0 0 1 0 1.06l-2 2a.75.75 0 1 1-1.06-1.06l.72-.72H6.25A2.25 2.25 0 0 1 4 6.25V2.75A.75.75 0 0 1 4.75 2ZM4 9.25a.75.75 0 0 1 .75-.75h6.5a.75.75 0 0 1 0 1.5h-6.5a.75.75 0 0 1-.75-.75ZM4.75 12a.75.75 0 0 0 0 1.5h6.5a.75.75 0 0 0 0-1.5h-6.5Z" clipRule="evenodd" />
-            </svg>
-            <span className="flex-1">Branching — type a new question to explore an alternative path</span>
-            <button
-              onClick={() => setBranchFromId(null)}
-              className="flex-shrink-0 text-indigo-400 hover:text-indigo-600 transition-colors cursor-pointer"
-              title="Cancel branching"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
       <div className="max-w-3xl mx-auto w-full">
         {usageInfo && (usageInfo.input_tokens || usageInfo.cost_usd) && (
           <div className="flex items-center gap-3 px-4 pb-1 text-[10px] text-zinc-400">
@@ -1170,14 +1079,6 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
           attachment={lightbox.attachment}
           allImages={lightbox.allImages}
           onClose={() => setLightbox(null)}
-        />
-      )}
-      {forkFromMessage && (
-        <ForkThreadModal
-          sourceTitle={thread?.title || 'Conversation'}
-          forkPointPreview={forkFromMessage.content.slice(0, 200)}
-          onConfirm={handleForkConfirm}
-          onCancel={() => setForkFromMessage(null)}
         />
       )}
       {dragOver && (
