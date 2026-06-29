@@ -14,8 +14,11 @@ import CommandButtons from '../components/CommandButtons'
 import BoxRunningIndicator from '../components/BoxRunningIndicator'
 import ThreadSettingsPanel from '../components/ThreadSettingsPanel'
 import ThreadForkBadges from '../components/ThreadForkBadges'
-import { MessageSquare, ArrowLeft, Settings } from 'lucide-react'
+import CommandPalette from '../components/CommandPalette'
+import { MessageSquare, ArrowLeft, Settings, Command } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { usePaletteHotkeys } from '../hooks/usePaletteHotkeys'
+import { useSettings } from '../context/SettingsContext'
 
 function parseThreadIdFromPath(pathname: string): number | null {
   const match = pathname.match(/^\/chat\/(\d+)$/)
@@ -40,6 +43,8 @@ export default function ChatPage() {
   const [pendingStarterMessage, setPendingStarterMessage] = useState<string | null>(null)
   const [threadNotFound, setThreadNotFound] = useState(false)
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const { settings, updateSettings } = useSettings()
 
   const showArchivedRef = useRef(showArchived)
   useEffect(() => { showArchivedRef.current = showArchived }, [showArchived])
@@ -154,6 +159,26 @@ export default function ChatPage() {
     } catch { /* ignore */ }
   }
 
+  usePaletteHotkeys({
+    onNewChat: () => handleNewThread(),
+    onTogglePalette: () => setPaletteOpen((o) => !o),
+  })
+
+  const palette = (
+    <CommandPalette
+      open={paletteOpen}
+      onClose={() => setPaletteOpen(false)}
+      threads={threads}
+      onSelectThread={(id) => selectThread(id)}
+      onNewThread={() => handleNewThread()}
+      onOpenSettings={() => setSettingsPanelOpen(true)}
+      onToggleTheme={() =>
+        updateSettings({ theme: settings.theme === 'light' ? 'dark' : 'light' })
+      }
+      onOpenSearch={() => setPaletteOpen(false)}
+    />
+  )
+
   const handleTitleUpdate = useCallback((threadId: number, title: string) => {
     setThreads(prev => prev.map(t => t.id === threadId ? { ...t, title } : t))
   }, [])
@@ -236,6 +261,14 @@ export default function ChatPage() {
                   </span>
                 )}
               </div>
+              <button
+                onClick={() => setPaletteOpen(true)}
+                className="text-zinc-500 hover:text-zinc-800 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                title="Příkazy"
+                aria-label="Otevřít příkazy"
+              >
+                <Command className="w-5 h-5" />
+              </button>
               {activeThread && (
                 <>
                   <ThreadForkBadges thread={activeThread} onSelectThread={selectThread} />
@@ -313,6 +346,7 @@ export default function ChatPage() {
             </div>
           </div>
         )}
+        {palette}
       </div>
     )
   }
@@ -344,6 +378,14 @@ export default function ChatPage() {
                   </span>
                 )}
               </div>
+              <button
+                onClick={() => setPaletteOpen(true)}
+                className="text-zinc-500 hover:text-zinc-800 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                title="Příkazy"
+                aria-label="Otevřít příkazy"
+              >
+                <Command className="w-5 h-5" />
+              </button>
               {activeThread && (
                 <>
                   <ThreadForkBadges thread={activeThread} onSelectThread={selectThread} />
@@ -422,6 +464,7 @@ export default function ChatPage() {
           </div>
         </div>
       )}
+      {palette}
     </div>
   )
 }
