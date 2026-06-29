@@ -54,39 +54,60 @@ Three tappable chips for the most common actions, rendered in the composer
 toolbar row (alongside the existing upload/voice/plan-act buttons in
 `ChatInput.tsx`):
 
-| Chip | Command | Action |
+| Chip | Command dispatched | Action |
 |------|---------|--------|
 | **Nový chat** | `/new` | Start a new thread |
-| **Hledat** | `/search` (fall back to `/find`) | Open search |
+| **Hledat** | `/find` | Open in-thread search (the working path; `/search` is a desktop no-op today) |
 | **Smazat historii** | `/clear` | Clear thread messages (soft-delete) |
 
-- One tap = the action fires immediately. `Smazat historii` keeps its existing
-  confirmation (clear is destructive, even if soft-delete is recoverable).
-- **Keyboard shortcut for new chat:** `Ctrl/Cmd+Shift+O` triggers the same
-  `/new` action as the chip. Chosen to match the common "new chat" convention and
-  to avoid collision with the existing chat shortcuts (`Shift+Tab` = Plan/Act,
-  `Cmd/Ctrl+F` = search). Registered globally for the chat view, with
-  `preventDefault` so it doesn't fall through to the browser.
+- One tap = the action fires immediately via the existing `onSlashCommand`
+  dispatch (one source of truth — chips are just new callers of
+  `ChatView.handleSlashCommand`). `Smazat historii` inherits whatever
+  confirmation `/clear` has today.
 - Chips are icon + short label; on narrow viewports they collapse to icon-only
   to fit, but remain a single tap (no hover).
 - The model picker is intentionally **not** a chip — it stays in the thread
   settings panel / header badge as today.
 
-### A2. Command-menu button (the rest)
-A persistent button in the composer toolbar (a `/` or list/`☰` glyph) that opens
-the **same command menu** that typing `/` produces — but via tap, no keyboard.
+### A2. Command access via the existing CommandPalette
 
-- Opens an overlay list of all commands with their human labels/descriptions,
-  filtered to what's relevant (e.g. hide `/find` when already covered, hide
-  commands that don't apply to the current thread state).
-- Tapping an item runs it and closes the menu.
-- Typing `/` in the input still works unchanged for desktop power users.
+**Discovery during planning:** the codebase already contains a complete, polished
+`CommandPalette.tsx` (fuzzy search over commands + recent threads + actions like
+New chat / Search / Export / Settings / Toggle theme) and a `useKeyboardShortcuts`
+hook — **but neither is wired in anywhere** (orphaned/dead code). This is exactly
+the "tap → menu of commands" surface A2 needs, already built. So instead of
+building a new menu, we **reuse the palette component**:
+
+- **Wire `CommandPalette` into `ChatPage`** (render it, provide its props from
+  existing ChatPage state: `threads`, `selectThread`, `handleNewThread`,
+  `setSettingsPanelOpen`, `updateSettings` for theme, in-thread search for
+  `onOpenSearch`).
+- **Open it without a keyboard:** a visible command button in the chat header
+  (mobile + desktop) toggles the palette — this is the mobile entry point, since
+  mobile can't press a hotkey. Desktop also gets `Cmd/Ctrl+K`.
+- The palette is a self-contained fixed overlay with its own internal
+  Arrow/Enter/Escape handling (bound only while open) — **no global key
+  conflicts** with ChatView's existing `Shift+Tab` / `Cmd+F`.
+- We reuse the palette **component** but **not** the orphaned
+  `useKeyboardShortcuts` hook (it depends on a shortcuts-help modal we don't
+  have). Instead a small dedicated hook binds only the two hotkeys we need.
+
+### A3. Keyboard shortcut for new chat
+A small `usePaletteHotkeys` hook (new, in `hooks/`, independently testable) binds:
+
+- **`Ctrl/Cmd+Shift+O`** → new chat (the requested shortcut; the orphaned hook
+  had `Ctrl+Shift+O` but no `Cmd`/meta support and was never wired).
+- **`Ctrl/Cmd+K`** → toggle the command palette.
+
+Both call `preventDefault` so they don't fall through to the browser. Chosen to
+avoid collision with the existing chat shortcuts (`Shift+Tab` = Plan/Act,
+`Cmd/Ctrl+F` = search).
 
 ### Behavior / interface
-- New trigger surface, **same dispatch**: chips and the menu button call the
-  identical command handlers the typed `/command` path already invokes. There is
-  one source of truth for "what `/clear` does"; we only add callers.
-- Mobile-first: all targets ≥ 44px touch size, no hover dependency.
+- **Same dispatch, new triggers:** chips call the identical `onSlashCommand`
+  path the typed `/command` already invokes; the palette reuses existing actions.
+  One source of truth per action; we only add callers.
+- Mobile-first: all new tap targets ≥ 44px, no hover dependency.
 
 ---
 
@@ -108,9 +129,11 @@ Changes:
      migrations, no model changes.
 2. **Keep** Copy, Edit (user messages), Regenerate (last assistant message),
    Hide/Unhide. These are the actions the user actually wants.
-3. **Mobile reachability:** message actions must be reachable by **tap** on
-   touch devices, not hover only — reveal the action row on tap of the bubble
-   (or show a compact "…" affordance). Desktop hover behavior is preserved.
+3. **Mobile reachability:** already handled — `MessageBubble` renders the action
+   row `opacity-100` by default and only hides it behind hover at the `md:`
+   breakpoint (`md:opacity-0 md:group-hover:opacity-100`). So on touch the actions
+   are always visible; no change needed here. (This is why removing the unused
+   Branch/Fork buttons is the actual win — they're always-on clutter on mobile.)
 
 ### Dead-code note
 Removing the branch/fork UI may orphan `ForkThreadModal.tsx`,
@@ -149,15 +172,20 @@ This section is the lowest priority and can ship separately from A and B.
 - **Command palette only (no chips)** vs **chips only (no menu)** (rejected in
   favor of both): the user explicitly wanted persistent chips for the top
   actions *and* a menu for the long tail. Both, sharing one dispatch layer.
+- **Build a new tap-to-open SlashCommandMenu** vs **wire up the existing
+  CommandPalette** (chose the palette): planning found a complete, unwired
+  `CommandPalette` already in the tree. Reusing it gives fuzzy search over
+  commands *and* threads *and* actions for free — strictly more than a new menu —
+  with less new code. We skip the equally-orphaned `useKeyboardShortcuts` hook
+  (depends on a help modal we don't have) and bind only the two hotkeys we need.
 
 ## Testing
 
 - **Frontend (Vitest):**
-  - Chips dispatch the correct command handler on click/tap (mock the handler,
-    assert it's called) — one test per chip.
-  - Command-menu button opens the menu and selecting an item dispatches the same
-    handler as typing the command.
-  - `Ctrl/Cmd+Shift+O` dispatches the same `/new` handler as the chip.
+  - Chips dispatch the correct `onSlashCommand` value on click/tap (mock the
+    prop, assert it's called with `/new` / `/find` / `/clear`) — one per chip.
+  - `usePaletteHotkeys`: `Ctrl/Cmd+Shift+O` fires the new-chat callback;
+    `Ctrl/Cmd+K` fires the palette-toggle callback (hook tested in isolation).
   - `MessageActions` no longer renders Branch/Fork buttons; still renders Copy /
     Edit / Regenerate / Hide under the right conditions.
   - `SelectableOptions`: pressing a number key selects the matching option.
