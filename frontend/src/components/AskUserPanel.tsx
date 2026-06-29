@@ -70,6 +70,8 @@ export default function AskUserPanel({ toolCall, threadId }: Props) {
     if (!q.options || q.options.length === 0) return;
 
     const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key >= '1' && e.key <= '9') {
         const idx = parseInt(e.key, 10) - 1;

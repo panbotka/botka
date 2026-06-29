@@ -37,4 +37,16 @@ describe('AskUserPanel', () => {
     const alpha = screen.getByText('Alpha').closest('button')!
     expect(alpha.getAttribute('aria-pressed')).toBe('false')
   })
+
+  it('ignores number keys typed into an editable element', () => {
+    render(<AskUserPanel toolCall={toolCall} threadId={1} />)
+    const textarea = document.createElement('textarea')
+    document.body.appendChild(textarea)
+    fireEvent.keyDown(textarea, { key: '2' })
+    const beta = screen.getByText('Beta').closest('button')!
+    expect(beta.getAttribute('aria-pressed')).toBe('false')
+    const alpha = screen.getByText('Alpha').closest('button')!
+    expect(alpha.getAttribute('aria-pressed')).toBe('false')
+    document.body.removeChild(textarea)
+  })
 })
