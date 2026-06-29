@@ -60,6 +60,30 @@ export default function AskUserPanel({ toolCall, threadId }: Props) {
     });
   };
 
+  // Number-key selection: for a single options-based question, pressing 1-9
+  // toggles the option at that index (same path as clicking it). Scoped to a
+  // single question so multi-question prompts stay unambiguous.
+  useEffect(() => {
+    if (isAnswered || submitted) return;
+    if (questions.length !== 1) return;
+    const q = questions[0]!;
+    if (!q.options || q.options.length === 0) return;
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key >= '1' && e.key <= '9') {
+        const idx = parseInt(e.key, 10) - 1;
+        if (idx < q.options!.length) {
+          e.preventDefault();
+          toggleOption(0, q.options![idx]!.label, !!q.multiSelect);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toolCall.input, isAnswered, submitted]);
+
   const buildResultContent = (): string => {
     if (questions.length === 0) return freeText;
 
@@ -168,6 +192,7 @@ export default function AskUserPanel({ toolCall, threadId }: Props) {
                   <button
                     key={opt.label}
                     onClick={() => toggleOption(qIndex, opt.label, !!q.multiSelect)}
+                    aria-pressed={isSelected}
                     disabled={submitting}
                     className={`w-full text-left px-3 py-2.5 rounded-lg border-2 transition-all text-sm cursor-pointer ${
                       isSelected
