@@ -35,6 +35,13 @@ export default function SelectableOptions({ children, onSelect }: Props) {
         e.preventDefault();
         const text = extractText(items[activeIndex]);
         if (text.trim()) onSelect(text.trim());
+      } else if (e.key >= '1' && e.key <= '9') {
+        const idx = parseInt(e.key, 10) - 1;
+        if (idx < items.length) {
+          e.preventDefault();
+          const text = extractText(items[idx]);
+          if (text.trim()) onSelect(text.trim());
+        }
       }
     };
 
