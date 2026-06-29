@@ -50,6 +50,12 @@ vi.mock('../context/AuthContext', () => ({
   useAuth: () => mockUseAuth(),
 }))
 
+// ChatPage calls useSettings() (for the command-palette theme toggle); mock it
+// like the other contexts so the test needs no SettingsProvider wrapper.
+vi.mock('../context/SettingsContext', () => ({
+  useSettings: () => ({ settings: { theme: 'light' }, updateSettings: vi.fn() }),
+}))
+
 vi.mock('../api/client', () => ({
   api: {
     fetchThreads: vi.fn().mockResolvedValue([
