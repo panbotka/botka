@@ -62,6 +62,11 @@ toolbar row (alongside the existing upload/voice/plan-act buttons in
 
 - One tap = the action fires immediately. `Smazat historii` keeps its existing
   confirmation (clear is destructive, even if soft-delete is recoverable).
+- **Keyboard shortcut for new chat:** `Ctrl/Cmd+Shift+O` triggers the same
+  `/new` action as the chip. Chosen to match the common "new chat" convention and
+  to avoid collision with the existing chat shortcuts (`Shift+Tab` = Plan/Act,
+  `Cmd/Ctrl+F` = search). Registered globally for the chat view, with
+  `preventDefault` so it doesn't fall through to the browser.
 - Chips are icon + short label; on narrow viewports they collapse to icon-only
   to fit, but remain a single tap (no hover).
 - The model picker is intentionally **not** a chip — it stays in the thread
@@ -152,6 +157,7 @@ This section is the lowest priority and can ship separately from A and B.
     assert it's called) — one test per chip.
   - Command-menu button opens the menu and selecting an item dispatches the same
     handler as typing the command.
+  - `Ctrl/Cmd+Shift+O` dispatches the same `/new` handler as the chip.
   - `MessageActions` no longer renders Branch/Fork buttons; still renders Copy /
     Edit / Regenerate / Hide under the right conditions.
   - `SelectableOptions`: pressing a number key selects the matching option.
