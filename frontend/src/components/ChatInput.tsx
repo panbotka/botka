@@ -298,6 +298,39 @@ const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ thread
             {planMode ? 'Plan' : 'Act'}
           </button>
           <span className="text-[10px] text-zinc-400 ml-2">Shift+Tab</span>
+          {/* Quick-action chips — reuse the existing slash-command dispatch */}
+          <div className="flex items-center gap-1 ml-auto">
+            <button
+              type="button"
+              onClick={() => onSlashCommand('/new', '')}
+              className="flex items-center gap-1 px-2 min-h-[32px] rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 text-xs transition-colors"
+              title="Nový chat"
+              aria-label="Nový chat"
+            >
+              <Plus size={16} />
+              <span className="hidden sm:inline">Nový</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onSlashCommand('/find', '')}
+              className="flex items-center gap-1 px-2 min-h-[32px] rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 text-xs transition-colors"
+              title="Hledat"
+              aria-label="Hledat"
+            >
+              <Search size={16} />
+              <span className="hidden sm:inline">Hledat</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onSlashCommand('/clear', '')}
+              className="flex items-center gap-1 px-2 min-h-[32px] rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 text-xs transition-colors"
+              title="Smazat historii"
+              aria-label="Smazat historii"
+            >
+              <Trash2 size={16} />
+              <span className="hidden sm:inline">Smazat</span>
+            </button>
+          </div>
         </div>
         {/* File previews */}
         {files.length > 0 && (
@@ -354,37 +387,6 @@ const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ thread
               e.target.value = '';
             }}
           />
-          {/* Quick-action chips — reuse the existing slash-command dispatch */}
-          <button
-            type="button"
-            onClick={() => onSlashCommand('/new', '')}
-            className="flex items-center gap-1 px-2 min-h-[36px] rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 text-xs transition-colors"
-            title="Nový chat"
-            aria-label="Nový chat"
-          >
-            <Plus size={16} />
-            <span className="hidden sm:inline">Nový</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => onSlashCommand('/find', '')}
-            className="flex items-center gap-1 px-2 min-h-[36px] rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 text-xs transition-colors"
-            title="Hledat"
-            aria-label="Hledat"
-          >
-            <Search size={16} />
-            <span className="hidden sm:inline">Hledat</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => onSlashCommand('/clear', '')}
-            className="flex items-center gap-1 px-2 min-h-[36px] rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 text-xs transition-colors"
-            title="Smazat historii"
-            aria-label="Smazat historii"
-          >
-            <Trash2 size={16} />
-            <span className="hidden sm:inline">Smazat</span>
-          </button>
           <textarea
             ref={textareaRef}
             value={value}

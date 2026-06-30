@@ -59,4 +59,15 @@ describe('ChatInput quick-action chips', () => {
     fireEvent.click(screen.getByLabelText('Smazat historii'))
     expect(onSlash).toHaveBeenCalledWith('/clear', '')
   })
+
+  // Regression: chips must live in their own toolbar row, NOT in the same flex
+  // row as the textarea — otherwise they steal width and shrink the input box.
+  it('keeps chips out of the textarea input row', () => {
+    renderInput()
+    const textarea = screen.getByPlaceholderText('Message Pan Botka...')
+    const inputRow = textarea.parentElement! // the flex row holding the textarea
+    for (const label of ['Nový chat', 'Hledat', 'Smazat historii']) {
+      expect(inputRow.contains(screen.getByLabelText(label))).toBe(false)
+    }
+  })
 })
