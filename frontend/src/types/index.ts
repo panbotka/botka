@@ -217,6 +217,8 @@ export interface UsageInfo {
   last_checked: string
   age_seconds: number
   stale: boolean
+  threshold_5h: number
+  threshold_7d: number
 }
 
 export interface ActiveTaskInfo {

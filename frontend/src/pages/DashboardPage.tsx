@@ -151,8 +151,8 @@ function UsageMeters({ usage, onRefresh }: { usage: UsageInfo | null; onRefresh:
   const isStale = usage.stale
 
   const meters = [
-    { label: '5h Window', pct: usage.five_hour_pct, resetLabel: `Resets in ${formatTimeUntil(usage.resets_at)}` },
-    { label: '7-day Window', pct: usage.seven_day_pct, resetLabel: null },
+    { label: '5h Window', pct: usage.five_hour_pct, threshold: usage.threshold_5h, resetLabel: `Resets in ${formatTimeUntil(usage.resets_at)}` },
+    { label: '7-day Window', pct: usage.seven_day_pct, threshold: usage.threshold_7d, resetLabel: null },
   ]
 
   return (
@@ -191,25 +191,43 @@ function UsageMeters({ usage, onRefresh }: { usage: UsageInfo | null; onRefresh:
         </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
-        {meters.map((m) => (
-          <div key={m.label}>
-            <div className="mb-1.5 flex items-baseline justify-between">
-              <span className="text-sm font-medium text-zinc-700">{m.label}</span>
-              <span className="text-sm tabular-nums text-zinc-900">
-                {Math.round(m.pct * 100)}%
-              </span>
+        {meters.map((m) => {
+          const blocked = m.threshold > 0 && m.pct > m.threshold
+          return (
+            <div key={m.label}>
+              <div className="mb-1.5 flex items-baseline justify-between">
+                <span className="text-sm font-medium text-zinc-700">{m.label}</span>
+                <span className="text-sm tabular-nums text-zinc-900">
+                  {Math.round(m.pct * 100)}%
+                </span>
+              </div>
+              <div className={clsx('relative h-2.5 w-full overflow-hidden rounded-full', usageTrackColor(m.pct))}>
+                <div
+                  className={clsx('h-full rounded-full transition-all duration-500', usageColor(m.pct))}
+                  style={{ width: `${Math.min(100, Math.round(m.pct * 100))}%` }}
+                />
+                {m.threshold > 0 && m.threshold < 1 && (
+                  <div
+                    className="absolute inset-y-0 w-0.5 bg-zinc-700/70 dark:bg-zinc-900/70"
+                    style={{ left: `${Math.round(m.threshold * 100)}%` }}
+                    title={`Task cutoff at ${Math.round(m.threshold * 100)}%`}
+                  />
+                )}
+              </div>
+              <div className="mt-1 flex items-baseline justify-between gap-2">
+                {m.resetLabel
+                  ? <p className="text-xs text-zinc-400 dark:text-zinc-500">{m.resetLabel}</p>
+                  : <span />}
+                <p className={clsx(
+                  'text-xs tabular-nums',
+                  blocked ? 'font-medium text-red-600 dark:text-red-500' : 'text-zinc-400 dark:text-zinc-500',
+                )}>
+                  {blocked ? `Tasks paused — over ${Math.round(m.threshold * 100)}% limit` : `Task cutoff ${Math.round(m.threshold * 100)}%`}
+                </p>
+              </div>
             </div>
-            <div className={clsx('h-2.5 w-full overflow-hidden rounded-full', usageTrackColor(m.pct))}>
-              <div
-                className={clsx('h-full rounded-full transition-all duration-500', usageColor(m.pct))}
-                style={{ width: `${Math.min(100, Math.round(m.pct * 100))}%` }}
-              />
-            </div>
-            {m.resetLabel && (
-              <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">{m.resetLabel}</p>
-            )}
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

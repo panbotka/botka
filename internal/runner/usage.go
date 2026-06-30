@@ -19,6 +19,12 @@ type UsageInfo struct {
 	LastChecked time.Time `json:"last_checked"`
 	AgeSeconds  int       `json:"age_seconds"`
 	Stale       bool      `json:"stale"`
+	// Threshold5h and Threshold7d are the configured utilization cutoffs
+	// (fractions in [0,1]) above which the runner stops starting new tasks.
+	// They are static config, injected by CurrentUsage so the frontend can
+	// render them alongside the live utilization.
+	Threshold5h float64 `json:"threshold_5h"`
+	Threshold7d float64 `json:"threshold_7d"`
 }
 
 // UsageMonitor polls the claude-usage command to track rate limits.
@@ -109,11 +115,16 @@ func (m *UsageMonitor) IsRateLimited() (bool, string) {
 	return false, ""
 }
 
-// CurrentUsage returns a snapshot of the current usage state.
+// CurrentUsage returns a snapshot of the current usage state, with the
+// configured thresholds injected so callers see both live utilization and
+// the cutoffs that gate new task starts.
 func (m *UsageMonitor) CurrentUsage() UsageInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.info
+	info := m.info
+	info.Threshold5h = m.threshold5h
+	info.Threshold7d = m.threshold7d
+	return info
 }
 
 // ResetsAt returns when the current 5-hour rate limit window resets.
