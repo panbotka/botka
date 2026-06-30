@@ -76,7 +76,7 @@ make clean          # Remove build artifacts
 
 ## Testing
 
-**~669 tests** across 63 test files covering all packages. Go tests use stdlib `testing`; frontend tests use Vitest.
+**~1000 Go tests** across 90 test files, plus **209 frontend tests** across 26 files, covering all packages. Go tests use stdlib `testing`; frontend tests use Vitest.
 
 ```bash
 make test           # Run all tests with race detector
@@ -99,7 +99,7 @@ Tests auto-skip when the database is unavailable, so `make test` always passes. 
 - **Unit tests** (no DB): `config`, `middleware`, `runner` (buffer, parser, executor, usage, keepalive), `projects`
 - **Integration tests** (need `botka_test`): all `handlers` — HTTP-level tests via `httptest` + Gin test mode
 - **Model/package tests**: `models` (enums, table names), `mcp` (JSON-RPC, tools, SSE), `claude` (event parsing, context assembly, registry)
-- **Frontend tests**: Vitest unit tests in `frontend/src/` (94 tests across 10 files)
+- **Frontend tests**: Vitest unit tests in `frontend/src/` (209 tests across 26 files)
 
 ### Linting
 
@@ -235,7 +235,7 @@ If your task requires deploying changes, mark the task as done and note that dep
 
 - **Frontend embeds in binary:** `frontend/dist` is embedded via `go:embed` in the root `embed.go`. The `ensure-dist` Makefile target creates a placeholder so `go build` works without building frontend first.
 - **GORM models** use `uuid.UUID` primary keys for tasks/projects and `int64` (bigserial) for chat entities (threads, messages, personas, tags).
-- **Full-text search** on messages uses a PostgreSQL GIN index on a `tsvector` column.
+- **Full-text search** is diacritic-insensitive and prefix-matched. Messages (migration 036) and tasks (migration 037) each have a `tsvector` column with a GIN index, built through the immutable `botka_immutable_unaccent` wrapper so accent-free queries (`zaluzie`) match accented content (`žaluzie`). Queries are turned into `to_tsquery` prefix terms (`zalu:*`) by `buildPrefixTSQuery` for as-you-type matching. The unified `GET /api/v1/search/all` endpoint (`internal/handlers/search_unified.go`) returns one hit per conversation — title (weight `A`) ranked above message body (weight `C`) — and one hit per task — title (`A`) > spec (`B`) > failure summary (`C`) — both ordered by `ts_rank`. The frontend `SearchOverlay` (opened with `⌘K`) renders the two sections; selecting a conversation navigates with `?focus=1` to land at the bottom with the composer focused.
 - **Task scheduling** uses `SELECT ... FOR UPDATE SKIP LOCKED` for safe concurrent task picking.
 - **One task per project:** Enforced at **three levels** — (1) in-memory executors map keyed by `project_id`, (2) `NOT EXISTS` subquery in the pick query, and (3) a **unique partial index** `idx_one_running_per_project ON tasks (project_id) WHERE status = 'running'` (migration 016). The DB-level index is critical: the in-memory guard only protects within a single process, and the `NOT EXISTS` subquery has a TOCTOU race under concurrent transactions. If two processes share the database, only the unique index prevents them from both claiming tasks for the same project. The runner handles the resulting unique violation gracefully in `pickNextTask()` (skips and retries next tick). **Never remove this index.**
 - **MAX_WORKERS enforcement:** `launchTask()` re-checks `len(r.executors) >= r.maxWorkers` under the mutex before adding a new executor. This is the authoritative enforcement point — if the limit is reached, the task is requeued. The earlier check in `collectTickState()` is an optimization to avoid unnecessary DB queries; `launchTask()` is the safety net that prevents over-allocation even if multiple processes share the database.

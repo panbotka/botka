@@ -124,11 +124,18 @@ func RunMessageSearch(db *gorm.DB, p MessageSearchParams) ([]MessageSearchHit, i
 		p.Limit = messageSearchMaxLimit
 	}
 
-	// Build the WHERE fragment shared by count + select. plainto_tsquery is
-	// safe against malformed input: it ignores operators and quotes.
+	// Build a prefix tsquery so partial words match as the user types ("zalu"
+	// finds "žaluzie"). The query is folded through botka_immutable_unaccent so
+	// diacritic-free input matches accented content — search_vector is built
+	// from the same unaccented text (migration 036). An empty result (query was
+	// only punctuation) yields no hits rather than a tsquery parse error.
+	tsq := buildPrefixTSQuery(p.Query)
+	if tsq == "" {
+		return []MessageSearchHit{}, 0, nil
+	}
 	whereSQL := `m.deleted_at IS NULL
-		AND m.search_vector @@ plainto_tsquery('simple', ?)`
-	whereArgs := []interface{}{p.Query}
+		AND m.search_vector @@ to_tsquery('pg_catalog.simple', botka_immutable_unaccent(?))`
+	whereArgs := []interface{}{tsq}
 	if p.ThreadID > 0 {
 		whereSQL += " AND m.thread_id = ?"
 		whereArgs = append(whereArgs, p.ThreadID)
@@ -169,16 +176,16 @@ func RunMessageSearch(db *gorm.DB, p MessageSearchParams) ([]MessageSearchHit, i
 			t.title AS thread_title,
 			m.role,
 			m.created_at,
-			ts_headline('pg_catalog.simple', m.content,
-				plainto_tsquery('simple', ?), ?) AS headline,
-			ts_rank(m.search_vector, plainto_tsquery('simple', ?)) AS rank
+			ts_headline('pg_catalog.simple', botka_immutable_unaccent(m.content),
+				to_tsquery('pg_catalog.simple', botka_immutable_unaccent(?)), ?) AS headline,
+			ts_rank(m.search_vector, to_tsquery('pg_catalog.simple', botka_immutable_unaccent(?))) AS rank
 		FROM messages m
 		JOIN threads t ON t.id = m.thread_id
 		WHERE ` + whereSQL + `
 		ORDER BY rank DESC, m.created_at DESC
 		LIMIT ? OFFSET ?`
 
-	args := []interface{}{p.Query, headlineOpts, p.Query}
+	args := []interface{}{tsq, headlineOpts, tsq}
 	args = append(args, whereArgs...)
 	args = append(args, p.Limit, p.Offset)
 

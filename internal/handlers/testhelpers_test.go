@@ -122,24 +122,45 @@ func setupTestDB(t *testing.T) *gorm.DB {
 				// One running task per project constraint.
 				sharedDB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_one_running_per_project
 					ON tasks (project_id) WHERE status = 'running'`)
-				// Mirror migration 030: full-text search column, GIN index, and
-				// auto-update trigger. The trigger keeps search_vector in sync
-				// with title/spec/failure_summary on every insert and update.
+				// Mirror migrations 030 + 037: full-text search column, GIN
+				// index, and a weighted, unaccented auto-update trigger keeping
+				// search_vector in sync with title (A) / spec (B) /
+				// failure_summary (C). Requires botka_immutable_unaccent, which
+				// the messages block below also creates; create it here too so
+				// the trigger function compiles regardless of ordering.
+				sharedDB.Exec(`CREATE EXTENSION IF NOT EXISTS unaccent`)
+				sharedDB.Exec(`CREATE OR REPLACE FUNCTION botka_immutable_unaccent(text)
+					RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
+					AS $$ SELECT unaccent('unaccent', $1) $$`)
 				sharedDB.Exec(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS search_vector tsvector`)
 				sharedDB.Exec(`CREATE INDEX IF NOT EXISTS idx_tasks_search
 					ON tasks USING GIN (search_vector)`)
+				sharedDB.Exec(`CREATE OR REPLACE FUNCTION tasks_search_vector_refresh()
+					RETURNS trigger AS $$
+					BEGIN
+						NEW.search_vector :=
+							setweight(to_tsvector('pg_catalog.simple', botka_immutable_unaccent(coalesce(NEW.title, ''))), 'A') ||
+							setweight(to_tsvector('pg_catalog.simple', botka_immutable_unaccent(coalesce(NEW.spec, ''))), 'B') ||
+							setweight(to_tsvector('pg_catalog.simple', botka_immutable_unaccent(coalesce(NEW.failure_summary, ''))), 'C');
+						RETURN NEW;
+					END;
+					$$ LANGUAGE plpgsql`)
 				sharedDB.Exec(`DROP TRIGGER IF EXISTS tasks_search_vector_update ON tasks`)
 				sharedDB.Exec(`CREATE TRIGGER tasks_search_vector_update
 					BEFORE INSERT OR UPDATE OF title, spec, failure_summary ON tasks
-					FOR EACH ROW EXECUTE FUNCTION
-					tsvector_update_trigger(search_vector, 'pg_catalog.simple', title, spec, failure_summary)`)
-				// Mirror migration 034: messages full-text search column with
-				// 'simple' config (mixed-language content) and GIN index.
-				// AutoMigrate does not emit GENERATED ALWAYS columns, so we
-				// add it manually.
+					FOR EACH ROW EXECUTE FUNCTION tasks_search_vector_refresh()`)
+				// Mirror migrations 034 + 036: messages full-text search column
+				// with 'simple' config (mixed-language content), folded through
+				// an immutable unaccent wrapper so diacritic-free queries match
+				// accented content, plus a GIN index. AutoMigrate does not emit
+				// GENERATED ALWAYS columns, so we add it manually.
+				sharedDB.Exec(`CREATE EXTENSION IF NOT EXISTS unaccent`)
+				sharedDB.Exec(`CREATE OR REPLACE FUNCTION botka_immutable_unaccent(text)
+					RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
+					AS $$ SELECT unaccent('unaccent', $1) $$`)
 				sharedDB.Exec(`ALTER TABLE messages DROP COLUMN IF EXISTS search_vector`)
 				sharedDB.Exec(`ALTER TABLE messages ADD COLUMN search_vector tsvector
-					GENERATED ALWAYS AS (to_tsvector('pg_catalog.simple', content)) STORED`)
+					GENERATED ALWAYS AS (to_tsvector('pg_catalog.simple', botka_immutable_unaccent(content))) STORED`)
 				sharedDB.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_search
 					ON messages USING GIN (search_vector)`)
 				// Partial unique index on branch_selections — non-deleted rows only.

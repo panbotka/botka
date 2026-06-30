@@ -8,7 +8,11 @@ interface Options {
 /**
  * Global keyboard shortcuts for the chat surface:
  * - Ctrl/Cmd + Shift + O → new chat
- * - Ctrl/Cmd + K        → toggle the command palette
+ * - Ctrl/Cmd + P        → toggle the command palette (threads/actions/commands)
+ *
+ * Ctrl/Cmd + K is deliberately NOT bound here: it is owned by the global
+ * full-text message search overlay (App.tsx). Binding the palette to Cmd+K too
+ * made both open at once, with the title-only palette covering the real search.
  *
  * Deliberately small and self-contained: the repo also has an unwired
  * `useKeyboardShortcuts` hook, but it depends on a shortcuts-help modal we
@@ -25,7 +29,7 @@ export function usePaletteHotkeys({ onNewChat, onTogglePalette }: Options): void
         onNewChat()
         return
       }
-      if (!e.shiftKey && (e.key === 'K' || e.key === 'k')) {
+      if (!e.shiftKey && (e.key === 'P' || e.key === 'p')) {
         e.preventDefault()
         onTogglePalette()
       }

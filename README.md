@@ -32,11 +32,11 @@ Botka merges two projects into one:
 - Hierarchical context assembly (SOUL.md, USER.md, MEMORY.md, daily notes, app memories, persona, project CLAUDE.md)
 - File uploads (images, PDFs, text)
 - Voice input with OpenClaw Whisper transcription
-- Full-text search across all messages (PostgreSQL GIN index)
+- Unified full-text search across conversations and tasks — diacritic-insensitive, prefix ("as you type") matching, title-weighted ranking (PostgreSQL GIN index)
 - Tags for thread organization
 - App-level memories included in system prompts
 - Message export (Markdown/JSON)
-- Keyboard shortcuts and command palette
+- Keyboard shortcuts: `⌘K` opens full-text search, `⌘P` opens the command palette (threads/actions/slash commands), `⌘⇧O` starts a new chat
 
 ### Shared
 - Unified project management (git repos + chat workspaces)
@@ -168,7 +168,7 @@ make frontend-build   # Build frontend only
 
 ### Testing
 
-~669 tests across 63 test files. Handler integration tests use a `botka_test` PostgreSQL database:
+~1000 Go tests across 90 test files, plus 209 frontend tests (Vitest) across 26 files. Handler integration tests use a `botka_test` PostgreSQL database:
 
 ```bash
 make test-db          # Create test database (one-time)
@@ -240,7 +240,7 @@ All endpoints are under `/api/v1`. Responses use a consistent envelope format:
 | Tags | `GET/POST/PUT/DELETE /tags` | Thread label management |
 | Memories | `GET/POST/PUT/DELETE /memories` | App-level persistent memories |
 | Files | `GET /files/:id` | Serve and download uploaded files |
-| Search | `GET /search?q=...` | Full-text search across messages |
+| Search | `GET /search/all?q=...`, `GET /search/messages`, `GET /search`, `GET /search/global` | Unified search (conversations + tasks, title-weighted, diacritic-insensitive, prefix); per-message FTS; legacy search |
 | Transcribe | `GET /transcribe/status`, `POST /transcribe` | Voice transcription via OpenClaw |
 | Processes | `GET/DELETE /processes` | Active Claude Code process management |
 | Commands | `GET/POST/DELETE /commands` | Project command execution |

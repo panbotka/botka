@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type DragEvent } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import type { Message, Thread, ThreadDetail, Attachment } from '../types';
 import { api, interruptThread, streamChat, streamRegenerate, streamEdit, streamSubscribe, fetchSessionHealth, toggleMessageHidden } from '../api/client';
 import type { SessionHealthData } from '../api/client';
@@ -68,6 +68,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
 
   // --- Routing ---
   const location = useLocation();
+  const navigate = useNavigate();
 
   // --- SSE Manager ---
   const sseManager = useSSEManager();
@@ -332,6 +333,20 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     const timer = window.setTimeout(() => scrollToAndFlashMessage(targetId), 50);
     return () => window.clearTimeout(timer);
   }, [threadId, messages.length, location.search, scrollToAndFlashMessage]);
+
+  // --- Focus the composer when arriving via ?focus=1 (set by search) ---
+  // The conversation already sticks to the bottom on a thread switch, so we
+  // just move the cursor into the input so the user can keep typing. The param
+  // is then stripped so later renders don't steal focus again.
+  useEffect(() => {
+    if (!threadId) return;
+    if (!new URLSearchParams(location.search).has('focus')) return;
+    const timer = window.setTimeout(() => {
+      chatInputRef.current?.focus();
+      navigate(`/chat/${threadId}`, { replace: true });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [threadId, location.search, navigate]);
 
   // --- Reconnect to active backend stream on mount ---
   // Handles browser refresh and returning to a thread with an active backend process.

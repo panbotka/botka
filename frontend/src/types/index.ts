@@ -446,6 +446,33 @@ export interface MessageSearchResponse {
   total: number
 }
 
+// Unified search (GET /search/all): one result per conversation and per task,
+// ranked title-first. content_snippet is server-escaped HTML with <mark> tags.
+export interface ThreadSearchHit {
+  thread_id: number
+  thread_title: string
+  message_id?: number
+  role?: string
+  content_snippet: string
+  matched_title: boolean
+  rank: number
+  updated_at: string
+}
+
+export interface TaskSearchHit {
+  task_id: string
+  title: string
+  status: string
+  project_id?: string
+  content_snippet: string
+  rank: number
+}
+
+export interface UnifiedSearchResult {
+  threads: ThreadSearchHit[]
+  tasks: TaskSearchHit[]
+}
+
 // ── Box server dashboard ──
 
 export interface BoxServiceStatus {

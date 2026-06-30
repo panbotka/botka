@@ -121,7 +121,8 @@ const shortcuts = [
   { keys: 'Ctrl+Shift+O', description: 'New chat' },
   { keys: 'Ctrl+Shift+P', description: 'Pin / unpin thread' },
   { keys: 'Ctrl+Shift+Arrow', description: 'Navigate between threads' },
-  { keys: 'Ctrl+K', description: 'Command palette' },
+  { keys: 'Ctrl+K', description: 'Full-text search (conversations + tasks)' },
+  { keys: 'Ctrl+P', description: 'Command palette (threads, actions, slash commands)' },
   { keys: '/', description: 'Focus chat input' },
   { keys: 'Ctrl+L', description: 'Focus chat input' },
   { keys: 'Shift+Tab', description: 'Toggle plan/act mode (when textarea focused)' },
@@ -270,7 +271,16 @@ export default function HelpPage() {
             <kbd className="rounded border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-xs font-mono">
               Ctrl+K
             </kbd>{' '}
-            opens the command palette — search threads, tasks, projects, messages, and slash commands.
+            opens full-text search across conversations and tasks. It is diacritic-insensitive and
+            matches partial words as you type ("zalu" finds "žaluzie"); titles rank above body text.
+            Picking a conversation jumps to it in the sidebar, scrolls to the end, and focuses the
+            composer so you can keep typing.
+          </li>
+          <li>
+            <kbd className="rounded border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-xs font-mono">
+              Ctrl+P
+            </kbd>{' '}
+            opens the command palette — jump to threads, run actions, and insert slash commands.
           </li>
           <li>
             The sidebar search box filters threads by title and searches message content.

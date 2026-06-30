@@ -175,7 +175,10 @@ export default function ChatPage() {
       onToggleTheme={() =>
         updateSettings({ theme: settings.theme === 'light' ? 'dark' : 'light' })
       }
-      onOpenSearch={() => setPaletteOpen(false)}
+      onOpenSearch={() => {
+        setPaletteOpen(false)
+        window.dispatchEvent(new CustomEvent('botka:open-search', { detail: { query: '' } }))
+      }}
     />
   )
 
@@ -264,8 +267,8 @@ export default function ChatPage() {
               <button
                 onClick={() => setPaletteOpen(true)}
                 className="text-zinc-500 hover:text-zinc-800 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-                title="Příkazy"
-                aria-label="Otevřít příkazy"
+                title="Příkazy (⌘P)"
+                aria-label="Otevřít příkazy (Cmd+P)"
               >
                 <Command className="w-5 h-5" />
               </button>
@@ -381,8 +384,8 @@ export default function ChatPage() {
               <button
                 onClick={() => setPaletteOpen(true)}
                 className="text-zinc-500 hover:text-zinc-800 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-                title="Příkazy"
-                aria-label="Otevřít příkazy"
+                title="Příkazy (⌘P)"
+                aria-label="Otevřít příkazy (Cmd+P)"
               >
                 <Command className="w-5 h-5" />
               </button>

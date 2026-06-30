@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -99,6 +100,34 @@ func TestSearchMessages_BasicHit(t *testing.T) {
 	}
 	if hit.Rank <= 0 {
 		t.Errorf("expected positive rank, got %v", hit.Rank)
+	}
+}
+
+// TestSearchMessages_DiacriticInsensitive guards the migration-036 behavior:
+// a query typed without diacritics must match accented Czech content, and an
+// accented query must match too. Regression for "search finds nothing" when
+// the user types e.g. "zaluzie" looking for messages about "žaluzie".
+func TestSearchMessages_DiacriticInsensitive(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	th := models.Thread{Title: "Okna"}
+	if err := db.Create(&th).Error; err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	addMessage(t, db, th.ID, "assistant", "Máš horizontální žaluzie do okenního křídla.")
+
+	r := searchRouter(db)
+
+	for _, q := range []string{"zaluzie", "žaluzie", "ZALUZIE"} {
+		w := doRequest(r, http.MethodGet, "/api/v1/search/messages?q="+url.QueryEscape(q), "")
+		if w.Code != http.StatusOK {
+			t.Fatalf("q=%q: expected 200, got %d: %s", q, w.Code, w.Body.String())
+		}
+		resp := decodeMessageSearch(t, w.Body.Bytes())
+		if resp.Total != 1 {
+			t.Fatalf("q=%q: expected total 1, got %d (%s)", q, resp.Total, w.Body.String())
+		}
 	}
 }
 

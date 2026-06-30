@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Loader2, User, Bot, Settings as SettingsIcon, MessageSquare } from 'lucide-react'
+import { Search, Loader2, User, Bot, Settings as SettingsIcon, MessageSquare, ListTodo } from 'lucide-react'
 import { clsx } from 'clsx'
-import { searchMessagesFTS } from '../api/client'
-import type { MessageSearchHit } from '../types'
+import { searchAll } from '../api/client'
+import type { ThreadSearchHit, TaskSearchHit } from '../types'
 
 interface Props {
   open: boolean
@@ -11,21 +11,34 @@ interface Props {
   initialQuery?: string
 }
 
-const PAGE_SIZE = 30
 const DEBOUNCE_MS = 250
 
-const roleIcon = (role: string) => {
+const roleIcon = (role?: string) => {
   if (role === 'user') return User
   if (role === 'assistant') return Bot
   return SettingsIcon
 }
 
+// Flat, keyboard-navigable item over both result sections.
+type Item =
+  | { kind: 'thread'; hit: ThreadSearchHit }
+  | { kind: 'task'; hit: TaskSearchHit }
+
+const statusColor: Record<string, string> = {
+  done: 'text-emerald-600 bg-emerald-50',
+  running: 'text-sky-600 bg-sky-50',
+  failed: 'text-red-600 bg-red-50',
+  needs_review: 'text-amber-600 bg-amber-50',
+  queued: 'text-zinc-500 bg-zinc-100',
+  pending: 'text-zinc-500 bg-zinc-100',
+  cancelled: 'text-zinc-400 bg-zinc-100',
+}
+
 export default function SearchOverlay({ open, onClose, initialQuery }: Props) {
   const [query, setQuery] = useState('')
-  const [hits, setHits] = useState<MessageSearchHit[]>([])
-  const [total, setTotal] = useState(0)
+  const [threads, setThreads] = useState<ThreadSearchHit[]>([])
+  const [tasks, setTasks] = useState<TaskSearchHit[]>([])
   const [loading, setLoading] = useState(false)
-  const [loadingMore, setLoadingMore] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -39,38 +52,38 @@ export default function SearchOverlay({ open, onClose, initialQuery }: Props) {
   useEffect(() => {
     if (open) {
       setQuery(initialQuery ?? '')
-      setHits([])
-      setTotal(0)
+      setThreads([])
+      setTasks([])
       setSelectedIndex(0)
       setTimeout(() => inputRef.current?.focus(), 0)
     }
   }, [open, initialQuery])
 
-  // Debounced first-page search
+  // Debounced unified search
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (!open) return
     const trimmed = query.trim()
     if (trimmed.length < 2) {
       requestSeqRef.current += 1
-      setHits([])
-      setTotal(0)
+      setThreads([])
+      setTasks([])
       setLoading(false)
       return
     }
     setLoading(true)
     debounceRef.current = setTimeout(() => {
       const seq = ++requestSeqRef.current
-      searchMessagesFTS({ query: trimmed, limit: PAGE_SIZE, offset: 0 })
-        .then((resp) => {
+      searchAll(trimmed)
+        .then((res) => {
           if (seq !== requestSeqRef.current) return
-          setHits(resp.data)
-          setTotal(resp.total)
+          setThreads(res.threads)
+          setTasks(res.tasks)
         })
         .catch(() => {
           if (seq !== requestSeqRef.current) return
-          setHits([])
-          setTotal(0)
+          setThreads([])
+          setTasks([])
         })
         .finally(() => {
           if (seq === requestSeqRef.current) setLoading(false)
@@ -82,10 +95,18 @@ export default function SearchOverlay({ open, onClose, initialQuery }: Props) {
     }
   }, [query, open])
 
+  const items = useMemo<Item[]>(
+    () => [
+      ...threads.map((hit): Item => ({ kind: 'thread', hit })),
+      ...tasks.map((hit): Item => ({ kind: 'task', hit })),
+    ],
+    [threads, tasks],
+  )
+
   // Reset selection when results change
   useEffect(() => {
     setSelectedIndex(0)
-  }, [hits.length])
+  }, [items.length])
 
   // Scroll selected item into view
   useEffect(() => {
@@ -94,55 +115,44 @@ export default function SearchOverlay({ open, onClose, initialQuery }: Props) {
   }, [selectedIndex])
 
   const handleNavigate = useCallback(
-    (hit: MessageSearchHit) => {
+    (item: Item) => {
       onClose()
-      navigate(`/chat/${hit.thread_id}?msg=${hit.message_id}`)
+      if (item.kind === 'thread') {
+        // Land at the end of the conversation with the composer focused — the
+        // common case is "continue this chat" rather than re-read the old hit.
+        navigate(`/chat/${item.hit.thread_id}?focus=1`)
+      } else {
+        navigate(`/tasks/${item.hit.task_id}`)
+      }
     },
     [onClose, navigate],
   )
-
-  const handleLoadMore = useCallback(() => {
-    const trimmed = query.trim()
-    if (trimmed.length < 2 || loadingMore || hits.length >= total) return
-    setLoadingMore(true)
-    const seq = requestSeqRef.current
-    searchMessagesFTS({ query: trimmed, limit: PAGE_SIZE, offset: hits.length })
-      .then((resp) => {
-        if (seq !== requestSeqRef.current) return
-        setHits((prev) => [...prev, ...resp.data])
-        setTotal(resp.total)
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (seq === requestSeqRef.current) setLoadingMore(false)
-      })
-  }, [query, hits.length, total, loadingMore])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setSelectedIndex((prev) => (prev + 1) % Math.max(hits.length, 1))
+        setSelectedIndex((prev) => (prev + 1) % Math.max(items.length, 1))
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
-        setSelectedIndex((prev) => (prev - 1 + hits.length) % Math.max(hits.length, 1))
-      } else if (e.key === 'Enter' && hits.length > 0) {
+        setSelectedIndex((prev) => (prev - 1 + items.length) % Math.max(items.length, 1))
+      } else if (e.key === 'Enter' && items.length > 0) {
         e.preventDefault()
-        const hit = hits[selectedIndex]
-        if (hit) handleNavigate(hit)
+        const item = items[selectedIndex]
+        if (item) handleNavigate(item)
       } else if (e.key === 'Escape') {
         e.preventDefault()
         onClose()
       }
     },
-    [hits, selectedIndex, onClose, handleNavigate],
+    [items, selectedIndex, onClose, handleNavigate],
   )
 
   if (!open) return null
 
   const trimmed = query.trim()
   const hasQuery = trimmed.length >= 2
-  const hasMore = hits.length < total
+  const total = items.length
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
@@ -159,7 +169,7 @@ export default function SearchOverlay({ open, onClose, initialQuery }: Props) {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search messages across all threads..."
+            placeholder="Hledat v konverzacích a úkolech..."
             className="flex-1 bg-transparent text-sm text-zinc-900 placeholder-zinc-400 outline-none"
           />
           {loading && <Loader2 className="w-4 h-4 text-zinc-400 animate-spin flex-shrink-0" />}
@@ -176,20 +186,19 @@ export default function SearchOverlay({ open, onClose, initialQuery }: Props) {
           </kbd>
         </div>
 
-        {/* Total / status header */}
-        {hasQuery && !loading && (
+        {/* Status header */}
+        {hasQuery && !loading && total > 0 && (
           <div className="px-4 py-1.5 text-[11px] text-zinc-500 border-b border-zinc-100 bg-zinc-50/50 flex items-center justify-between">
             <span>
-              Total: <span className="font-medium text-zinc-700">{total}</span> {total === 1 ? 'match' : 'matches'}
+              <span className="font-medium text-zinc-700">{threads.length}</span> konverzací ·{' '}
+              <span className="font-medium text-zinc-700">{tasks.length}</span> úkolů
             </span>
-            {total > 0 && (
-              <span className="flex items-center gap-1 text-zinc-400">
-                <kbd className="text-[10px] bg-white px-1 py-0.5 rounded border border-zinc-200 font-mono">↑↓</kbd>
-                <span>navigate</span>
-                <kbd className="text-[10px] bg-white px-1 py-0.5 rounded border border-zinc-200 font-mono ml-1">↵</kbd>
-                <span>open</span>
-              </span>
-            )}
+            <span className="flex items-center gap-1 text-zinc-400">
+              <kbd className="text-[10px] bg-white px-1 py-0.5 rounded border border-zinc-200 font-mono">↑↓</kbd>
+              <span>pohyb</span>
+              <kbd className="text-[10px] bg-white px-1 py-0.5 rounded border border-zinc-200 font-mono ml-1">↵</kbd>
+              <span>otevřít</span>
+            </span>
           </div>
         )}
 
@@ -198,22 +207,27 @@ export default function SearchOverlay({ open, onClose, initialQuery }: Props) {
           {!hasQuery && (
             <div className="px-4 py-10 text-center text-sm text-zinc-400">
               <MessageSquare className="w-6 h-6 mx-auto mb-2 text-zinc-300" />
-              <p>Type at least 2 characters to search across messages.</p>
+              <p>Napiš aspoň 2 znaky pro hledání v konverzacích a úkolech.</p>
             </div>
           )}
 
-          {hasQuery && !loading && hits.length === 0 && (
+          {hasQuery && !loading && total === 0 && (
             <div className="px-4 py-10 text-center text-sm text-zinc-400">
-              No messages match &ldquo;{trimmed}&rdquo;.
+              Nic neodpovídá &ldquo;{trimmed}&rdquo;.
             </div>
           )}
 
-          {hits.map((hit, i) => {
+          {threads.length > 0 && (
+            <div className="px-4 pt-2 pb-1 text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
+              Konverzace
+            </div>
+          )}
+          {threads.map((hit, i) => {
             const Icon = roleIcon(hit.role)
             return (
               <button
                 type="button"
-                key={`${hit.message_id}`}
+                key={`thread-${hit.thread_id}`}
                 data-selected={i === selectedIndex}
                 className={clsx(
                   'w-full text-left px-4 py-2.5 cursor-pointer transition-colors',
@@ -221,42 +235,81 @@ export default function SearchOverlay({ open, onClose, initialQuery }: Props) {
                     ? 'bg-zinc-200/80 text-zinc-900'
                     : 'text-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-200',
                 )}
-                onClick={() => handleNavigate(hit)}
+                onClick={() => handleNavigate({ kind: 'thread', hit })}
                 onMouseEnter={() => setSelectedIndex(i)}
               >
                 <div className="flex items-center gap-2 mb-0.5">
-                  <span
-                    className="text-[10px] font-semibold tracking-wider text-zinc-500 truncate"
-                    style={{ fontVariant: 'small-caps', textTransform: 'lowercase' }}
-                  >
-                    {hit.thread_title || 'Untitled thread'}
+                  <MessageSquare className="w-3 h-3 text-zinc-400 flex-shrink-0" />
+                  <span className="text-sm font-medium text-zinc-800 truncate">
+                    {hit.thread_title || 'Bez názvu'}
                   </span>
-                  <span className="text-zinc-300">·</span>
-                  <Icon className="w-3 h-3 text-zinc-400 flex-shrink-0" aria-label={hit.role} />
-                  <span className="text-[10px] text-zinc-400 capitalize">{hit.role}</span>
+                  {hit.matched_title && (
+                    <span className="text-[9px] font-semibold uppercase tracking-wide text-amber-600 bg-amber-50 rounded px-1 py-0.5 flex-shrink-0">
+                      název
+                    </span>
+                  )}
                 </div>
-                <div
-                  className="text-sm text-zinc-700 leading-snug [&_mark]:bg-amber-200 [&_mark]:text-zinc-900 [&_mark]:rounded-sm [&_mark]:px-0.5"
-                  // The server escapes everything except <mark>, so this is safe.
-                  dangerouslySetInnerHTML={{ __html: hit.content_snippet }}
-                />
+                {hit.content_snippet ? (
+                  <div className="flex items-center gap-1.5">
+                    <Icon className="w-3 h-3 text-zinc-400 flex-shrink-0" aria-label={hit.role} />
+                    <div
+                      className="text-xs text-zinc-500 leading-snug truncate flex-1 [&_mark]:bg-amber-200 [&_mark]:text-zinc-900 [&_mark]:rounded-sm [&_mark]:px-0.5"
+                      // The server escapes everything except <mark>, so this is safe.
+                      dangerouslySetInnerHTML={{ __html: hit.content_snippet }}
+                    />
+                  </div>
+                ) : (
+                  <div className="text-xs text-zinc-400 italic">Shoda v názvu konverzace</div>
+                )}
               </button>
             )
           })}
 
-          {hasMore && hasQuery && (
-            <div className="px-4 py-2 flex justify-center">
-              <button
-                type="button"
-                onClick={handleLoadMore}
-                disabled={loadingMore}
-                className="text-xs text-zinc-500 hover:text-zinc-800 transition-colors px-3 py-1.5 rounded-md hover:bg-zinc-100 cursor-pointer disabled:opacity-50 disabled:cursor-wait flex items-center gap-1.5"
-              >
-                {loadingMore && <Loader2 className="w-3 h-3 animate-spin" />}
-                Load more ({total - hits.length} remaining)
-              </button>
+          {tasks.length > 0 && (
+            <div className="px-4 pt-2 pb-1 text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
+              Úkoly
             </div>
           )}
+          {tasks.map((hit, j) => {
+            const i = threads.length + j
+            return (
+              <button
+                type="button"
+                key={`task-${hit.task_id}`}
+                data-selected={i === selectedIndex}
+                className={clsx(
+                  'w-full text-left px-4 py-2.5 cursor-pointer transition-colors',
+                  i === selectedIndex
+                    ? 'bg-zinc-200/80 text-zinc-900'
+                    : 'text-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-200',
+                )}
+                onClick={() => handleNavigate({ kind: 'task', hit })}
+                onMouseEnter={() => setSelectedIndex(i)}
+              >
+                <div className="flex items-center gap-2 mb-0.5">
+                  <ListTodo className="w-3 h-3 text-zinc-400 flex-shrink-0" />
+                  <span className="text-sm font-medium text-zinc-800 truncate flex-1">
+                    {hit.title || 'Bez názvu'}
+                  </span>
+                  <span
+                    className={clsx(
+                      'text-[9px] font-semibold uppercase tracking-wide rounded px-1 py-0.5 flex-shrink-0',
+                      statusColor[hit.status] ?? 'text-zinc-500 bg-zinc-100',
+                    )}
+                  >
+                    {hit.status}
+                  </span>
+                </div>
+                {hit.content_snippet && (
+                  <div
+                    className="text-xs text-zinc-500 leading-snug truncate [&_mark]:bg-amber-200 [&_mark]:text-zinc-900 [&_mark]:rounded-sm [&_mark]:px-0.5"
+                    // The server escapes everything except <mark>, so this is safe.
+                    dangerouslySetInnerHTML={{ __html: hit.content_snippet }}
+                  />
+                )}
+              </button>
+            )
+          })}
         </div>
       </div>
     </div>

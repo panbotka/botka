@@ -23,19 +23,26 @@ describe('usePaletteHotkeys', () => {
     expect(onNewChat).toHaveBeenCalledTimes(1)
   })
 
-  it('fires onTogglePalette for Cmd+K', () => {
+  it('fires onTogglePalette for Cmd+P', () => {
     const onTogglePalette = vi.fn()
     renderHook(() => usePaletteHotkeys({ onNewChat: vi.fn(), onTogglePalette }))
-    press({ key: 'k', metaKey: true })
+    press({ key: 'p', metaKey: true })
     expect(onTogglePalette).toHaveBeenCalledTimes(1)
   })
 
-  it('ignores plain O / plain K', () => {
+  it('does NOT fire onTogglePalette for Cmd+K (owned by full-text search)', () => {
+    const onTogglePalette = vi.fn()
+    renderHook(() => usePaletteHotkeys({ onNewChat: vi.fn(), onTogglePalette }))
+    press({ key: 'k', metaKey: true })
+    expect(onTogglePalette).not.toHaveBeenCalled()
+  })
+
+  it('ignores plain O / plain P', () => {
     const onNewChat = vi.fn()
     const onTogglePalette = vi.fn()
     renderHook(() => usePaletteHotkeys({ onNewChat, onTogglePalette }))
     press({ key: 'o' })
-    press({ key: 'k' })
+    press({ key: 'p' })
     expect(onNewChat).not.toHaveBeenCalled()
     expect(onTogglePalette).not.toHaveBeenCalled()
   })
@@ -44,7 +51,7 @@ describe('usePaletteHotkeys', () => {
     const onTogglePalette = vi.fn()
     const { unmount } = renderHook(() => usePaletteHotkeys({ onNewChat: vi.fn(), onTogglePalette }))
     unmount()
-    press({ key: 'k', metaKey: true })
+    press({ key: 'p', metaKey: true })
     expect(onTogglePalette).not.toHaveBeenCalled()
   })
 })

@@ -113,6 +113,16 @@ export default function ThreadSidebar({
   onNavigate,
 }: Props) {
   const streamingThreadIds = useStreamingThreadIds()
+
+  // Keep the active conversation visible in the list — e.g. after picking it
+  // from search it may be scrolled far out of view. block:'nearest' is a no-op
+  // when the row is already on screen, so normal clicks don't jump the list.
+  useEffect(() => {
+    if (activeThreadId == null) return
+    const el = document.querySelector(`[data-thread-id="${activeThreadId}"]`)
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [activeThreadId])
+
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [menuOpenId, setMenuOpenId] = useState<number | null>(null)
@@ -305,6 +315,21 @@ export default function ThreadSidebar({
     return formatDateOnly(d)
   }
 
+  // Ultra-compact relative age for the thread list (e.g. "2h", "3d", "5w").
+  const formatAge = (dateStr: string) => {
+    const d = new Date(dateStr)
+    const diff = Date.now() - d.getTime()
+    const mins = Math.floor(diff / 60000)
+    const hours = Math.floor(diff / 3600000)
+    const days = Math.floor(diff / 86400000)
+    if (mins < 1) return 'now'
+    if (mins < 60) return `${mins}m`
+    if (hours < 24) return `${hours}h`
+    if (days < 7) return `${days}d`
+    if (days < 365) return `${Math.floor(days / 7)}w`
+    return `${Math.floor(days / 365)}y`
+  }
+
   const handleSelectSearchThread = (threadId: number) => {
     onSelectThread(threadId)
     clearSearch()
@@ -367,10 +392,28 @@ export default function ThreadSidebar({
 
     const threadColorEntry = thread.color ? THREAD_COLORS.find(c => c.key === thread.color) : null
 
+    // An empty thread (no messages yet) can be deleted without a confirmation prompt.
+    const isEmptyThread = !thread.last_message_at && !thread.last_message_preview
+
+    const threadProject = thread.project_id ? projectMap.get(thread.project_id) : null
+    const threadTooltip = [
+      thread.title || 'New conversation',
+      threadProject ? `📁 ${threadProject.name}` : null,
+      thread.last_message_preview ? `💬 ${thread.last_message_preview}` : null,
+      `🕐 ${formatDate(thread.last_message_at || thread.updated_at)}`,
+      thread.total_cost_usd != null && thread.total_cost_usd > 0
+        ? `💲 $${thread.total_cost_usd.toFixed(2)}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join('\n')
+
     return (
     <div
       key={thread.id}
-      className={`group flex items-stretch gap-2 px-3 py-2.5 mb-0.5
+      data-thread-id={thread.id}
+      title={threadTooltip}
+      className={`group flex items-stretch gap-2 px-3 py-1.5 mb-0.5
                  rounded-xl cursor-pointer transition-all duration-150
                  ${thread.archived ? 'opacity-50' : ''}
                  ${draggingItem?.kind === 'thread' && draggingItem.id === thread.id ? 'opacity-50' : ''}
@@ -403,8 +446,8 @@ export default function ThreadSidebar({
       ) : (
         <>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between gap-1.5">
-              <span className="font-medium text-sm truncate flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
+              <span className="font-medium text-sm truncate flex items-center gap-1 min-w-0 flex-1">
                 {isStreaming && (
                   <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 animate-pulse bg-emerald-500" />
                 )}
@@ -413,18 +456,17 @@ export default function ThreadSidebar({
                 {thread.signal_bridge_active && (
                   <MessageSquare className="w-3 h-3 text-emerald-500 flex-shrink-0" aria-label="Signal bridge active" />
                 )}
-                {thread.title || 'New conversation'}
+                <span
+                  className="truncate"
+                  onDoubleClick={(e) => {
+                    e.stopPropagation()
+                    setEditingId(thread.id)
+                    setEditTitle(thread.title)
+                  }}
+                >
+                  {thread.title || 'New conversation'}
+                </span>
               </span>
-              <span className="text-[11px] text-zinc-400 flex-shrink-0">
-                {formatDate(thread.last_message_at || thread.updated_at)}
-              </span>
-            </div>
-            {thread.last_message_preview && (
-              <div className="text-xs text-zinc-400 truncate mt-0.5">
-                {thread.last_message_preview}
-              </div>
-            )}
-            <div className="flex items-center gap-1.5 mt-0.5">
               {thread.tags && thread.tags.length > 0 && (
                 <span className="flex items-center gap-0.5 flex-shrink-0">
                   {thread.tags.slice(0, 3).map(tag => (
@@ -437,26 +479,9 @@ export default function ThreadSidebar({
                   ))}
                 </span>
               )}
-              {thread.project_id && projectMap.get(thread.project_id) && (
-                <span
-                  className={`text-[10px] flex items-center gap-0.5 ${
-                    projectMap.get(thread.project_id)!.path.startsWith('box:')
-                      ? 'text-sky-500'
-                      : 'text-zinc-400'
-                  }`}
-                  title={projectMap.get(thread.project_id)!.path.startsWith('box:') ? 'Running on Box' : undefined}
-                >
-                  {projectMap.get(thread.project_id)!.path.startsWith('box:') ? (
-                    <Server className="w-2.5 h-2.5" />
-                  ) : (
-                    <FolderGit2 className="w-2.5 h-2.5" />
-                  )}
-                  <span className="truncate max-w-[80px]">{projectMap.get(thread.project_id)!.name}</span>
-                </span>
-              )}
-              {thread.total_cost_usd != null && thread.total_cost_usd > 0 && (
-                <span className="text-[10px] text-zinc-400 ml-auto">${thread.total_cost_usd.toFixed(2)}</span>
-              )}
+              <span className="text-[11px] text-zinc-400 flex-shrink-0 tabular-nums">
+                {formatAge(thread.last_message_at || thread.updated_at)}
+              </span>
             </div>
           </div>
 
@@ -464,6 +489,17 @@ export default function ThreadSidebar({
               className="relative flex items-stretch gap-0.5 flex-shrink-0"
               ref={menuOpenId === thread.id ? menuRef : undefined}
             >
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (isEmptyThread || window.confirm('Are you sure you want to delete this thread?')) handleDelete(thread.id)
+                }}
+                className="w-8 flex items-center justify-center rounded-lg transition-colors cursor-pointer
+                           text-zinc-400 hover:text-red-600 hover:bg-red-50"
+                title="Delete chat"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
               <button
                 onClick={(e) => {
                   e.stopPropagation()
@@ -533,7 +569,7 @@ export default function ThreadSidebar({
                   <div className="my-1 mx-2 border-t border-zinc-100" />
                   <button
                     onClick={() => {
-                      if (window.confirm('Are you sure you want to delete this thread?')) handleDelete(thread.id)
+                      if (isEmptyThread || window.confirm('Are you sure you want to delete this thread?')) handleDelete(thread.id)
                       setMenuOpenId(null)
                     }}
                     className="w-full flex items-center gap-3 px-3 py-2

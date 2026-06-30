@@ -1,4 +1,4 @@
-import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, TaskNote, TaskTag, Thread, ThreadDetail, ThreadFolder, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, TaskStatsAggregated, TaskStatsGroupBy, GlobalSearchResults, MessageSearchResponse, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo } from '../types'
+import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, TaskNote, TaskTag, Thread, ThreadDetail, ThreadFolder, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, TaskStatsAggregated, TaskStatsGroupBy, GlobalSearchResults, MessageSearchResponse, UnifiedSearchResult, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -557,6 +557,12 @@ export function searchMessagesFTS(params: SearchMessagesParams): Promise<Message
   if (params.offset != null) qs.set('offset', String(params.offset))
   if (params.threadId != null) qs.set('thread_id', String(params.threadId))
   return request<MessageSearchResponse>(`/search/messages?${qs.toString()}`)
+}
+
+// searchAll hits the unified search endpoint: ranked conversation and task hits
+// for one query (title-weighted, diacritic-insensitive, prefix matching).
+export function searchAll(query: string): Promise<UnifiedSearchResult> {
+  return requestData<UnifiedSearchResult>(`/search/all?q=${encodeURIComponent(query)}`)
 }
 
 // Tags
@@ -1390,6 +1396,7 @@ export const api = {
   searchMessages,
   globalSearch,
   searchMessagesFTS,
+  searchAll,
   // Tags
   fetchTags,
   createTag,

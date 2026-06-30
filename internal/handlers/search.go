@@ -26,6 +26,7 @@ func RegisterSearchRoutes(rg *gin.RouterGroup, h *SearchHandler) {
 	rg.GET("/search", h.Search)
 	rg.GET("/search/global", h.GlobalSearch)
 	rg.GET("/search/messages", h.SearchMessages)
+	rg.GET("/search/all", h.SearchAll)
 }
 
 type searchMatch struct {
