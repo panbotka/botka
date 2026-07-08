@@ -474,15 +474,37 @@ func parseResultEvent(_ map[string]json.RawMessage, fullLine []byte) StreamEvent
 	}
 
 	if result.IsError || result.Subtype == "error" {
-		evt.IsError = true
-		evt.ErrorMsg = result.Result
+		errMsg := result.Result
 		// Claude Code may put errors in the "errors" array instead of "result"
-		if evt.ErrorMsg == "" && len(result.Errors) > 0 {
-			evt.ErrorMsg = strings.Join(result.Errors, "; ")
+		if errMsg == "" {
+			errMsg = strings.Join(filterDiagnostics(result.Errors), "; ")
+		}
+		// An "error" result carrying nothing but internal diagnostics is an
+		// empty/aborted turn, not something worth showing the user.
+		if errMsg != "" {
+			evt.IsError = true
+			evt.ErrorMsg = errMsg
 		}
 	}
 
 	return evt
+}
+
+// edeDiagnosticPrefix marks Claude Code's internal telemetry entries in the
+// result event's "errors" array. The CLI strips them before presenting errors.
+const edeDiagnosticPrefix = "[ede_diagnostic]"
+
+// filterDiagnostics drops Claude Code's internal diagnostic markers, returning
+// only the entries that represent errors the user should see.
+func filterDiagnostics(errs []string) []string {
+	kept := make([]string, 0, len(errs))
+	for _, e := range errs {
+		if strings.HasPrefix(strings.TrimSpace(e), edeDiagnosticPrefix) {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	return kept
 }
 
 // stderrBuffer collects the last N lines of stderr for inclusion in error messages.

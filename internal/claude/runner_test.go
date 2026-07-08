@@ -123,6 +123,62 @@ func TestParseEvent_ResultError(t *testing.T) {
 	}
 }
 
+func TestParseEvent_ResultErrorsArray(t *testing.T) {
+	tests := []struct {
+		name       string
+		line       string
+		wantIsErr  bool
+		wantErrMsg string
+	}{
+		{
+			name:      "only ede_diagnostic markers are suppressed",
+			line:      `{"type":"result","subtype":"error","result":"","is_error":true,"errors":["[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null"]}`,
+			wantIsErr: false,
+		},
+		{
+			name:      "leading whitespace before marker still suppressed",
+			line:      `{"type":"result","subtype":"error","result":"","is_error":true,"errors":["  [ede_diagnostic] result_type=user"]}`,
+			wantIsErr: false,
+		},
+		{
+			name:       "real error survives alongside a marker",
+			line:       `{"type":"result","subtype":"error","result":"","is_error":true,"errors":["[ede_diagnostic] stop_reason=null","API request failed"]}`,
+			wantIsErr:  true,
+			wantErrMsg: "API request failed",
+		},
+		{
+			name:       "multiple real errors are joined",
+			line:       `{"type":"result","subtype":"error","result":"","is_error":true,"errors":["boom","[ede_diagnostic] x","bang"]}`,
+			wantIsErr:  true,
+			wantErrMsg: "boom; bang",
+		},
+		{
+			name:       "non-empty result wins over errors array",
+			line:       `{"type":"result","subtype":"error","result":"something failed","is_error":true,"errors":["[ede_diagnostic] x"]}`,
+			wantIsErr:  true,
+			wantErrMsg: "something failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			evt := parseEvent([]byte(tt.line))
+			if evt.Kind != KindResult {
+				t.Fatalf("expected KindResult, got %d", evt.Kind)
+			}
+			if evt.IsError != tt.wantIsErr {
+				t.Errorf("expected IsError=%v, got %v", tt.wantIsErr, evt.IsError)
+			}
+			if evt.ErrorMsg != tt.wantErrMsg {
+				t.Errorf("expected error msg %q, got %q", tt.wantErrMsg, evt.ErrorMsg)
+			}
+			if strings.Contains(evt.ErrorMsg, "ede_diagnostic") {
+				t.Errorf("diagnostic marker leaked into error message: %q", evt.ErrorMsg)
+			}
+		})
+	}
+}
+
 func TestParseEvent_Ignored(t *testing.T) {
 	cases := []string{
 		`{"type":"rate_limit_event"}`,
