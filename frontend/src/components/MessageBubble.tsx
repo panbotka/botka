@@ -18,7 +18,6 @@ interface Props {
   onHide?: () => void;
   onImageClick?: (attachment: Attachment, allImages: Attachment[]) => void;
   onRemoveQueued?: () => void;
-  onOptionSelect?: (text: string) => void;
 }
 
 function formatFileSize(bytes: number) {
@@ -217,7 +216,7 @@ function AttachmentPreviews({ imageAttachments, pdfAttachments, textAttachments,
   );
 }
 
-export default function MessageBubble({ message, isStreaming, isLastAssistant, isPending, onEdit, onRegenerate, onHide, onImageClick, onRemoveQueued, onOptionSelect }: Props) {
+export default function MessageBubble({ message, isStreaming, isLastAssistant, isPending, onEdit, onRegenerate, onHide, onImageClick, onRemoveQueued }: Props) {
   const isUser = message.role === 'user';
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
@@ -348,7 +347,7 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
                   isStreaming={isStreaming && !message.content}
                 />
               )}
-              {message.content && <MarkdownContent content={message.content} onOptionSelect={onOptionSelect} />}
+              {message.content && <MarkdownContent content={message.content} />}
               {attachments.length > 0 && (
                 <AttachmentPreviews
                   imageAttachments={imageAttachments}

@@ -4,29 +4,21 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import SelectableOptions from './SelectableOptions';
 import { linkifyTasksMarkdown } from '../utils/linkifyTasks';
 
 const CodeBlock = lazy(() => import('./CodeBlock'));
 
 interface Props {
   content: string;
-  onOptionSelect?: (text: string) => void;
 }
 
-export default function MarkdownContent({ content, onOptionSelect }: Props) {
+export default function MarkdownContent({ content }: Props) {
   return (
     <div className="markdown-content">
     <Markdown
       remarkPlugins={[remarkGfm, remarkMath]}
       rehypePlugins={[rehypeKatex]}
       components={{
-        ol({ children }) {
-          if (onOptionSelect) {
-            return <SelectableOptions onSelect={onOptionSelect}>{children}</SelectableOptions>;
-          }
-          return <ol>{children}</ol>;
-        },
         a({ children, ...props }) {
           return (
             <a target="_blank" rel="noopener noreferrer" {...props}>

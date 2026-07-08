@@ -843,7 +843,6 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
                 onHide={!isStreamingThisThread ? () => handleHide(msg.id) : undefined}
                 onImageClick={(att, allImages) => setLightbox({ attachment: att, allImages })}
                 onRemoveQueued={queuedIds.has(msg.id) ? () => removeQueuedMessage(msg.id) : undefined}
-                onOptionSelect={msg.id === lastAssistantId && !isStreamingThisThread ? (text) => handleSend(text) : undefined}
               />
             );
           })}
