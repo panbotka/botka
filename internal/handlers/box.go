@@ -159,27 +159,121 @@ func (h *BoxHandler) Wake(c *gin.Context) {
 	respondOK(c, gin.H{"message": "Wake-on-LAN packet sent"})
 }
 
-// Shutdown sends a shutdown command to the box via SSH.
+// sshTransportExitCode is the status ssh(1) exits with when it fails on its own
+// (authentication, connection teardown) rather than relaying the remote
+// command's exit status.
+const sshTransportExitCode = 255
+
+// shutdownDisconnectMarkers are the messages ssh prints when the remote host
+// tears the connection down. Once `shutdown now` takes effect, sshd goes away
+// mid-session and ssh reports one of these — the expected happy path.
+var shutdownDisconnectMarkers = []string{
+	"closed by remote host",
+	"connection closed by",
+	"connection reset by peer",
+	"broken pipe",
+}
+
+// sshFailureMarkers indicate ssh never reached the point of running the command,
+// or that sudo refused it. ssh reports these with the same exit status as a
+// shutdown-induced disconnect, so they must be matched explicitly.
+var sshFailureMarkers = []string{
+	"permission denied",
+	"a password is required",
+	"authentication failure",
+	"too many authentication failures",
+	"host key verification failed",
+	"connection refused",
+	"connection timed out",
+	"operation timed out",
+	"no route to host",
+	"network is unreachable",
+	"could not resolve hostname",
+	"not in the sudoers file",
+	"is not allowed to run",
+}
+
+// exitCoder is satisfied by *exec.ExitError; it lets tests inject a fake error
+// that carries a specific process exit status.
+type exitCoder interface {
+	ExitCode() int
+}
+
+// isExpectedShutdownDisconnect reports whether a failed `ssh … sudo shutdown now`
+// invocation actually means the box began powering off.
+//
+// A poweroff kills sshd mid-session, so ssh legitimately exits non-zero even on
+// success. The signal that separates the two cases is *why* ssh gave up:
+//
+//   - An auth/sudo/connection failure names itself in the output ("Permission
+//     denied", "sudo: a password is required", …). These happen immediately,
+//     before shutdown could ever start, so they are always real failures.
+//   - A non-255 exit status is the remote command's own status relayed by ssh,
+//     meaning the session survived long enough to report it — the box is not
+//     going down, so this is a failure too.
+//   - Only a transport-level teardown (exit 255 with a disconnect message and no
+//     failure marker) indicates the host went away under us, i.e. success.
+//
+// Anything unrecognized is treated as a failure: silently reporting success is
+// exactly the bug this guards against.
+func isExpectedShutdownDisconnect(err error, output string) bool {
+	if err == nil {
+		return true
+	}
+
+	lower := strings.ToLower(output)
+	for _, marker := range sshFailureMarkers {
+		if strings.Contains(lower, marker) {
+			return false
+		}
+	}
+
+	var ec exitCoder
+	if errors.As(err, &ec) && ec.ExitCode() >= 0 && ec.ExitCode() != sshTransportExitCode {
+		return false
+	}
+
+	for _, marker := range shutdownDisconnectMarkers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// Shutdown sends a shutdown command to the box via SSH. A failing SSH command is
+// reported as an error unless the failure is the connection teardown caused by
+// the box actually powering off — see isExpectedShutdownDisconnect.
 func (h *BoxHandler) Shutdown(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
 	sshTarget := fmt.Sprintf("%s@%s", h.sshUser, h.host)
 	output, err := h.runner.Run(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10", sshTarget, "sudo", "shutdown", "now")
-	// SSH to a shutting-down host often returns an error (connection closed), so we
-	// treat it as success if the command was at least sent.
 	if err != nil {
-		// Check if it's just a connection reset (expected during shutdown)
-		if ctx.Err() == nil {
-			// Command ran but SSH connection dropped — likely successful shutdown
-			respondOK(c, gin.H{"message": "shutdown command sent"})
+		// A timed-out command never disconnected cleanly; it is always a failure.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			respondError(c, http.StatusInternalServerError, shutdownErrorMessage(fmt.Errorf("%w: %w", ctxErr, err), output))
 			return
 		}
-		respondError(c, http.StatusInternalServerError, fmt.Sprintf("shutdown failed: %s: %s", err, string(output)))
-		return
+		if !isExpectedShutdownDisconnect(err, string(output)) {
+			respondError(c, http.StatusInternalServerError, shutdownErrorMessage(err, output))
+			return
+		}
 	}
 
 	respondOK(c, gin.H{"message": "shutdown command sent"})
+}
+
+// shutdownErrorMessage builds a human-readable failure string that carries both
+// the error and whatever SSH printed, so the UI can show why shutdown failed.
+func shutdownErrorMessage(err error, output []byte) string {
+	msg := fmt.Sprintf("shutdown failed: %s", err)
+	if out := strings.TrimSpace(string(output)); out != "" {
+		msg += ": " + out
+	}
+	return msg
 }
 
 // StartService starts a systemd service on the box via SSH.

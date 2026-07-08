@@ -178,6 +178,115 @@ func TestBoxHandler_Shutdown_Success(t *testing.T) {
 	}
 }
 
+// fakeExitError mimics *exec.ExitError: an error carrying a process exit status.
+type fakeExitError struct {
+	code int
+}
+
+func (e *fakeExitError) Error() string { return fmt.Sprintf("exit status %d", e.code) }
+func (e *fakeExitError) ExitCode() int { return e.code }
+
+func TestBoxHandler_Shutdown_ExpectedDisconnectIsSuccess(t *testing.T) {
+	runner := &mockCommandRunner{
+		output: []byte("Connection to box closed by remote host.\r\n"),
+		err:    &fakeExitError{code: 255},
+	}
+	h := newTestBoxHandler(runner)
+	r := boxRouter(h)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/box/shutdown", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for shutdown-induced disconnect, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestBoxHandler_Shutdown_FailuresAreReported(t *testing.T) {
+	tests := []struct {
+		name   string
+		output string
+		err    error
+	}{
+		{
+			name:   "ssh permission denied",
+			output: "panbotka@box: Permission denied (publickey,password).",
+			err:    &fakeExitError{code: 255},
+		},
+		{
+			name:   "sudo requires a password",
+			output: "sudo: a password is required",
+			err:    &fakeExitError{code: 1},
+		},
+		{
+			name:   "user not in sudoers",
+			output: "panbotka is not in the sudoers file.",
+			err:    &fakeExitError{code: 1},
+		},
+		{
+			name:   "remote command exits non-zero",
+			output: "shutdown: command not found",
+			err:    &fakeExitError{code: 127},
+		},
+		{
+			name:   "host unreachable",
+			output: "ssh: connect to host box port 22: No route to host",
+			err:    &fakeExitError{code: 255},
+		},
+		{
+			name:   "unrecognized failure defaults to error",
+			output: "something went sideways",
+			err:    &fakeExitError{code: 255},
+		},
+		{
+			name:   "opaque error with no output",
+			output: "",
+			err:    fmt.Errorf("fork/exec ssh: no such file or directory"),
+		},
+		{
+			// A disconnect marker must not rescue an auth failure that also
+			// tore the connection down.
+			name:   "permission denied wins over disconnect marker",
+			output: "Permission denied (publickey).\nConnection closed by 10.0.0.1 port 22",
+			err:    &fakeExitError{code: 255},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			runner := &mockCommandRunner{output: []byte(tc.output), err: tc.err}
+			h := newTestBoxHandler(runner)
+			r := boxRouter(h)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/box/shutdown", nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusInternalServerError {
+				t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+			}
+
+			var resp map[string]string
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if !strings.HasPrefix(resp["error"], "shutdown failed: ") {
+				t.Errorf("expected a shutdown failure message, got %q", resp["error"])
+			}
+			if tc.output != "" && !strings.Contains(resp["error"], strings.SplitN(tc.output, "\n", 2)[0]) {
+				t.Errorf("expected ssh output in error, got %q", resp["error"])
+			}
+		})
+	}
+}
+
+func TestIsExpectedShutdownDisconnect_NilError(t *testing.T) {
+	if !isExpectedShutdownDisconnect(nil, "") {
+		t.Error("a successful ssh run must count as success")
+	}
+}
+
 func TestBoxHandler_Status_ResponseShape(t *testing.T) {
 	runner := &mockCommandRunner{}
 	h := newTestBoxHandler(runner)

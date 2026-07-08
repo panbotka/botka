@@ -29,7 +29,12 @@ export default function BoxPage() {
   const [status, setStatus] = useState<BoxStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // Status polling errors clear themselves on the next successful poll, while
+  // errors from an explicit action (wake/shutdown/service) must stay on screen
+  // until dismissed — otherwise the poll a few seconds later would silently
+  // erase the reason the action failed.
+  const [statusError, setStatusError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [showShutdownConfirm, setShowShutdownConfirm] = useState(false)
   const fastPollUntil = useRef(0)
 
@@ -39,9 +44,9 @@ export default function BoxPage() {
     try {
       const data = await fetchBoxStatus()
       setStatus(data)
-      setError(null)
+      setStatusError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch status')
+      setStatusError(err instanceof Error ? err.message : 'Failed to fetch status')
     } finally {
       setLoading(false)
     }
@@ -66,11 +71,12 @@ export default function BoxPage() {
 
   const handleWake = async () => {
     setActionLoading('wake')
+    setActionError(null)
     try {
       await wakeBox()
       startFastPolling()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Wake failed')
+      setActionError(err instanceof Error ? err.message : 'Wake failed')
     } finally {
       setActionLoading(null)
     }
@@ -79,11 +85,12 @@ export default function BoxPage() {
   const handleShutdown = async () => {
     setShowShutdownConfirm(false)
     setActionLoading('shutdown')
+    setActionError(null)
     try {
       await shutdownBox()
       startFastPolling()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Shutdown failed')
+      setActionError(err instanceof Error ? err.message : 'Shutdown failed')
     } finally {
       setActionLoading(null)
     }
@@ -91,6 +98,7 @@ export default function BoxPage() {
 
   const handleServiceAction = async (name: string, action: 'start' | 'stop') => {
     setActionLoading(`${action}-${name}`)
+    setActionError(null)
     try {
       if (action === 'start') {
         await startBoxService(name)
@@ -101,7 +109,7 @@ export default function BoxPage() {
       // Immediate refresh
       await refresh()
     } catch (err) {
-      setError(err instanceof Error ? err.message : `${action} ${name} failed`)
+      setActionError(err instanceof Error ? err.message : `${action} ${name} failed`)
     } finally {
       setActionLoading(null)
     }
@@ -116,6 +124,9 @@ export default function BoxPage() {
   }
 
   const online = status?.online ?? false
+  // An action failure is what the user just asked for, so it outranks a
+  // background polling error.
+  const error = actionError ?? statusError
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -139,9 +150,15 @@ export default function BoxPage() {
 
       {/* Error banner */}
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 whitespace-pre-wrap break-words">
           {error}
-          <button onClick={() => setError(null)} className="ml-2 font-medium underline">
+          <button
+            onClick={() => {
+              setActionError(null)
+              setStatusError(null)
+            }}
+            className="ml-2 font-medium underline"
+          >
             Dismiss
           </button>
         </div>
