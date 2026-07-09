@@ -299,8 +299,8 @@ func (e *Executor) spawnClaude(
 	claudeArgs := []string{
 		"--dangerously-skip-permissions", "--verbose",
 		"--output-format", "stream-json",
-		// Always run at highest reasoning effort, regardless of per-model defaults.
-		"--effort", "high",
+		// Autonomous tasks are latency-insensitive, so buy quality with effort.
+		"--effort", "xhigh",
 	}
 	if mcpConfigPath != "" {
 		claudeArgs = append(claudeArgs, "--mcp-config", mcpConfigPath)
