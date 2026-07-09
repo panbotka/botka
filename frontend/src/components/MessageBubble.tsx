@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback, memo } from 'react';
 import type { Message, Attachment } from '../types';
 import { formatTime, formatDateTime } from '../utils/dateFormat';
 import MarkdownContent from './MarkdownContent';
@@ -15,9 +15,11 @@ interface Props {
   isPending?: boolean;
   onEdit?: (messageId: number, content: string) => void;
   onRegenerate?: () => void;
-  onHide?: () => void;
+  /** Takes the message id so ChatView can pass one stable callback to every bubble. */
+  onHide?: (messageId: number) => void;
   onImageClick?: (attachment: Attachment, allImages: Attachment[]) => void;
-  onRemoveQueued?: () => void;
+  /** Takes the message id so ChatView can pass one stable callback to every bubble. */
+  onRemoveQueued?: (messageId: number) => void;
 }
 
 function formatFileSize(bytes: number) {
@@ -216,15 +218,16 @@ function AttachmentPreviews({ imageAttachments, pdfAttachments, textAttachments,
   );
 }
 
-export default function MessageBubble({ message, isStreaming, isLastAssistant, isPending, onEdit, onRegenerate, onHide, onImageClick, onRemoveQueued }: Props) {
+function MessageBubble({ message, isStreaming, isLastAssistant, isPending, onEdit, onRegenerate, onHide, onImageClick, onRemoveQueued }: Props) {
   const isUser = message.role === 'user';
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
   const [toolCallsExpanded, setToolCallsExpanded] = useState(false);
   const toolCalls = message.tool_calls;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messageId = message.id;
 
-  // This useEffect must be above the early return to maintain consistent hook order
+  // These hooks must be above the early return to maintain consistent hook order
   useEffect(() => {
     if (editing && textareaRef.current) {
       textareaRef.current.focus();
@@ -233,12 +236,16 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
     }
   }, [editing]);
 
+  const handleHide = useCallback(() => onHide?.(messageId), [onHide, messageId]);
+  const handleRemoveQueued = useCallback(() => onRemoveQueued?.(messageId), [onRemoveQueued, messageId]);
+  const handleStartEdit = useCallback(() => setEditing(true), []);
+
   if (message.hidden) {
     return (
       <div className={`group flex ${isUser ? 'justify-end' : 'justify-start'} mb-3`}>
         <button
           type="button"
-          onClick={onHide}
+          onClick={handleHide}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs text-zinc-400 hover:text-zinc-600 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 transition-colors cursor-pointer"
           title="Click to unhide"
         >
@@ -408,7 +415,7 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
             {onRemoveQueued && (
               <button
                 type="button"
-                onClick={onRemoveQueued}
+                onClick={handleRemoveQueued}
                 className="text-zinc-400 hover:text-red-500 transition-colors cursor-pointer"
                 title="Remove from queue"
               >
@@ -427,9 +434,9 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
                 content={message.content}
                 isLastAssistant={isLastAssistant ?? false}
                 isHidden={message.hidden}
-                onEdit={onEdit ? () => setEditing(true) : undefined}
+                onEdit={onEdit ? handleStartEdit : undefined}
                 onRegenerate={onRegenerate}
-                onHide={onHide}
+                onHide={onHide ? handleHide : undefined}
               />
             </div>
             {!isUser && message.prompt_tokens != null && message.completion_tokens != null && (
@@ -455,3 +462,53 @@ export default function MessageBubble({ message, isStreaming, isLastAssistant, i
     </div>
   );
 }
+
+function sameAttachments(a?: Attachment[], b?: Attachment[]): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((att, i) => att.id === b[i]!.id);
+}
+
+function sameToolCalls(a?: Message['tool_calls'], b?: Message['tool_calls']): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((tc, i) => tc.name === b[i]!.name);
+}
+
+/**
+ * Compare by value, not by identity. Reloading a thread from the API rebuilds
+ * every Message object, and a shallow prop compare would then re-parse the
+ * markdown of the entire scrollback even though nothing user-visible changed.
+ */
+function propsAreEqual(prev: Props, next: Props): boolean {
+  if (
+    prev.isStreaming !== next.isStreaming ||
+    prev.isLastAssistant !== next.isLastAssistant ||
+    prev.isPending !== next.isPending ||
+    prev.onEdit !== next.onEdit ||
+    prev.onRegenerate !== next.onRegenerate ||
+    prev.onHide !== next.onHide ||
+    prev.onImageClick !== next.onImageClick ||
+    prev.onRemoveQueued !== next.onRemoveQueued
+  ) {
+    return false;
+  }
+
+  const a = prev.message;
+  const b = next.message;
+  return (
+    a.id === b.id &&
+    a.role === b.role &&
+    a.content === b.content &&
+    a.thinking === b.thinking &&
+    a.thinking_duration_ms === b.thinking_duration_ms &&
+    a.hidden === b.hidden &&
+    a.created_at === b.created_at &&
+    a.prompt_tokens === b.prompt_tokens &&
+    a.completion_tokens === b.completion_tokens &&
+    sameAttachments(a.attachments, b.attachments) &&
+    sameToolCalls(a.tool_calls, b.tool_calls)
+  );
+}
+
+export default memo(MessageBubble, propsAreEqual);

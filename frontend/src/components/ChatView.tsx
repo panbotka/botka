@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type DragEvent } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, type DragEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { Message, Thread, ThreadDetail, Attachment } from '../types';
 import { api, interruptThread, streamChat, streamRegenerate, streamEdit, streamSubscribe, fetchSessionHealth, toggleMessageHidden } from '../api/client';
@@ -22,6 +22,15 @@ import { useConnectionStatus } from '../hooks/useConnectionStatus';
 import { useChatSync } from '../hooks/useChatSync';
 import { useSettings } from '../context/SettingsContext';
 import { getThreadBackground } from '../utils/threadColors';
+
+// Long threads are rendered from the bottom up in windows. Every bubble costs a
+// full markdown parse (remark + rehype + KaTeX, and a syntax-highlighted code
+// block per fence), so mounting a 200-message thread at once is what makes the
+// chat view unusable on a phone. Older messages stay one tap away.
+const MESSAGE_WINDOW = 50;
+
+/** visibleCount sentinel meaning "render the whole thread". */
+const EXPAND_ALL = Number.MAX_SAFE_INTEGER;
 
 interface Props {
   threadId: number | null;
@@ -50,6 +59,9 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
   const [sessionHealth, setSessionHealth] = useState<SessionHealthData | null>(null);
   const [planMode, setPlanMode] = useState(false);
   const [inThreadSearchOpen, setInThreadSearchOpen] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(MESSAGE_WINDOW);
+  const visibleCountRef = useRef(visibleCount);
+  visibleCountRef.current = visibleCount;
 
   // --- Refs ---
   const dragCounterRef = useRef(0);
@@ -62,6 +74,11 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
   const messageQueueRef = useRef<{ id: number; content: string; files?: File[] }[]>([]);
   const currentThreadIdRef = useRef(threadId);
   currentThreadIdRef.current = threadId;
+  // Set when expanding the window pushes older messages in above the viewport;
+  // consumed by a layout effect that pins the reader's scroll position.
+  const restoreScrollRef = useRef<number | null>(null);
+  // A message id we were asked to jump to that wasn't in the rendered window yet.
+  const pendingFlashRef = useRef<number | null>(null);
 
   // --- Settings ---
   const { resolvedTheme } = useSettings();
@@ -284,6 +301,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     messageQueueRef.current = [];
     setQueuedIds(new Set());
     setMemorySuggestions([]);
+    setVisibleCount(MESSAGE_WINDOW);
     if (!threadId) {
       setMessages([]);
       return;
@@ -300,12 +318,19 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
   // scrollToAndFlashMessage centers a message in the chat scroller and adds a
   // brief amber halo so the user can spot it. Used by both the ?msg= URL
   // effect (jumps from the global search palette) and the in-thread search
-  // affordance.
+  // affordance. If the target sits above the rendered window, the whole thread
+  // is expanded and the jump is retried once the bubble mounts.
   const scrollToAndFlashMessage = useCallback((targetId: number) => {
     const container = scrollContainerRef.current;
     if (!container) return false;
     const el = container.querySelector(`[data-message-id="${targetId}"]`) as HTMLElement | null;
-    if (!el) return false;
+    if (!el) {
+      // Already showing everything, so the id simply isn't in this thread.
+      if (visibleCountRef.current === EXPAND_ALL) return false;
+      pendingFlashRef.current = targetId;
+      setVisibleCount(EXPAND_ALL);
+      return false;
+    }
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     // Suppress the bottom-stick auto-scroll while the user is reading.
     isAtBottomRef.current = false;
@@ -316,6 +341,41 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     window.setTimeout(() => el.classList.remove('animate-message-flash'), 1600);
     return true;
   }, []);
+
+  // --- Bounded render window ---
+
+  const hiddenCount = Math.max(0, messages.length - visibleCount);
+  const visibleMessages = useMemo(
+    () => (hiddenCount > 0 ? messages.slice(hiddenCount) : messages),
+    [messages, hiddenCount],
+  );
+
+  const showEarlierMessages = useCallback(() => {
+    const container = scrollContainerRef.current;
+    // Remember how far the content extended below the current viewport, so the
+    // layout effect can restore the same reading position after older messages
+    // are prepended.
+    if (container) restoreScrollRef.current = container.scrollHeight - container.scrollTop;
+    isAtBottomRef.current = false;
+    setVisibleCount((c) => c + MESSAGE_WINDOW);
+  }, []);
+
+  useLayoutEffect(() => {
+    const container = scrollContainerRef.current;
+    const anchor = restoreScrollRef.current;
+    if (!container || anchor === null) return;
+    restoreScrollRef.current = null;
+    container.scrollTop = container.scrollHeight - anchor;
+  }, [visibleCount]);
+
+  // A jump target above the window expanded the thread; finish the jump now
+  // that the bubble is mounted.
+  useEffect(() => {
+    const targetId = pendingFlashRef.current;
+    if (targetId === null) return;
+    pendingFlashRef.current = null;
+    scrollToAndFlashMessage(targetId);
+  }, [visibleCount, scrollToAndFlashMessage]);
 
   // --- Jump to a specific message via ?msg= query param (set by search) ---
   // Wait until messages have rendered, then scroll the target into view and
@@ -469,9 +529,12 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
       return;
     }
     if (isAtBottomRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      // A smooth scroll restarts its animation on every content change. While
+      // tokens stream in that means a new animation every frame, which on
+      // mobile competes with the render for the same main thread. Jump instead.
+      bottomRef.current?.scrollIntoView({ behavior: isStreamingThisThread ? 'auto' : 'smooth' });
     }
-  }, [messages, streamingContent, streamingThinking, threadId, location.search]);
+  }, [messages, streamingContent, streamingThinking, threadId, location.search, isStreamingThisThread]);
 
   // --- Stream completion handler ---
 
@@ -543,7 +606,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
 
     setStreamError(null);
     stopHealthPolling();
-    onStreamingChange?.(threadId);
+    onStreamingChangeRef.current?.(threadId);
 
     sseManager.startSession(threadId);
 
@@ -552,7 +615,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
       (signal) => streamChat(threadId, content, signal, files, planMode),
       { retryStreamFn: (signal) => streamRegenerate(threadId, signal) },
     );
-  }, [threadId, planMode, sseManager, stopHealthPolling, onStreamingChange]);
+  }, [threadId, planMode, sseManager, stopHealthPolling]);
 
   startStreamRef.current = startStreamInManager;
 
@@ -609,7 +672,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
 
     completionContextRef.current = { isEdit: false };
     setStreamError(null);
-    onStreamingChange?.(threadId);
+    onStreamingChangeRef.current?.(threadId);
 
     sseManager.startSession(threadId);
 
@@ -617,7 +680,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
       threadId,
       (signal) => streamRegenerate(threadId, signal),
     );
-  }, [threadId, sseManager, onStreamingChange]);
+  }, [threadId, sseManager]);
 
   // --- Edit message ---
 
@@ -635,7 +698,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
 
     completionContextRef.current = { isEdit: true };
     setStreamError(null);
-    onStreamingChange?.(threadId);
+    onStreamingChangeRef.current?.(threadId);
 
     sseManager.startSession(threadId);
 
@@ -643,7 +706,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
       threadId,
       (signal) => streamEdit(threadId, messageId, content, signal),
     );
-  }, [threadId, sseManager, onStreamingChange]);
+  }, [threadId, sseManager]);
 
   // --- Queue ---
 
@@ -651,6 +714,12 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     messageQueueRef.current = messageQueueRef.current.filter((q) => q.id !== msgId);
     setQueuedIds(new Set(messageQueueRef.current.map((q) => q.id)));
     setMessages((prev) => prev.filter((m) => m.id !== msgId));
+  }, []);
+
+  // --- Lightbox ---
+
+  const handleImageClick = useCallback((attachment: Attachment, allImages: Attachment[]) => {
+    setLightbox({ attachment, allImages });
   }, []);
 
   // --- Hide/Unhide ---
@@ -831,18 +900,32 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
               </div>
             </div>
           )}
-          {messages.map((msg) => {
+          {hiddenCount > 0 && !loading && (
+            <div className="flex justify-center pb-6">
+              <button
+                type="button"
+                onClick={showEarlierMessages}
+                className="px-3.5 py-1.5 text-xs font-medium rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-500 border border-zinc-200 transition-colors cursor-pointer"
+              >
+                Show {Math.min(hiddenCount, MESSAGE_WINDOW)} earlier {hiddenCount === 1 ? 'message' : 'messages'}
+              </button>
+            </div>
+          )}
+          {visibleMessages.map((msg) => {
+            // Every callback below is referentially stable, so MessageBubble's
+            // memo() holds and a streamed token re-renders only the live bubble.
+            const isQueued = queuedIds.has(msg.id);
             return (
               <MessageBubble
                 key={msg.id}
                 message={msg}
                 isLastAssistant={msg.id === lastAssistantId}
-                isPending={queuedIds.has(msg.id)}
+                isPending={isQueued}
                 onEdit={msg.role === 'user' && !isStreamingThisThread ? handleEdit : undefined}
                 onRegenerate={msg.id === lastAssistantId && !isStreamingThisThread ? handleRegenerate : undefined}
-                onHide={!isStreamingThisThread ? () => handleHide(msg.id) : undefined}
-                onImageClick={(att, allImages) => setLightbox({ attachment: att, allImages })}
-                onRemoveQueued={queuedIds.has(msg.id) ? () => removeQueuedMessage(msg.id) : undefined}
+                onHide={!isStreamingThisThread ? handleHide : undefined}
+                onImageClick={handleImageClick}
+                onRemoveQueued={isQueued ? removeQueuedMessage : undefined}
               />
             );
           })}

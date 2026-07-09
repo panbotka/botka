@@ -56,7 +56,22 @@ interface Session {
   state: SSESessionState;
   subscribers: Set<() => void>;
   cleanupTimer: ReturnType<typeof setTimeout> | null;
+  /** Handle of a scheduled coalesced notify, or null when none is pending. */
+  frameHandle: number | null;
 }
+
+// Claude streams content faster than a phone can paint. These wrappers let the
+// manager batch token updates onto animation frames instead of rendering once
+// per chunk. setTimeout is the fallback for non-browser environments.
+const scheduleFrame: (cb: () => void) => number =
+  typeof requestAnimationFrame === 'function'
+    ? (cb) => requestAnimationFrame(cb)
+    : (cb) => setTimeout(cb, 16) as unknown as number;
+
+const cancelFrame: (handle: number) => void =
+  typeof cancelAnimationFrame === 'function'
+    ? (handle) => cancelAnimationFrame(handle)
+    : (handle) => clearTimeout(handle);
 
 function createSessionState(): SSESessionState {
   return {
@@ -128,6 +143,7 @@ export class SSESessionManager {
       state: createSessionState(),
       subscribers: new Set(),
       cleanupTimer: null,
+      frameHandle: null,
     };
 
     this.sessions.set(threadId, session);
@@ -183,6 +199,7 @@ export class SSESessionManager {
 
     session.controller.abort();
     if (session.cleanupTimer) clearTimeout(session.cleanupTimer);
+    if (session.frameHandle !== null) cancelFrame(session.frameHandle);
     this.sessions.delete(threadId);
     this.notifyGlobal();
   }
@@ -192,6 +209,7 @@ export class SSESessionManager {
     const session = this.sessions.get(threadId);
     if (!session) return;
     if (session.cleanupTimer) clearTimeout(session.cleanupTimer);
+    if (session.frameHandle !== null) cancelFrame(session.frameHandle);
     this.sessions.delete(threadId);
     this.notifyGlobal();
   }
@@ -372,7 +390,7 @@ export class SSESessionManager {
         needsNotify = true;
       }
 
-      if (needsNotify) this.notify(session);
+      if (needsNotify) this.notifyCoalesced(session);
     }
 
     // Build the completed message
@@ -399,10 +417,31 @@ export class SSESessionManager {
     }
   }
 
+  /** Render now, dropping any frame that was already queued for this session. */
   private notify(session: Session): void {
+    if (session.frameHandle !== null) {
+      cancelFrame(session.frameHandle);
+      session.frameHandle = null;
+    }
     for (const cb of session.subscribers) {
       cb();
     }
+  }
+
+  /**
+   * Render at most once per animation frame. Used for the token firehose
+   * (content/thinking), where the intermediate states are never seen anyway —
+   * rendering each one just starves the main thread on mobile. Structural
+   * events (tool calls, errors, completion) still use notify() directly.
+   */
+  private notifyCoalesced(session: Session): void {
+    if (session.frameHandle !== null) return;
+    session.frameHandle = scheduleFrame(() => {
+      session.frameHandle = null;
+      for (const cb of session.subscribers) {
+        cb();
+      }
+    });
   }
 }
 
