@@ -126,6 +126,12 @@ function TaskDetail({ taskId }: { taskId: string }) {
     load()
   }, [load])
 
+  // Stable identity, and no new task object when the count is unchanged: either
+  // alone would let the notes section refetch on every render of this page.
+  const handleNotesCountChange = useCallback((count: number) => {
+    setTask((prev) => (prev && prev.notes_count !== count ? { ...prev, notes_count: count } : prev))
+  }, [])
+
   useRefreshOnFocus(load)
   useTaskEvents(load)
   useDocumentTitle(task?.title || 'Task')
@@ -376,12 +382,7 @@ function TaskDetail({ taskId }: { taskId: string }) {
       </div>
 
       {/* Notes (human-only metadata; not sent to Claude) */}
-      <TaskNotesSection
-        taskId={taskId}
-        onCountChange={(count) =>
-          setTask((prev) => (prev ? { ...prev, notes_count: count } : prev))
-        }
-      />
+      <TaskNotesSection taskId={taskId} onCountChange={handleNotesCountChange} />
 
       {/* Changes (git diff) — visible for completed runs that recorded a commit range */}
       {hasCompletedOutput && task.base_commit_sha && task.head_commit_sha && (

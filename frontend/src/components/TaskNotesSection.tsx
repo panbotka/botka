@@ -19,29 +19,29 @@ export function TaskNotesSection({ taskId, onCountChange }: TaskNotesSectionProp
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const reportCount = useCallback(
-    (xs: TaskNote[]) => {
-      onCountChange?.(xs.length)
-    },
-    [onCountChange],
-  )
-
   const load = useCallback(async () => {
     try {
       const next = await fetchTaskNotes(taskId)
       setNotes(next)
-      reportCount(next)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load notes')
     } finally {
       setLoading(false)
     }
-  }, [taskId, reportCount])
+  }, [taskId])
 
   useEffect(() => {
     load()
   }, [load])
+
+  // The count is reported from `notes` rather than from inside `load`, so that
+  // `onCountChange` stays out of the fetching effect's dependencies. `notes`
+  // only gets a new identity when the list actually changes, so a re-render of
+  // the parent can never schedule another fetch.
+  useEffect(() => {
+    if (notes) onCountChange?.(notes.length)
+  }, [notes, onCountChange])
 
   async function handleAdd() {
     const trimmed = draft.trim()
@@ -50,11 +50,7 @@ export function TaskNotesSection({ taskId, onCountChange }: TaskNotesSectionProp
     setError(null)
     try {
       const created = await createTaskNote(taskId, trimmed)
-      setNotes((prev) => {
-        const next = [...(prev ?? []), created]
-        reportCount(next)
-        return next
-      })
+      setNotes((prev) => [...(prev ?? []), created])
       setDraft('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add note')
@@ -65,21 +61,13 @@ export function TaskNotesSection({ taskId, onCountChange }: TaskNotesSectionProp
 
   async function handleSaveEdit(noteId: number, body: string) {
     const updated = await updateTaskNote(taskId, noteId, body)
-    setNotes((prev) => {
-      const next = (prev ?? []).map((n) => (n.id === noteId ? updated : n))
-      reportCount(next)
-      return next
-    })
+    setNotes((prev) => (prev ?? []).map((n) => (n.id === noteId ? updated : n)))
   }
 
   async function handleDelete(noteId: number) {
     if (!confirm('Delete this note? Soft-deleted notes can be recovered manually via SQL.')) return
     await deleteTaskNote(taskId, noteId)
-    setNotes((prev) => {
-      const next = (prev ?? []).filter((n) => n.id !== noteId)
-      reportCount(next)
-      return next
-    })
+    setNotes((prev) => (prev ?? []).filter((n) => n.id !== noteId))
   }
 
   function handleKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
