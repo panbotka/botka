@@ -37,7 +37,8 @@ import type { BulkOperation, BulkPayload } from '../api/client'
 import { BulkActionsBar } from './BulkActionsBar'
 import { BulkResultToast, type BulkResultSummary } from './BulkResultToast'
 import { TaskTagChip } from './TaskTagChip'
-import type { Task, TaskStatus } from '../types'
+import { runPhaseLabel } from '../utils/runPhase'
+import type { RunPhase, Task, TaskStatus } from '../types'
 
 // operationLabels maps each operation to a short past-tense verb suitable for
 // the result toast ("Cancel: 3 succeeded, 1 failed").
@@ -108,9 +109,10 @@ const statusTransitions: Partial<Record<TaskStatus, { label: string; target: Tas
   deleted:      [{ label: 'Restore', target: 'pending' }],
 }
 
-function StatusBadge({ status, title }: { status: TaskStatus; title?: string }) {
+function StatusBadge({ status, runPhase, title }: { status: TaskStatus; runPhase?: RunPhase | null; title?: string }) {
   const cfg = statusBadge[status]
   const Icon = cfg.icon
+  const phaseLabel = runPhaseLabel(status, runPhase)
   return (
     <span
       title={title}
@@ -124,6 +126,7 @@ function StatusBadge({ status, title }: { status: TaskStatus; title?: string }) 
     >
       <Icon className={clsx('h-3 w-3', status === 'running' && 'animate-spin')} />
       {cfg.label}
+      {phaseLabel && <span className="font-normal opacity-70">· {phaseLabel}</span>}
     </span>
   )
 }
@@ -137,7 +140,7 @@ function firstSentence(s: string): string {
   return trimmed
 }
 
-function StatusBadgeDropdown({ taskId, status, badgeTitle, onStatusChange }: { taskId: string; status: TaskStatus; badgeTitle?: string; onStatusChange: () => void }) {
+function StatusBadgeDropdown({ taskId, status, runPhase, badgeTitle, onStatusChange }: { taskId: string; status: TaskStatus; runPhase?: RunPhase | null; badgeTitle?: string; onStatusChange: () => void }) {
   const [open, setOpen] = useState(false)
   const [openUp, setOpenUp] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -170,7 +173,7 @@ function StatusBadgeDropdown({ taskId, status, badgeTitle, onStatusChange }: { t
   }
 
   if (!transitions || transitions.length === 0) {
-    return <StatusBadge status={status} title={badgeTitle} />
+    return <StatusBadge status={status} runPhase={runPhase} title={badgeTitle} />
   }
 
   return (
@@ -179,7 +182,7 @@ function StatusBadgeDropdown({ taskId, status, badgeTitle, onStatusChange }: { t
         className="inline-flex items-center gap-0.5 cursor-pointer"
         onClick={handleToggle}
       >
-        <StatusBadge status={status} title={badgeTitle} />
+        <StatusBadge status={status} runPhase={runPhase} title={badgeTitle} />
         <ChevronDown className={clsx('h-3 w-3 text-zinc-400 transition-transform', open && openUp && 'rotate-180')} />
       </button>
       {open && (
@@ -309,6 +312,7 @@ function SortableRow({ task, onClick, selected, onSelect, onStatusChange, showCo
         <StatusBadgeDropdown
           taskId={task.id}
           status={task.status}
+          runPhase={task.run_phase}
           badgeTitle={
             task.status === 'failed' && task.failure_summary
               ? firstSentence(task.failure_summary)

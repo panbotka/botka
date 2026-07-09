@@ -8,11 +8,14 @@ import (
 	"botka/internal/models"
 )
 
-// TaskEvent is emitted whenever a task's status changes.
+// TaskEvent is emitted whenever a task's status or run phase changes.
 type TaskEvent struct {
 	TaskID    uuid.UUID         `json:"task_id"`
 	Status    models.TaskStatus `json:"status"`
 	ProjectID uuid.UUID         `json:"project_id"`
+	// RunPhase is set on phase-transition events, where Status is always
+	// "running". It is nil for plain status changes.
+	RunPhase *models.RunPhase `json:"run_phase,omitempty"`
 }
 
 // TaskEventHub is a simple pub/sub for task status change events.

@@ -33,6 +33,7 @@ import { parseNDJSON, type TaskOutputEvent } from '../utils/parseNDJSON'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import { useTaskEvents } from '../hooks/useTaskEvents'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
+import { runPhaseLabel } from '../utils/runPhase'
 import type { Task, TaskStatus, TaskTag, TaskExecution } from '../types'
 
 const statusConfig: Record<
@@ -271,6 +272,7 @@ function TaskDetail({ taskId }: { taskId: string }) {
 
   const cfg = statusConfig[task.status]
   const StatusIcon = cfg.icon
+  const phaseLabel = runPhaseLabel(task.status, task.run_phase)
   const hasCompletedOutput = task.status === 'done' || task.status === 'failed' || task.status === 'needs_review'
 
   return (
@@ -303,6 +305,7 @@ function TaskDetail({ taskId }: { taskId: string }) {
                 className={clsx('h-3.5 w-3.5', task.status === 'running' && 'animate-spin')}
               />
               {cfg.label}
+              {phaseLabel && <span className="font-normal opacity-70">· {phaseLabel}</span>}
             </span>
           </div>
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-zinc-500">

@@ -63,10 +63,13 @@ lint: ensure-dist
 test-db:
 	docker exec shared-postgres psql -U postgres -c "CREATE DATABASE botka_test OWNER botka;" 2>/dev/null || true
 
-# Run tests with race detector
+# Run tests with race detector.
+# -p 1 serializes package test binaries: internal/handlers and internal/runner
+# each DROP and re-create the same tables in the shared botka_test database, so
+# running them concurrently lets one package's schema setup clobber the other's.
 DATABASE_TEST_URL ?= postgres://botka:botka@localhost:5432/botka_test?sslmode=disable
 test: ensure-dist
-	CGO_ENABLED=1 DATABASE_TEST_URL="$(DATABASE_TEST_URL)" go test -race -coverprofile=coverage.out ./cmd/... ./internal/...
+	CGO_ENABLED=1 DATABASE_TEST_URL="$(DATABASE_TEST_URL)" go test -race -p 1 -coverprofile=coverage.out ./cmd/... ./internal/...
 
 # Run tests with coverage and print summary; fail if below threshold
 test-coverage: ensure-dist

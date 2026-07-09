@@ -130,10 +130,47 @@ func NewRunner(db *gorm.DB, cfg *config.Config, usageMon *UsageMonitor, boxWaker
 		TaskEvents:     NewTaskEventHub(),
 		rateLimitGate:  NewRateLimitGate(db),
 	}
+	r.executor.onPhase = r.recordPhase
 	r.state = r.loadState()
 	r.maxWorkers = cfg.MaxWorkers // default from env
 	r.loadMaxWorkersFromDB()
 	return r, nil
+}
+
+// recordPhase persists the executor phase a running task has just entered and
+// broadcasts it on the task event stream, so an open detail page updates without
+// refetching on a timer.
+//
+// The write is guarded on status = 'running': a task that was killed or finalized
+// concurrently keeps its cleared phase rather than resurrecting a stale one.
+// Recording is best-effort and never fails a task — a database error is logged
+// and execution continues.
+func (r *Runner) recordPhase(task *models.Task, phase models.RunPhase) {
+	if r.db == nil || !phase.IsValid() {
+		return
+	}
+	res := r.db.Model(&models.Task{}).
+		Where("id = ? AND status = ?", task.ID, models.TaskStatusRunning).
+		Update("run_phase", phase)
+	if res.Error != nil {
+		slog.Warn("failed to record task run phase",
+			"task_id", task.ID, "phase", phase, "error", res.Error)
+		return
+	}
+	if res.RowsAffected == 0 {
+		return
+	}
+
+	p := phase
+	task.RunPhase = &p
+	if r.TaskEvents != nil {
+		r.TaskEvents.Publish(TaskEvent{
+			TaskID:    task.ID,
+			Status:    models.TaskStatusRunning,
+			ProjectID: task.ProjectID,
+			RunPhase:  &p,
+		})
+	}
 }
 
 // loadMaxWorkersFromDB reads the max_workers setting from the app_settings table.
@@ -233,6 +270,7 @@ func (r *Runner) recoverOrphanedTasks() {
 		Where("status = ?", models.TaskStatusRunning).
 		Updates(map[string]interface{}{
 			"status":         models.TaskStatusQueued,
+			"run_phase":      nil,
 			"failure_reason": "recovered: process restarted while task was running",
 		})
 	if result.Error != nil {
@@ -641,7 +679,7 @@ func (r *Runner) launchTask(task *models.Task, execution *models.TaskExecution) 
 			"project_id", task.ProjectID,
 			"existing_task", existing.task.ID,
 			"new_task", task.ID)
-		r.db.Model(task).Update("status", models.TaskStatusQueued)
+		r.unclaimTask(task)
 		return
 	}
 
@@ -649,7 +687,7 @@ func (r *Runner) launchTask(task *models.Task, execution *models.TaskExecution) 
 		r.mu.Unlock()
 		slog.Warn("scheduler: worker limit reached, requeuing task",
 			"task_id", task.ID, "current_workers", len(r.executors), "max_workers", r.maxWorkers)
-		r.db.Model(task).Update("status", models.TaskStatusQueued)
+		r.unclaimTask(task)
 		return
 	}
 
@@ -669,6 +707,17 @@ func (r *Runner) launchTask(task *models.Task, execution *models.TaskExecution) 
 
 	r.wg.Add(1)
 	go r.executeTask(ctx, task, execution, buf)
+}
+
+// unclaimTask returns a freshly claimed task to the queue without counting it as
+// an attempt. It also clears run_phase so the task never sits in "queued" carrying
+// the phase of an execution that never started.
+func (r *Runner) unclaimTask(task *models.Task) {
+	r.db.Model(task).Updates(map[string]interface{}{
+		"status":    models.TaskStatusQueued,
+		"run_phase": nil,
+	})
+	task.RunPhase = nil
 }
 
 func (r *Runner) executeTask(
@@ -746,9 +795,20 @@ func (r *Runner) finishTask(
 	r.updateExecution(exec, result, rawOutput)
 	r.accumulateTaskUsage(task, result)
 	r.maybeTripRateLimitGate(task, result, rawOutput)
+	r.suppressRetryWhileRateLimited(result)
+
+	// The failure summary is generated asynchronously, after the terminal status
+	// write. Record `summarizing` here, at the last moment the task is still
+	// `running`, so the phase never contradicts the status; finalizeTask clears it
+	// on its way out.
+	summarize := r.willSummarizeFailure(result)
+	if summarize {
+		r.recordPhase(task, models.RunPhaseSummarizing)
+	}
+
 	r.applyResult(task, result)
 
-	if !result.ShouldRetry && result.RetryAfter == 0 && result.Status == models.TaskStatusFailed {
+	if summarize {
 		r.scheduleFailureSummary(task.ID, rawOutput)
 	}
 
@@ -841,17 +901,36 @@ func (r *Runner) accumulateTaskUsage(task *models.Task, result *ExecutionResult)
 	r.db.Model(task).Updates(updates)
 }
 
-func (r *Runner) applyResult(task *models.Task, result *ExecutionResult) {
-	// If the rate-limit gate is currently active, never requeue a failed task
-	// — that's the "don't retry into the wall" rule. The task lands in `failed`
-	// without retry_count increment and is picked up naturally after the gate
-	// clears (since the original task remains in `failed` it stays failed; the
-	// next queued task on the project gets its turn).
+// suppressRetryWhileRateLimited enforces the "don't retry into the wall" rule:
+// while the rate-limit gate is active, a failed task is never requeued. It lands
+// in `failed` without a retry_count increment and is picked up naturally after
+// the gate clears (since the original task remains in `failed` it stays failed;
+// the next queued task on the project gets its turn).
+//
+// Calling it twice is a no-op — finishTask needs the decision before it can tell
+// whether a failure summary is coming, and applyResult reasserts it for callers
+// that reach it directly.
+func (r *Runner) suppressRetryWhileRateLimited(result *ExecutionResult) {
 	if r.rateLimitGate != nil && r.rateLimitGate.IsActive() &&
 		result.Status == models.TaskStatusFailed {
 		result.ShouldRetry = false
 		result.RetryAfter = 0
 	}
+}
+
+// willSummarizeFailure reports whether finishTask will schedule a failure summary
+// for this result. It mirrors scheduleFailureSummary's own guards so the
+// `summarizing` phase is only recorded when a summary actually follows.
+func (r *Runner) willSummarizeFailure(result *ExecutionResult) bool {
+	if r.config == nil || !r.config.FailureSummaryEnabled {
+		return false
+	}
+	return !result.ShouldRetry && result.RetryAfter == 0 &&
+		result.Status == models.TaskStatusFailed
+}
+
+func (r *Runner) applyResult(task *models.Task, result *ExecutionResult) {
+	r.suppressRetryWhileRateLimited(result)
 
 	switch {
 	case result.RetryAfter > 0:
@@ -874,10 +953,12 @@ func (r *Runner) applyResult(task *models.Task, result *ExecutionResult) {
 func (r *Runner) requeueTask(task *models.Task, errMsg string) {
 	r.db.Model(task).Updates(map[string]interface{}{
 		"status":          models.TaskStatusQueued,
+		"run_phase":       nil,
 		"retry_count":     gorm.Expr("retry_count + 1"),
 		"failure_reason":  errMsg,
 		"failure_summary": gorm.Expr("NULL"),
 	})
+	task.RunPhase = nil
 	r.TaskEvents.Publish(TaskEvent{
 		TaskID:    task.ID,
 		Status:    models.TaskStatusQueued,
@@ -887,9 +968,13 @@ func (r *Runner) requeueTask(task *models.Task, errMsg string) {
 
 func (r *Runner) finalizeTask(task *models.Task, result *ExecutionResult) {
 	now := time.Now()
+	// run_phase is cleared unconditionally: it only describes a running task, and
+	// this is the single write every terminal status funnels through — including
+	// the one that lands after a kill or a mid-phase crash.
 	updates := map[string]interface{}{
 		"status":       result.Status,
 		"completed_at": now,
+		"run_phase":    nil,
 	}
 	if result.ErrorMessage != "" {
 		updates["failure_reason"] = result.ErrorMessage
@@ -900,6 +985,7 @@ func (r *Runner) finalizeTask(task *models.Task, result *ExecutionResult) {
 	// Mirror the in-memory task with the freshly persisted fields so the push
 	// payload uses the same status and failure reason that just hit the DB.
 	task.Status = result.Status
+	task.RunPhase = nil
 	if result.ErrorMessage != "" {
 		em := result.ErrorMessage
 		task.FailureReason = &em

@@ -26,6 +26,11 @@ type Executor struct {
 	remoteClaudePath string // unresolved claude binary path to use on the remote host
 	waker            *box.Waker
 	sshTarget        string
+	// onPhase, when set, is called immediately before the executor enters each
+	// step of the pipeline. The Runner wires it to a persist-and-broadcast
+	// callback. It must never fail the run — implementations swallow their own
+	// errors — and it is nil in unit tests that exercise the steps directly.
+	onPhase func(task *models.Task, phase models.RunPhase)
 }
 
 // NewExecutor creates a new Executor with the given claude binary path.
@@ -91,6 +96,7 @@ func (e *Executor) Execute(
 		return nil, fmt.Errorf("remote project %q has no SSH target configured", project.Path)
 	}
 
+	e.recordPhase(task, models.RunPhasePreparing)
 	if err := pr.exists(ctx); err != nil {
 		return nil, err
 	}
@@ -106,6 +112,7 @@ func (e *Executor) Execute(
 	execCtx, cancel := context.WithTimeout(ctx, execTimeout)
 	defer cancel()
 
+	e.recordPhase(task, models.RunPhaseAgent)
 	out, err := e.spawnClaude(execCtx, pr, task, buffer, mcpConfigPath)
 	if err != nil {
 		return nil, err
@@ -124,12 +131,25 @@ func (e *Executor) Execute(
 	result := classifyOutcome(out, task)
 
 	if result.Status == models.TaskStatusDone {
+		if pr.hasVerification() {
+			e.recordPhase(task, models.RunPhaseVerifying)
+		}
 		e.maybeVerify(ctx, pr, result)
 	}
 	if isSuccessful(result.Status) && project.BranchStrategy == "feature_branch" {
+		e.recordPhase(task, models.RunPhasePublishing)
 		e.pushAndCreatePR(ctx, pr, task)
 	}
 	return result, nil
+}
+
+// recordPhase announces that the task is about to enter the given phase.
+// It is a no-op when no recorder is wired.
+func (e *Executor) recordPhase(task *models.Task, phase models.RunPhase) {
+	if e.onPhase == nil {
+		return
+	}
+	e.onPhase(task, phase)
 }
 
 // CaptureGitHEAD returns the current git HEAD SHA for the given project.
@@ -465,7 +485,7 @@ func isAPIError(output string) bool {
 }
 
 func (e *Executor) maybeVerify(ctx context.Context, pr *projectRunner, result *ExecutionResult) {
-	if pr.project.VerificationCommand == nil || *pr.project.VerificationCommand == "" {
+	if !pr.hasVerification() {
 		return
 	}
 	verCtx, cancel := context.WithTimeout(ctx, verifyTimeout)

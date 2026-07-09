@@ -81,11 +81,17 @@ export interface TaskStats {
 
 export type TaskStatus = 'pending' | 'queued' | 'running' | 'done' | 'failed' | 'needs_review' | 'cancelled' | 'deleted'
 
+// RunPhase names the executor step a running task is currently in. It is only
+// ever set while status is 'running'; the backend clears it on every terminal
+// status, so a null phase means "nothing extra to show".
+export type RunPhase = 'preparing' | 'agent' | 'verifying' | 'publishing' | 'summarizing'
+
 export interface Task {
   id: string
   title: string
   spec: string
   status: TaskStatus
+  run_phase?: RunPhase | null
   priority: number
   project_id: string
   project_name?: string

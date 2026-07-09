@@ -70,6 +70,42 @@ func (s TaskStatus) Value() (driver.Value, error) {
 	return string(s), nil
 }
 
+// RunPhase names the step of the executor pipeline a running task is currently in.
+// It exists to make the wait legible: a task can sit in "running" for minutes after
+// the Claude session already committed, while verification and the PR push finish.
+//
+// A RunPhase is only meaningful while Status is TaskStatusRunning. Every write of a
+// terminal status clears it back to NULL, so a crashed or killed task never keeps a
+// stale phase.
+type RunPhase string
+
+const (
+	// RunPhasePreparing covers the spec sync and feature-branch setup.
+	RunPhasePreparing RunPhase = "preparing"
+	// RunPhaseAgent covers the Claude Code subprocess itself.
+	RunPhaseAgent RunPhase = "agent"
+	// RunPhaseVerifying covers the project's verification command.
+	RunPhaseVerifying RunPhase = "verifying"
+	// RunPhasePublishing covers pushing the feature branch and opening a PR.
+	RunPhasePublishing RunPhase = "publishing"
+	// RunPhaseSummarizing covers generating the failure summary for a failed task.
+	RunPhaseSummarizing RunPhase = "summarizing"
+)
+
+// validRunPhases contains all valid RunPhase values for validation.
+var validRunPhases = map[RunPhase]bool{
+	RunPhasePreparing:   true,
+	RunPhaseAgent:       true,
+	RunPhaseVerifying:   true,
+	RunPhasePublishing:  true,
+	RunPhaseSummarizing: true,
+}
+
+// IsValid reports whether the RunPhase is a recognized phase value.
+func (p RunPhase) IsValid() bool {
+	return validRunPhases[p]
+}
+
 // Task represents a unit of work to be executed by the scheduler against a project.
 // Tasks are ordered by priority and progress through the TaskStatus lifecycle.
 type Task struct {
@@ -77,6 +113,7 @@ type Task struct {
 	Title               string          `gorm:"size:500;not null" json:"title"`
 	Spec                string          `gorm:"type:text;not null;default:''" json:"spec"`
 	Status              TaskStatus      `gorm:"size:20;not null;default:pending" json:"status"`
+	RunPhase            *RunPhase       `gorm:"type:text" json:"run_phase,omitempty"`
 	Priority            int             `gorm:"not null;default:0" json:"priority"`
 	ProjectID           uuid.UUID       `gorm:"type:uuid;not null" json:"project_id"`
 	Project             Project         `json:"project,omitempty"`

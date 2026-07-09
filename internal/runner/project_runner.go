@@ -54,6 +54,12 @@ func (p *projectRunner) isRemote() bool {
 	return p.remote != nil
 }
 
+// hasVerification reports whether the project defines a verification command
+// to run after a successful Claude session.
+func (p *projectRunner) hasVerification() bool {
+	return p.project.VerificationCommand != nil && *p.project.VerificationCommand != ""
+}
+
 // exists checks that the project's working directory exists. For local
 // projects it uses os.Stat; for remote projects it runs "test -d" over SSH.
 // Errors are only returned for confirmed-missing directories; transient
