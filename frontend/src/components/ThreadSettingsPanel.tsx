@@ -7,6 +7,7 @@ import {
   FileText,
   MessageSquare,
   Plug,
+  Sparkles,
   ChevronRight,
   User,
 } from 'lucide-react'
@@ -18,6 +19,7 @@ import ThreadSourcesEditor from './ThreadSourcesEditor'
 import CustomContextEditor from './CustomContextEditor'
 import SignalBridgeEditor from './SignalBridgeEditor'
 import MCPServerToggle from './MCPServerToggle'
+import SkillToggle from './SkillToggle'
 
 interface Props {
   thread: Thread
@@ -61,17 +63,18 @@ export default function ThreadSettingsPanel({
   const [customContextOpen, setCustomContextOpen] = useState(false)
   const [signalBridgeOpen, setSignalBridgeOpen] = useState(false)
   const [mcpServersOpen, setMcpServersOpen] = useState(false)
+  const [skillsOpen, setSkillsOpen] = useState(false)
 
   // Close on Escape — but not when a nested modal is open (let the modal handle it)
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
-      if (sourcesOpen || customContextOpen || signalBridgeOpen || mcpServersOpen) return
+      if (sourcesOpen || customContextOpen || signalBridgeOpen || mcpServersOpen || skillsOpen) return
       onClose()
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [onClose, sourcesOpen, customContextOpen, signalBridgeOpen, mcpServersOpen])
+  }, [onClose, sourcesOpen, customContextOpen, signalBridgeOpen, mcpServersOpen, skillsOpen])
 
   const handleChangeModel = async (model: string) => {
     try {
@@ -292,6 +295,20 @@ export default function ThreadSettingsPanel({
               <ChevronRight className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
             </button>
           </Section>
+
+          {/* Skills */}
+          <Section label="Skills">
+            <button
+              onClick={() => setSkillsOpen(true)}
+              className="w-full flex items-center gap-3 px-2 py-1.5
+                         text-sm text-zinc-700 hover:bg-zinc-50
+                         transition-colors cursor-pointer rounded-lg"
+            >
+              <Sparkles className="w-4 h-4 flex-shrink-0 text-zinc-400" />
+              <span className="flex-1 text-left">Manage skills</span>
+              <ChevronRight className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
+            </button>
+          </Section>
         </div>
       </aside>
 
@@ -321,6 +338,12 @@ export default function ThreadSettingsPanel({
         <MCPServerToggle
           scope={{ type: 'thread', id: thread.id }}
           onClose={() => setMcpServersOpen(false)}
+        />
+      )}
+      {skillsOpen && (
+        <SkillToggle
+          threadId={thread.id}
+          onClose={() => setSkillsOpen(false)}
         />
       )}
     </>

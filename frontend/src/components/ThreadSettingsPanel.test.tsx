@@ -25,6 +25,8 @@ vi.mock('../api/client', () => ({
   getSignalBridge: vi.fn().mockResolvedValue(null),
   setSignalBridge: vi.fn(),
   removeSignalBridge: vi.fn(),
+  fetchThreadSkills: vi.fn().mockResolvedValue([]),
+  setThreadSkills: vi.fn().mockResolvedValue([]),
   ApiError: class ApiError extends Error {
     status: number
     constructor(status: number, message: string) {
@@ -37,6 +39,15 @@ vi.mock('../api/client', () => ({
 vi.mock('../hooks/useMCPServers', () => ({
   useMCPServers: () => ({
     servers: [],
+    loading: false,
+    error: null,
+    toggle: vi.fn(),
+  }),
+}))
+
+vi.mock('../hooks/useThreadSkills', () => ({
+  useThreadSkills: () => ({
+    skills: [],
     loading: false,
     error: null,
     toggle: vi.fn(),

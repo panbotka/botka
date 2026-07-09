@@ -32,8 +32,25 @@ import (
 	"botka/internal/push"
 	"botka/internal/runner"
 	"botka/internal/signal"
+	"botka/internal/skills"
 	"botka/internal/static"
 )
+
+// syncSkills discovers Claude Code skills on disk and reconciles them with the
+// registry. Failures are logged and swallowed: skills are an optional
+// enhancement, and an unreadable skills directory must not stop the server.
+func syncSkills(db *gorm.DB, projectsDir string) {
+	discovered, err := skills.Scan(skills.HomeDir(), projectsDir)
+	if err != nil {
+		slog.Warn("skill discovery failed", "error", err)
+		return
+	}
+	if err := skills.SyncToDatabase(db, discovered); err != nil {
+		slog.Warn("skill registry sync failed", "error", err)
+		return
+	}
+	slog.Info("skill discovery complete", "count", len(discovered))
+}
 
 const shutdownTimeout = 10 * time.Second
 
@@ -104,6 +121,11 @@ func run() error {
 		return fmt.Errorf("sync projects: %w", err)
 	}
 	slog.Info("project discovery complete", "count", len(discovered))
+
+	// Skill discovery: mirror the on-disk Claude Code skills into the registry.
+	// Non-fatal — a missing skills directory just leaves the registry empty,
+	// and an empty registry denies nothing.
+	syncSkills(db, cfg.ProjectsDir)
 
 	// Clean up stale MCP config files from previous runs.
 	claude.CleanupMCPConfigs(cfg.ClaudeContextDir)
@@ -365,6 +387,9 @@ func setupRouter(
 
 	boxHandler := handlers.NewBoxHandler(db, cfg.BoxHost, cfg.BoxSSHUser, cfg.BoxWOLCommand)
 	handlers.RegisterBoxRoutes(v1, boxHandler)
+
+	skillHandler := handlers.NewSkillHandler(db, skills.HomeDir(), cfg.ProjectsDir, skills.Scan, skills.SyncToDatabase)
+	handlers.RegisterSkillRoutes(v1, skillHandler)
 
 	mcpServerHandler := handlers.NewMCPServerHandler(db)
 	handlers.RegisterMCPServerRoutes(v1, mcpServerHandler)

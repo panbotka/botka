@@ -1,4 +1,4 @@
-import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, TaskNote, TaskTag, Thread, ThreadDetail, ThreadFolder, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, TaskStatsAggregated, TaskStatsGroupBy, GlobalSearchResults, MessageSearchResponse, UnifiedSearchResult, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo } from '../types'
+import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, TaskNote, TaskTag, Thread, ThreadDetail, ThreadFolder, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, TaskStatsAggregated, TaskStatsGroupBy, GlobalSearchResults, MessageSearchResponse, UnifiedSearchResult, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, Skill, EffectiveSkill, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -1192,6 +1192,34 @@ export function setProjectMCPServers(projectId: string, serverIds: number[]): Pr
   })
 }
 
+// Skills
+
+export function fetchSkills(): Promise<Skill[]> {
+  return requestData<Skill[]>('/skills')
+}
+
+export function updateSkillDefault(name: string, defaultEnabled: boolean): Promise<Skill> {
+  return requestData<Skill>(`/skills/${encodeURIComponent(name)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ default_enabled: defaultEnabled }),
+  })
+}
+
+export function rescanSkills(): Promise<Skill[]> {
+  return requestData<Skill[]>('/skills/rescan', { method: 'POST' })
+}
+
+export function fetchThreadSkills(threadId: number): Promise<EffectiveSkill[]> {
+  return requestData<EffectiveSkill[]>(`/threads/${threadId}/skills`)
+}
+
+export function setThreadSkills(threadId: number, enabledSkills: string[]): Promise<EffectiveSkill[]> {
+  return requestData<EffectiveSkill[]>(`/threads/${threadId}/skills`, {
+    method: 'PUT',
+    body: JSON.stringify({ enabled_skills: enabledSkills }),
+  })
+}
+
 // Recurring Task Schedules
 
 export function listSchedules(projectID?: string): Promise<TaskSchedule[]> {
@@ -1459,6 +1487,12 @@ export const api = {
   setThreadMCPServers,
   fetchProjectMCPServers,
   setProjectMCPServers,
+  // Skills
+  fetchSkills,
+  updateSkillDefault,
+  rescanSkills,
+  fetchThreadSkills,
+  setThreadSkills,
   // Box
   fetchBoxStatus,
   fetchBoxProjects,

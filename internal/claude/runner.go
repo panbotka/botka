@@ -86,6 +86,11 @@ type RunConfig struct {
 	Name             string // display name for the session
 	MCPConfigPath    string // path to generated .mcp.json file; empty means no MCP servers
 
+	// DisabledSkills lists the skills that must not be invokable in this
+	// session. Claude Code has no positive allowlist for skills, so the
+	// runners deny each name via --disallowedTools "Skill(<name>) ...".
+	DisabledSkills []string
+
 	// Remote, when non-nil, causes this invocation to run on a remote host
 	// via SSH. The runner wakes the host (via Waker), then exec's "ssh"
 	// instead of claude directly. WorkDir must use RemotePrefix when Remote
@@ -129,6 +134,10 @@ func buildRunArgs(cfg RunConfig) []string {
 
 	if cfg.MCPConfigPath != "" {
 		args = append(args, "--mcp-config", cfg.MCPConfigPath)
+	}
+
+	if deny := SkillDenySpec(cfg.DisabledSkills); deny != "" {
+		args = append(args, "--disallowedTools", deny)
 	}
 	return args
 }

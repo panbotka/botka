@@ -45,7 +45,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 			// Ensure unaccent extension is available for diacritic-insensitive search.
 			sharedDB.Exec("CREATE EXTENSION IF NOT EXISTS unaccent")
 			// Drop all tables and recreate to avoid migration conflicts
-			sharedDB.Exec("DROP TABLE IF EXISTS push_subscriptions, task_schedules, cron_executions, cron_jobs, thread_mcp_servers, project_mcp_servers, mcp_servers, thread_access, webauthn_credentials, sessions, users, thread_sources, signal_bridges, thread_tags, task_tag_assignments, task_tags, task_notes, branch_selections, attachments, messages, task_executions, tasks, threads, thread_folders, projects, personas, tags, memories, runner_state, fork_points CASCADE")
+			sharedDB.Exec("DROP TABLE IF EXISTS thread_skills, skills, push_subscriptions, task_schedules, cron_executions, cron_jobs, thread_mcp_servers, project_mcp_servers, mcp_servers, thread_access, webauthn_credentials, sessions, users, thread_sources, signal_bridges, thread_tags, task_tag_assignments, task_tags, task_notes, branch_selections, attachments, messages, task_executions, tasks, threads, thread_folders, projects, personas, tags, memories, runner_state, fork_points CASCADE")
 			dbErr = sharedDB.AutoMigrate(
 				&models.Project{},
 				&models.TaskSchedule{},
@@ -74,6 +74,8 @@ func setupTestDB(t *testing.T) *gorm.DB {
 				&models.CronJob{},
 				&models.CronExecution{},
 				&models.PushSubscription{},
+				&models.Skill{},
+				&models.ThreadSkill{},
 			)
 			if dbErr == nil {
 				// Create thread_tags join table
@@ -179,7 +181,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 // cleanTables truncates all tables in FK-safe order.
 func cleanTables(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	db.Exec("TRUNCATE TABLE push_subscriptions, task_schedules, cron_executions, cron_jobs, thread_mcp_servers, project_mcp_servers, mcp_servers, thread_access, webauthn_credentials, sessions, users, thread_sources, signal_bridges, thread_tags, task_tag_assignments, task_tags, task_notes, branch_selections, attachments, messages, task_executions, tasks, threads, thread_folders, projects, personas, tags, memories, runner_state, app_settings CASCADE")
+	db.Exec("TRUNCATE TABLE thread_skills, skills, push_subscriptions, task_schedules, cron_executions, cron_jobs, thread_mcp_servers, project_mcp_servers, mcp_servers, thread_access, webauthn_credentials, sessions, users, thread_sources, signal_bridges, thread_tags, task_tag_assignments, task_tags, task_notes, branch_selections, attachments, messages, task_executions, tasks, threads, thread_folders, projects, personas, tags, memories, runner_state, app_settings CASCADE")
 }
 
 // createTestProject creates and returns a test project.

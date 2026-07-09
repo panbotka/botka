@@ -539,6 +539,32 @@ export interface MCPServerWithStatus {
   enabled: boolean
 }
 
+// ── Skills ──
+
+/** A Claude Code skill in the global registry. */
+export interface Skill {
+  id: number
+  name: string
+  description: string
+  /** 'user' | 'project' | 'plugin:<name>' */
+  source: string
+  default_enabled: boolean
+  /** False once the skill disappears from disk; overrides are kept. */
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
+/** A skill resolved for one thread: the override if any, else the default. */
+export interface EffectiveSkill {
+  name: string
+  description: string
+  source: string
+  default_enabled: boolean
+  enabled: boolean
+  overridden: boolean
+}
+
 // ── Recurring Task Schedules ──
 
 export interface TaskSchedule {

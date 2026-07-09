@@ -24,6 +24,7 @@ internal/
   runner/            Task scheduler loop + batch executor
   projects/          Git repo discovery and DB sync
   mcp/               MCP server (stdio + SSE transport)
+  skills/            Claude Code skill discovery + registry sync
   middleware/        HTTP middleware (auth, CORS, role-based access)
   static/            Frontend static file serving (go:embed)
 frontend/src/
@@ -174,6 +175,7 @@ Exposes 19 tools across categories: task management (create_task, list_tasks, ge
 | `internal/claude` | Chat subprocess runner, session pool, and hierarchical context assembly |
 | `internal/runner` | Task scheduler loop + batch executor + usage monitor |
 | `internal/projects` | Git repo filesystem discovery and DB sync |
+| `internal/skills` | Claude Code skill discovery (SKILL.md frontmatter) + registry sync |
 | `internal/mcp` | MCP server (stdio + SSE transport) |
 | `internal/middleware` | Auth, CORS, and role-based access middleware |
 | `internal/static` | Embedded frontend file serving |
@@ -241,6 +243,7 @@ If your task requires deploying changes, mark the task as done and note that dep
 - **MAX_WORKERS enforcement:** `launchTask()` re-checks `len(r.executors) >= r.maxWorkers` under the mutex before adding a new executor. This is the authoritative enforcement point — if the limit is reached, the task is requeued. The earlier check in `collectTickState()` is an optimization to avoid unnecessary DB queries; `launchTask()` is the safety net that prevents over-allocation even if multiple processes share the database.
 - **Session pool:** After each chat response, a pre-warmed Claude process is spawned with `--resume` and kept alive for 5 minutes via a stdin keepalive byte. The next message pipes its prompt to the waiting process, skipping startup. Sessions are evicted on model/project changes, session clears, or thread deletion.
 - **Session validation:** Claude Code stores sessions per working directory at `~/.claude/projects/<encoded-dir>/<id>.jsonl`. Before resuming, `SessionExists()` checks the file exists for the current directory. Changing a thread's project clears the session ID. Stale session errors ("No conversation found") auto-clear the session for the next attempt.
+- **Per-chat skills:** A global `skills` registry (migration 038) mirrors the SKILL.md files found on disk — `~/.claude/skills`, `<PROJECTS_DIR>/*/.claude/skills`, and the cached plugin tree under `~/.claude/plugins/cache`, where skills are namespaced `plugin:skill` exactly as Claude Code addresses them. It is synced on startup (`syncSkills` in `cmd/server/main.go`) and via `POST /api/v1/skills/rescan`. Each skill has a `default_enabled` flag; `thread_skills` holds per-thread overrides and stores **only states that differ from the current default**, so flipping a default keeps propagating to threads that never expressed a preference. A skill that vanishes from disk is deactivated, never deleted, so its overrides survive. Enforcement is **subtractive**: Claude Code has no positive allowlist for skills, so `models.DisabledSkillsForThread` computes the OFF set and both spawn paths append `--disallowedTools "Skill(x) Skill(y)"` (`claude.SkillDenySpec`). This deny beats `--dangerously-skip-permissions` — a denied skill returns "Skill execution blocked by permission rules". Because a live session baked its argv at spawn, `SessionManager.GetOrCreate` compares `DisabledSkills` and evicts the pooled process when the set changes, mirroring the model/project-change eviction.
 - **Soft delete on chat history:** `messages`, `attachments`, and `branch_selections` use GORM soft delete (`gorm.DeletedAt`). `/clear` (`DELETE /threads/:id/messages`) and `Regenerate` set `deleted_at` so accidentally cleared history can be recovered manually via SQL. Thread `DELETE /threads/:id` is the explicit "remove the whole conversation" path and uses `.Unscoped()` for hard deletes. Raw SQL queries on these tables must include `AND deleted_at IS NULL` — only ORM-mediated queries auto-filter.
 
 ## Source Projects

@@ -532,6 +532,14 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 		}
 	}
 
+	// Resolve which skills are OFF for this thread. A resolution failure must
+	// not block the message, so we fall back to denying nothing.
+	disabledSkills, skillErr := models.DisabledSkillsForThread(h.db, threadID)
+	if skillErr != nil {
+		log.Printf("[chat] failed to resolve skills for thread %d: %v", threadID, skillErr)
+	}
+	cfg.DisabledSkills = disabledSkills
+
 	// Resolve MCP servers for this thread/project context.
 	var mcpHash string
 	mcpServers, err := models.ResolveMCPServers(h.db, &threadID, thread.ProjectID)

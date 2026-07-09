@@ -25,6 +25,8 @@ import {
   Eye,
   EyeOff,
   Bell,
+  RefreshCw,
+  Sparkles,
 } from 'lucide-react'
 
 import { useSettings, type Theme, type FontSize } from '../context/SettingsContext'
@@ -48,6 +50,9 @@ import {
   createMCPServer,
   updateMCPServer,
   deleteMCPServer,
+  fetchSkills,
+  updateSkillDefault,
+  rescanSkills,
   getModels,
   getTranscribeStatus,
   fetchServerSettings,
@@ -60,7 +65,7 @@ import {
   passkeyRegisterFinish,
   type PasskeyInfo,
 } from '../api/client'
-import type { Persona, Tag, Memory, MCPServer, MCPServerType, MCPServerStdioConfig, MCPServerSSEConfig } from '../types'
+import type { Persona, Tag, Memory, Skill, MCPServer, MCPServerType, MCPServerStdioConfig, MCPServerSSEConfig } from '../types'
 import UsersTab from '../components/UsersTab'
 import { ProjectsContent } from './ProjectsPage'
 import { usePushSubscription } from '../hooks/usePushSubscription'
@@ -80,7 +85,7 @@ const TAG_COLORS = [
   { name: 'Pink', hex: '#EC4899' },
 ]
 
-type TabId = 'general' | 'security' | 'users' | 'runner' | 'personas' | 'tags' | 'memories' | 'voice' | 'projects' | 'mcp-servers' | 'notifications'
+type TabId = 'general' | 'security' | 'users' | 'runner' | 'personas' | 'tags' | 'memories' | 'voice' | 'projects' | 'mcp-servers' | 'skills' | 'notifications'
 
 interface TabDef {
   id: TabId
@@ -99,6 +104,7 @@ const TABS: TabDef[] = [
   { id: 'tags', label: 'Tags', icon: TagIcon },
   { id: 'memories', label: 'Memories', icon: Brain },
   { id: 'mcp-servers', label: 'MCP Servers', icon: Server },
+  { id: 'skills', label: 'Skills', icon: Sparkles },
   { id: 'voice', label: 'Voice', icon: Mic },
 ]
 
@@ -2143,6 +2149,121 @@ function MCPServersTab() {
   )
 }
 
+// ── Skills Tab ──
+
+function SkillsTab() {
+  const [skills, setSkills] = useState<Skill[]>([])
+  const [loading, setLoading] = useState(true)
+  const [rescanning, setRescanning] = useState(false)
+  const [error, setError] = useState('')
+
+  const load = useCallback(() => {
+    setLoading(true)
+    fetchSkills()
+      .then(setSkills)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  async function handleRescan() {
+    setRescanning(true)
+    setError('')
+    try {
+      setSkills(await rescanSkills())
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setRescanning(false)
+    }
+  }
+
+  async function handleToggleDefault(skill: Skill) {
+    const next = !skill.default_enabled
+    setSkills((prev) => prev.map((s) => (s.id === skill.id ? { ...s, default_enabled: next } : s)))
+    try {
+      await updateSkillDefault(skill.name, next)
+    } catch (e) {
+      setSkills((prev) => prev.map((s) => (s.id === skill.id ? { ...s, default_enabled: !next } : s)))
+      setError((e as Error).message)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <p className="text-sm text-zinc-500">
+          Skills discovered on disk. The default decides whether a new chat — or any chat that never
+          overrode the skill — may invoke it.
+        </p>
+        <button
+          onClick={handleRescan}
+          disabled={rescanning}
+          className="flex flex-shrink-0 items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white hover:bg-zinc-700 disabled:opacity-50"
+        >
+          {rescanning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          Rescan
+        </button>
+      </div>
+
+      {error && <p className="text-sm text-red-500">{error}</p>}
+
+      {skills.length === 0 ? (
+        <p className="py-8 text-center text-sm text-zinc-400">
+          No skills found. Add one under ~/.claude/skills and press Rescan.
+        </p>
+      ) : (
+        <div className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
+          {skills.map((skill) => (
+            <div key={skill.id} className={clsx('flex items-start gap-3 px-4 py-3', !skill.active && 'opacity-50')}>
+              <button
+                onClick={() => handleToggleDefault(skill)}
+                aria-label={`Toggle default for ${skill.name}`}
+                className={clsx(
+                  'relative mt-0.5 h-[18px] w-8 flex-shrink-0 cursor-pointer rounded-full transition-colors',
+                  skill.default_enabled ? 'bg-emerald-500' : 'bg-zinc-300',
+                )}
+              >
+                <span
+                  className={clsx(
+                    'absolute left-0.5 top-0.5 h-3.5 w-3.5 rounded-full bg-white shadow transition-transform',
+                    skill.default_enabled ? 'translate-x-3.5' : 'translate-x-0',
+                  )}
+                />
+              </button>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-sm font-medium text-zinc-800">{skill.name}</span>
+                  <span className="flex-shrink-0 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600">
+                    {skill.source}
+                  </span>
+                  {!skill.active && (
+                    <span className="flex-shrink-0 text-[10px] font-medium text-amber-600">missing on disk</span>
+                  )}
+                </div>
+                {skill.description && (
+                  <p className="mt-0.5 line-clamp-2 text-xs text-zinc-500">{skill.description}</p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Runner Tab ──
 
 function RunnerTab() {
@@ -2306,6 +2427,7 @@ export default function SettingsPage() {
         {activeTab === 'tags' && <TagsTab />}
         {activeTab === 'memories' && <MemoriesTab />}
         {activeTab === 'mcp-servers' && <MCPServersTab />}
+        {activeTab === 'skills' && <SkillsTab />}
         {activeTab === 'voice' && <VoiceTab />}
       </div>
     </div>

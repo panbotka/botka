@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -125,9 +126,11 @@ func NewSessionManager(ttl time.Duration) *SessionManager {
 
 // GetOrCreate returns the existing persistent session for a thread, or creates
 // a new one. If the existing session's config doesn't match (model, workdir,
-// session ID, or MCP server hash changed), it kills the old session and creates
-// a fresh one. The mcpHash parameter is the hash of the resolved MCP servers;
-// pass an empty string when no MCP servers are configured.
+// session ID, disabled skills, or MCP server hash changed), it kills the old
+// session and creates a fresh one — a live process baked those flags into its
+// argv at spawn time and cannot pick up the new ones. The mcpHash parameter is
+// the hash of the resolved MCP servers; pass an empty string when no MCP
+// servers are configured.
 // Returns the session and true if it was newly created.
 func (m *SessionManager) GetOrCreate(cfg RunConfig, threadID int64, threadTitle, mcpHash string) (*Session, bool) {
 	m.mu.Lock()
@@ -137,6 +140,7 @@ func (m *SessionManager) GetOrCreate(cfg RunConfig, threadID int64, threadTitle,
 		if s.cfg.SessionID == cfg.SessionID &&
 			s.cfg.Model == cfg.Model &&
 			s.cfg.WorkDir == cfg.WorkDir &&
+			slices.Equal(s.cfg.DisabledSkills, cfg.DisabledSkills) &&
 			s.mcpHash == mcpHash {
 			s.timer.Stop()
 			s.timer = time.AfterFunc(m.ttl, func() { m.idleTimeout(threadID) })
@@ -693,6 +697,10 @@ func buildStreamArgs(cfg RunConfig) []string {
 
 	if cfg.MCPConfigPath != "" {
 		args = append(args, "--mcp-config", cfg.MCPConfigPath)
+	}
+
+	if deny := SkillDenySpec(cfg.DisabledSkills); deny != "" {
+		args = append(args, "--disallowedTools", deny)
 	}
 
 	return args
