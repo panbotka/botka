@@ -36,7 +36,10 @@ self.addEventListener('message', (event) => {
     event.waitUntil(cacheVapidKey(data.key))
     return
   }
-  if (data.type === 'skip-waiting') {
+  // workbox-window's `messageSkipWaiting()` — which is what
+  // `updateServiceWorker(true)` ends up calling — posts `SKIP_WAITING`.
+  // `skip-waiting` is kept for workers/clients still using the old string.
+  if (data.type === 'SKIP_WAITING' || data.type === 'skip-waiting') {
     void self.skipWaiting()
   }
 })
