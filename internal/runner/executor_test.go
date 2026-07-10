@@ -579,6 +579,38 @@ func TestBuildPrompt_RetryCountZeroNoFailureInfo(t *testing.T) {
 	}
 }
 
+// (d) The retry prompt must tell the agent the tree was reset, but only on a
+// retry — a first attempt has no reverted work to warn about.
+func TestBuildPrompt_MentionsResetOnRetry(t *testing.T) {
+	e := &Executor{localClaudePath: "/usr/bin/claude", remoteClaudePath: "claude"}
+	reason := "execution timed out"
+	task := &models.Task{RetryCount: 1, FailureReason: &reason}
+	task.ID = parseUUID("44444444-4444-4444-4444-444444444444")
+	task.Title = "Retry with reset"
+
+	prompt := e.buildPrompt(task)
+
+	if !strings.Contains(prompt, "reset to the task's starting commit") {
+		t.Errorf("retry prompt should mention the tree reset, got: %q", prompt)
+	}
+	if !strings.Contains(prompt, "start fresh") {
+		t.Error("retry prompt should tell the agent to start fresh rather than resume")
+	}
+}
+
+func TestBuildPrompt_NoResetMentionOnFirstAttempt(t *testing.T) {
+	e := &Executor{localClaudePath: "/usr/bin/claude", remoteClaudePath: "claude"}
+	task := &models.Task{RetryCount: 0}
+	task.ID = parseUUID("55555555-5555-5555-5555-555555555555")
+	task.Title = "First attempt"
+
+	prompt := e.buildPrompt(task)
+
+	if strings.Contains(prompt, "reset to the task's starting commit") {
+		t.Error("first-attempt prompt should not mention a tree reset")
+	}
+}
+
 func TestIsBotkaProject(t *testing.T) {
 	tests := []struct {
 		name string

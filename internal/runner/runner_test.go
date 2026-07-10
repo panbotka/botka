@@ -34,7 +34,12 @@ func setupTestDB(t *testing.T) *gorm.DB {
 			Logger:                 logger.Default.LogMode(logger.Silent),
 		})
 		if dbErr == nil {
-			sharedDB.Exec("DROP TABLE IF EXISTS task_executions, tasks, projects, runner_state CASCADE")
+			// task_schedules is dropped alongside the others because another test
+			// binary (handlers) can leave orphan rows in it that reference projects
+			// this DROP removes; without dropping it, GORM's re-validation of
+			// fk_task_schedules_project below fails and every runner DB test skips.
+			// schedule_test.go re-creates it via its own bootstrap when needed.
+			sharedDB.Exec("DROP TABLE IF EXISTS task_executions, tasks, task_schedules, projects, runner_state CASCADE")
 			dbErr = sharedDB.AutoMigrate(
 				&models.Project{},
 				&models.Task{},

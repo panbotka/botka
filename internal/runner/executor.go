@@ -213,6 +213,34 @@ func GitRevert(
 	slog.Info("git revert completed", "task_id", task.ID)
 }
 
+// GitResetToBase hard-resets the project's working tree to baseSHA and removes
+// untracked files, discarding any partial work — including a commit — that a
+// failed attempt left behind. Unlike GitRevert (used on a user kill, which
+// abandons the feature branch entirely), it stays on the current branch, so a
+// retry continues on the same branch the first attempt used, starting from the
+// same commit. Errors are logged, never returned: a retry proceeds regardless.
+func GitResetToBase(
+	project *models.Project, waker *box.Waker, sshTarget, baseSHA string, task *models.Task,
+) {
+	if baseSHA == "" {
+		slog.Warn("no base commit SHA, skipping pre-retry reset", "task_id", task.ID)
+		return
+	}
+	slog.Info("resetting working tree for retry", "task_id", task.ID, "base_sha", baseSHA)
+
+	pr := newProjectRunner(project, waker, sshTarget, "")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute) //nolint:mnd // reset budget
+	defer cancel()
+
+	if out, err := pr.runGit(ctx, "reset", "--hard", baseSHA); err != nil {
+		slog.Error("pre-retry git reset failed", "task_id", task.ID, "error", err, "output", string(out))
+	}
+	if out, err := pr.runGit(ctx, "clean", "-fd"); err != nil {
+		slog.Error("pre-retry git clean failed", "task_id", task.ID, "error", err, "output", string(out))
+	}
+	slog.Info("pre-retry reset completed", "task_id", task.ID)
+}
+
 func (e *Executor) syncSpec(ctx context.Context, pr *projectRunner, task *models.Task) error {
 	relPath := fmt.Sprintf("docs/specs/task-%s.md", task.ID)
 	return pr.writeFile(ctx, relPath, []byte(task.Spec))
@@ -238,7 +266,9 @@ func (e *Executor) buildPrompt(task *models.Task) string {
 	)
 	if task.RetryCount > 0 && task.FailureReason != nil {
 		prompt += fmt.Sprintf(
-			" Previous attempt failed with: %s. Fix the issues and complete the task.",
+			" Previous attempt failed with: %s. The working tree has been reset to the task's"+
+				" starting commit, so any partial work from that attempt is gone — start fresh"+
+				" rather than resuming it, and complete the task.",
 			*task.FailureReason,
 		)
 	}

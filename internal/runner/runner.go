@@ -638,12 +638,16 @@ func (r *Runner) claimTask(
 		return nil, nil, fmt.Errorf("load project: %w", err)
 	}
 
-	updates := map[string]interface{}{"status": models.TaskStatusRunning}
-	if task.StartedAt == nil {
-		now := time.Now()
-		updates["started_at"] = now
-		task.StartedAt = &now
+	// started_at is advanced on every claim, not just the first, so a retried
+	// task's displayed duration (completed_at - started_at) is the current
+	// attempt's work rather than the work plus a superseded first attempt.
+	// Per-attempt start times are preserved separately in task_executions below.
+	now := time.Now()
+	updates := map[string]interface{}{
+		"status":     models.TaskStatusRunning,
+		"started_at": now,
 	}
+	task.StartedAt = &now
 	if err := tx.Model(task).Updates(updates).Error; err != nil {
 		return nil, nil, fmt.Errorf("update task status: %w", err)
 	}
@@ -951,6 +955,12 @@ func (r *Runner) applyResult(task *models.Task, result *ExecutionResult) {
 }
 
 func (r *Runner) requeueTask(task *models.Task, errMsg string) {
+	// Clean the working tree before the next attempt is eligible to run, so it
+	// starts from the same state the first one did instead of inheriting a partial
+	// commit or stray files. Done while the executor is still registered for this
+	// project, so the scheduler cannot pick the task up mid-reset.
+	r.resetTreeToBase(task)
+
 	r.db.Model(task).Updates(map[string]interface{}{
 		"status":          models.TaskStatusQueued,
 		"run_phase":       nil,
@@ -966,6 +976,22 @@ func (r *Runner) requeueTask(task *models.Task, errMsg string) {
 	})
 }
 
+// resetTreeToBase hard-resets the project's working tree to the task's recorded
+// base commit, discarding whatever the failed attempt left behind, so the retry
+// starts clean. It is a no-op (with a warning) when base_commit_sha was never
+// captured — resetting to a guessed commit could corrupt the tree — or when the
+// runner has no executor wired (as in some unit tests).
+func (r *Runner) resetTreeToBase(task *models.Task) {
+	if task.BaseCommitSHA == nil || *task.BaseCommitSHA == "" {
+		slog.Warn("skipping pre-retry tree reset: base commit not recorded", "task_id", task.ID)
+		return
+	}
+	if r.executor == nil {
+		return
+	}
+	GitResetToBase(&task.Project, r.executor.waker, r.executor.sshTarget, *task.BaseCommitSHA, task)
+}
+
 func (r *Runner) finalizeTask(task *models.Task, result *ExecutionResult) {
 	now := time.Now()
 	// run_phase is cleared unconditionally: it only describes a running task, and
@@ -976,7 +1002,12 @@ func (r *Runner) finalizeTask(task *models.Task, result *ExecutionResult) {
 		"completed_at": now,
 		"run_phase":    nil,
 	}
-	if result.ErrorMessage != "" {
+	switch {
+	case isSuccessful(result.Status):
+		// A finished task must not carry an error from a superseded attempt — e.g.
+		// a timeout on attempt 1 that a later attempt recovered from. Clear it.
+		updates["failure_reason"] = nil
+	case result.ErrorMessage != "":
 		updates["failure_reason"] = result.ErrorMessage
 	}
 	r.db.Model(task).Updates(updates)
@@ -986,7 +1017,10 @@ func (r *Runner) finalizeTask(task *models.Task, result *ExecutionResult) {
 	// payload uses the same status and failure reason that just hit the DB.
 	task.Status = result.Status
 	task.RunPhase = nil
-	if result.ErrorMessage != "" {
+	switch {
+	case isSuccessful(result.Status):
+		task.FailureReason = nil
+	case result.ErrorMessage != "":
 		em := result.ErrorMessage
 		task.FailureReason = &em
 	}
