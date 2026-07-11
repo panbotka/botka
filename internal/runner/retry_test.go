@@ -187,9 +187,11 @@ func TestRequeueTask_ResetsWorkingTreeToBase(t *testing.T) {
 	}
 }
 
-// (c) The non-retry (finalize) path must leave the working tree untouched, so a
-// permanently failed task keeps its partial work for inspection.
-func TestFinalizeTask_DoesNotResetWorkingTree(t *testing.T) {
+// (c) The non-retry (finalize) path is the terminal safety net: it commits any
+// work the agent left uncommitted so a permanently-failed or done task never
+// ends with a dirty working tree. Push is best-effort — dirtyGitRepo has no
+// remote, so only the local commit is asserted here.
+func TestFinalizeTask_CommitsLeftoverWork(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)
 
@@ -199,7 +201,7 @@ func TestFinalizeTask_DoesNotResetWorkingTree(t *testing.T) {
 		t.Fatal("precondition: dirty repo HEAD should be ahead of base")
 	}
 
-	proj := createProjectAt(t, db, "retry-noreset", dir)
+	proj := createProjectAt(t, db, "finalize-commit", dir)
 	task := createTask(t, db, proj.ID, "dead task", models.TaskStatusRunning)
 	db.Model(&task).Update("base_commit_sha", base)
 	task.BaseCommitSHA = &base
@@ -215,11 +217,14 @@ func TestFinalizeTask_DoesNotResetWorkingTree(t *testing.T) {
 	}
 	r.finalizeTask(&task, &ExecutionResult{Status: models.TaskStatusFailed, ErrorMessage: "boom"})
 
-	if head := runGitIn(t, dir, "rev-parse", "HEAD"); head != headBefore {
-		t.Errorf("HEAD = %s after finalize, want unchanged %s (finalize must not reset)", head, headBefore)
+	if status := runGitIn(t, dir, "status", "--porcelain"); status != "" {
+		t.Errorf("working tree not clean after finalize: %q (leftovers must be committed)", status)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "untracked.txt")); err != nil {
-		t.Error("untracked.txt should survive a non-retry finalize")
+	if head := runGitIn(t, dir, "rev-parse", "HEAD"); head == headBefore {
+		t.Error("HEAD did not advance; leftover work was not committed")
+	}
+	if tracked := runGitIn(t, dir, "ls-files", "untracked.txt"); tracked == "" {
+		t.Error("untracked.txt was not committed by the finalize safety net")
 	}
 }
 

@@ -976,11 +976,14 @@ func (r *Runner) requeueTask(task *models.Task, errMsg string) {
 	})
 }
 
-// resetTreeToBase hard-resets the project's working tree to the task's recorded
-// base commit, discarding whatever the failed attempt left behind, so the retry
-// starts clean. It is a no-op (with a warning) when base_commit_sha was never
-// captured — resetting to a guessed commit could corrupt the tree — or when the
-// runner has no executor wired (as in some unit tests).
+// resetTreeToBase parks whatever the failed attempt produced onto a pushed
+// wip/task-<id>-attempt-<n> branch and then hard-resets the project's working
+// tree to the task's recorded base commit, so the retry starts from a pristine
+// tree without the attempt being lost. The attempt number is the current
+// retry_count + 1, read before requeueTask increments it. It is a no-op (with a
+// warning) when base_commit_sha was never captured — resetting to a guessed
+// commit could corrupt the tree — or when the runner has no executor wired (as
+// in some unit tests).
 func (r *Runner) resetTreeToBase(task *models.Task) {
 	if task.BaseCommitSHA == nil || *task.BaseCommitSHA == "" {
 		slog.Warn("skipping pre-retry tree reset: base commit not recorded", "task_id", task.ID)
@@ -989,10 +992,29 @@ func (r *Runner) resetTreeToBase(task *models.Task) {
 	if r.executor == nil {
 		return
 	}
-	GitResetToBase(&task.Project, r.executor.waker, r.executor.sshTarget, *task.BaseCommitSHA, task)
+	attempt := task.RetryCount + 1
+	ParkLeftoversAndReset(
+		&task.Project, r.executor.waker, r.executor.sshTarget, *task.BaseCommitSHA, task, attempt)
+}
+
+// commitLeftovers is the terminal-path safety net: on a task's final outcome it
+// commits and pushes any work the agent left uncommitted in the working tree,
+// so a task never ends `done`/`failed` with dirty, un-saved changes (the usual
+// cause: the 30-minute timeout killing the agent mid-`make check`, before it
+// committed). On a user kill GitRevert has already cleaned the tree, so this is
+// a no-op there; likewise for a clean success. It runs before the terminal
+// status write and only when an executor is wired (skipped in unit tests).
+func (r *Runner) commitLeftovers(task *models.Task) {
+	if r.executor == nil {
+		return
+	}
+	msg := fmt.Sprintf("botka: auto-commit leftover work from task %s (%s)", task.ID, task.Title)
+	CommitLeftovers(&task.Project, r.executor.waker, r.executor.sshTarget, task, msg)
 }
 
 func (r *Runner) finalizeTask(task *models.Task, result *ExecutionResult) {
+	r.commitLeftovers(task)
+
 	now := time.Now()
 	// run_phase is cleared unconditionally: it only describes a running task, and
 	// this is the single write every terminal status funnels through — including

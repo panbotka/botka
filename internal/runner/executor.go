@@ -83,6 +83,10 @@ const (
 	gracefulStopTimeout = 10 * time.Second
 	maxRetries          = 1
 	maxErrLen           = 500
+	// leftoverCommitBudget bounds the git work of preserving a task's
+	// uncommitted changes; it must comfortably cover an add + commit + push
+	// over the network.
+	leftoverCommitBudget = 3 * time.Minute
 )
 
 // Execute runs a single task against a project, managing the full lifecycle.
@@ -213,24 +217,94 @@ func GitRevert(
 	slog.Info("git revert completed", "task_id", task.ID)
 }
 
-// GitResetToBase hard-resets the project's working tree to baseSHA and removes
-// untracked files, discarding any partial work — including a commit — that a
-// failed attempt left behind. Unlike GitRevert (used on a user kill, which
-// abandons the feature branch entirely), it stays on the current branch, so a
-// retry continues on the same branch the first attempt used, starting from the
-// same commit. Errors are logged, never returned: a retry proceeds regardless.
-func GitResetToBase(
-	project *models.Project, waker *box.Waker, sshTarget, baseSHA string, task *models.Task,
+// leftoverCommitArgs builds the git argv for an automated safety-net commit with
+// message. It pins a stable identity via `-c` so the runner can commit
+// regardless of the service environment's git config, and so these commits are
+// clearly attributable to botka rather than to an agent. The override applies to
+// this one commit only.
+func leftoverCommitArgs(message string) []string {
+	return []string{
+		"-c", "user.name=botka (task runner)",
+		"-c", "user.email=botka@panbotka.cz",
+		"commit", "-m", message,
+	}
+}
+
+// treeIsDirty reports whether the project's working tree has any uncommitted
+// changes — staged, unstaged, or untracked. It runs `git status --porcelain`
+// and treats any non-empty output as dirty. It returns an error only when the
+// status command itself fails.
+func treeIsDirty(ctx context.Context, pr *projectRunner) (bool, error) {
+	out, err := pr.runGit(ctx, "status", "--porcelain")
+	if err != nil {
+		return false, fmt.Errorf("git status: %w", err)
+	}
+	return strings.TrimSpace(string(out)) != "", nil
+}
+
+// CommitLeftovers commits and pushes any uncommitted work left in the project's
+// working tree so a task that finished — or was killed by its execution timeout
+// — before the agent committed never silently loses its work. It stages
+// everything, commits on the current branch with commitMsg, and pushes HEAD to
+// origin. It is a no-op when the tree is already clean. Errors are logged, never
+// returned: finalizing a task must not be blocked by a git or network hiccup.
+func CommitLeftovers(
+	project *models.Project, waker *box.Waker, sshTarget string, task *models.Task, commitMsg string,
 ) {
-	if baseSHA == "" {
-		slog.Warn("no base commit SHA, skipping pre-retry reset", "task_id", task.ID)
+	pr := newProjectRunner(project, waker, sshTarget, "")
+	ctx, cancel := context.WithTimeout(context.Background(), leftoverCommitBudget)
+	defer cancel()
+
+	dirty, err := treeIsDirty(ctx, pr)
+	if err != nil {
+		slog.Error("leftover-commit: status check failed", "task_id", task.ID, "error", err)
 		return
 	}
-	slog.Info("resetting working tree for retry", "task_id", task.ID, "base_sha", baseSHA)
+	if !dirty {
+		return
+	}
+	slog.Info("committing leftover work", "task_id", task.ID)
+
+	steps := [][]string{
+		{"add", "-A"},
+		leftoverCommitArgs(commitMsg),
+		{"push", "origin", "HEAD"},
+	}
+	for _, args := range steps {
+		if out, err := pr.runGit(ctx, args...); err != nil {
+			slog.Error("leftover-commit: git step failed",
+				"task_id", task.ID, "args", args, "error", err, "output", string(out))
+			return
+		}
+	}
+	slog.Info("leftover work committed and pushed", "task_id", task.ID)
+}
+
+// ParkLeftoversAndReset preserves whatever a failed attempt produced — commits
+// made past baseSHA and/or an uncommitted working tree — on a pushed
+// wip/task-<id>-attempt-<n> branch, then hard-resets the working branch back to
+// baseSHA and removes untracked files so the retry starts from a pristine tree.
+// It replaces an earlier discard-on-retry behavior: a retry still begins from
+// baseSHA, but the abandoned attempt is never lost. attempt is the 1-based
+// number of the attempt being parked. Errors are logged, never returned: a
+// retry proceeds regardless, and a failed push still leaves the work on a local
+// wip branch and in the reflog.
+func ParkLeftoversAndReset(
+	project *models.Project, waker *box.Waker, sshTarget, baseSHA string, task *models.Task, attempt int,
+) {
+	if baseSHA == "" {
+		slog.Warn("no base commit SHA, skipping pre-retry park+reset", "task_id", task.ID)
+		return
+	}
+	slog.Info("parking attempt and resetting working tree for retry",
+		"task_id", task.ID, "base_sha", baseSHA, "attempt", attempt)
 
 	pr := newProjectRunner(project, waker, sshTarget, "")
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute) //nolint:mnd // reset budget
+	ctx, cancel := context.WithTimeout(context.Background(), leftoverCommitBudget)
 	defer cancel()
+
+	branch := fmt.Sprintf("wip/task-%s-attempt-%d", task.ID, attempt)
+	parkAttempt(ctx, pr, task, baseSHA, branch)
 
 	if out, err := pr.runGit(ctx, "reset", "--hard", baseSHA); err != nil {
 		slog.Error("pre-retry git reset failed", "task_id", task.ID, "error", err, "output", string(out))
@@ -238,7 +312,46 @@ func GitResetToBase(
 	if out, err := pr.runGit(ctx, "clean", "-fd"); err != nil {
 		slog.Error("pre-retry git clean failed", "task_id", task.ID, "error", err, "output", string(out))
 	}
-	slog.Info("pre-retry reset completed", "task_id", task.ID)
+	slog.Info("pre-retry park+reset completed", "task_id", task.ID, "wip_branch", branch)
+}
+
+// parkAttempt captures a failed attempt's work — staging and committing a dirty
+// tree first when needed — onto the local wip branch and pushes it to origin,
+// but only when the attempt actually diverged from baseSHA. It leaves HEAD in
+// place for the caller to reset. Errors are logged, never returned.
+func parkAttempt(ctx context.Context, pr *projectRunner, task *models.Task, baseSHA, branch string) {
+	dirty, err := treeIsDirty(ctx, pr)
+	if err != nil {
+		slog.Error("park: status check failed", "task_id", task.ID, "error", err)
+		return
+	}
+	if dirty {
+		msg := fmt.Sprintf("botka: parked leftovers from timed-out attempt of task %s", task.ID)
+		if out, err := pr.runGit(ctx, "add", "-A"); err != nil {
+			slog.Error("park: git add failed", "task_id", task.ID, "error", err, "output", string(out))
+			return
+		}
+		if out, err := pr.runGit(ctx, leftoverCommitArgs(msg)...); err != nil {
+			slog.Error("park: git commit failed", "task_id", task.ID, "error", err, "output", string(out))
+			return
+		}
+	}
+	head, err := pr.runGit(ctx, "rev-parse", "HEAD")
+	if err != nil {
+		slog.Error("park: rev-parse HEAD failed", "task_id", task.ID, "error", err)
+		return
+	}
+	if strings.TrimSpace(string(head)) == baseSHA {
+		return // the attempt produced nothing to preserve
+	}
+	if out, err := pr.runGit(ctx, "branch", "-f", branch, "HEAD"); err != nil {
+		slog.Error("park: create wip branch failed", "task_id", task.ID, "error", err, "output", string(out))
+		return
+	}
+	if out, err := pr.runGit(ctx, "push", "origin", branch); err != nil {
+		slog.Warn("park: push wip branch failed (kept on local branch + reflog)",
+			"task_id", task.ID, "branch", branch, "error", err, "output", string(out))
+	}
 }
 
 func (e *Executor) syncSpec(ctx context.Context, pr *projectRunner, task *models.Task) error {
