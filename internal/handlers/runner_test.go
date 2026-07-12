@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"botka/internal/models"
 	"botka/internal/runner"
 )
 
@@ -113,6 +114,68 @@ func TestClearRateLimit_ResetsGate(t *testing.T) {
 	}
 	if gate.IsActive() {
 		t.Error("expected gate to be cleared after POST /runner/clear-rate-limit")
+	}
+}
+
+func TestForceRun_InvalidID(t *testing.T) {
+	router := gin.New()
+	h := &RunnerHandler{} // nil runner — only parameter parsing is exercised
+	router.POST("/api/v1/tasks/:id/force-run", h.ForceRun)
+
+	w := doRequest(router, http.MethodPost, "/api/v1/tasks/not-a-uuid/force-run", "")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestForceRun_NotFound(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	usage := runner.NewUsageMonitor("", 0.99, 0.99)
+	r := runner.NewRunnerForTest(db, usage, runner.NewRateLimitGate(nil))
+	router := newRunnerTestRouter(r)
+
+	w := doRequest(router, http.MethodPost, "/api/v1/tasks/"+uuid.New().String()+"/force-run", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestForceRun_NotQueued(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createTestProject(t, db)
+	task := createTestTask(t, db, proj.ID, models.TaskStatusDone)
+	usage := runner.NewUsageMonitor("", 0.99, 0.99)
+	r := runner.NewRunnerForTest(db, usage, runner.NewRateLimitGate(nil))
+	router := newRunnerTestRouter(r)
+
+	w := doRequest(router, http.MethodPost, "/api/v1/tasks/"+task.ID.String()+"/force-run", "")
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestForceRun_Success(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createTestProject(t, db)
+	task := createTestTask(t, db, proj.ID, models.TaskStatusQueued)
+	usage := runner.NewUsageMonitor("", 0.99, 0.99)
+	r := runner.NewRunnerForTest(db, usage, runner.NewRateLimitGate(nil))
+	r.SetLaunchHookForTest(func(*models.Task, *models.TaskExecution) bool { return true })
+	router := newRunnerTestRouter(r)
+
+	w := doRequest(router, http.MethodPost, "/api/v1/tasks/"+task.ID.String()+"/force-run", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var reloaded models.Task
+	if err := db.First(&reloaded, "id = ?", task.ID).Error; err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if reloaded.Status != models.TaskStatusRunning {
+		t.Errorf("expected running, got %s", reloaded.Status)
 	}
 }
 
