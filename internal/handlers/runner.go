@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 
 	"botka/internal/runner"
 )
@@ -30,6 +32,7 @@ func RegisterRunnerRoutes(rg *gin.RouterGroup, h *RunnerHandler) {
 	rg.POST("/runner/usage/refresh", h.RefreshUsage)
 	rg.POST("/runner/clear-rate-limit", h.ClearRateLimit)
 	rg.POST("/tasks/:id/kill", h.KillTask)
+	rg.POST("/tasks/:id/force-run", h.ForceRun)
 	rg.POST("/tasks/:id/regenerate-summary", h.RegenerateFailureSummary)
 }
 
@@ -95,6 +98,38 @@ func (h *RunnerHandler) KillTask(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"message": "Task kill initiated"}})
+}
+
+// ForceRun launches a specific queued task immediately, bypassing the rate-limit
+// gates. Backs the "Spustit teď" button for tasks stuck behind an exhausted 5h
+// limit.
+func (h *RunnerHandler) ForceRun(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "invalid task id")
+		return
+	}
+	task, err := h.runner.ForceRunTask(id)
+	if err != nil {
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			respondError(c, http.StatusNotFound, "task not found")
+		case errors.Is(err, runner.ErrTaskNotQueued):
+			respondError(c, http.StatusConflict, "task is not queued")
+		case errors.Is(err, runner.ErrRunnerStopped):
+			respondError(c, http.StatusConflict, "runner is stopped; start it first")
+		case errors.Is(err, runner.ErrWorkersBusy):
+			respondError(c, http.StatusConflict, "all workers are busy")
+		case errors.Is(err, runner.ErrProjectBusy):
+			respondError(c, http.StatusConflict, "another task on this project is already running")
+		case errors.Is(err, runner.ErrLaunchRace):
+			respondError(c, http.StatusConflict, "could not launch the task right now; try again")
+		default:
+			respondError(c, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	respondOK(c, task)
 }
 
 // regenerateFailureSummaryTimeout caps how long a synchronous regenerate

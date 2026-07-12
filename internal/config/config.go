@@ -19,6 +19,7 @@ type Config struct {
 	ClaudePath                 string
 	ClaudeUsageCmd             string
 	MaxWorkers                 int
+	TaskTimeout                time.Duration
 	UsageThreshold5h           float64
 	UsageThreshold7d           float64
 	OpenClawURL                string
@@ -72,6 +73,11 @@ func Load() (*Config, error) {
 	maxWorkers, err := getEnvInt("MAX_WORKERS", 2)
 	if err != nil {
 		return nil, fmt.Errorf("parsing MAX_WORKERS: %w", err)
+	}
+
+	taskTimeout, err := time.ParseDuration(getEnv("TASK_TIMEOUT", "90m"))
+	if err != nil {
+		return nil, fmt.Errorf("parsing TASK_TIMEOUT: %w", err)
 	}
 
 	whisperEnabled, err := getEnvBool("WHISPER_ENABLED", true)
@@ -144,6 +150,7 @@ func Load() (*Config, error) {
 		ClaudePath:                 getEnv("CLAUDE_PATH", "claude"),
 		ClaudeUsageCmd:             getEnv("CLAUDE_USAGE_CMD", "/home/pi/bin/claude-usage"),
 		MaxWorkers:                 maxWorkers,
+		TaskTimeout:                taskTimeout,
 		UsageThreshold5h:           threshold5h,
 		UsageThreshold7d:           threshold7d,
 		OpenClawURL:                getEnv("OPENCLAW_URL", "http://localhost:18789"),

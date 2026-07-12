@@ -174,6 +174,10 @@ export function killTask(id: string): Promise<{ message: string }> {
   return requestData<{ message: string }>(`/tasks/${id}/kill`, { method: 'POST' })
 }
 
+export function forceRunTask(id: string): Promise<Task> {
+  return requestData<Task>(`/tasks/${id}/force-run`, { method: 'POST' })
+}
+
 export function regenerateTaskFailureSummary(id: string): Promise<{ failure_summary: string }> {
   return requestData<{ failure_summary: string }>(`/tasks/${id}/regenerate-summary`, { method: 'POST' })
 }

@@ -26,6 +26,10 @@ type Executor struct {
 	remoteClaudePath string // unresolved claude binary path to use on the remote host
 	waker            *box.Waker
 	sshTarget        string
+	// execTimeout caps how long the Claude agent subprocess may run for a single
+	// attempt. Zero means fall back to defaultExecTimeout (used by tests that
+	// build an Executor literal); production sets it from config.TaskTimeout.
+	execTimeout time.Duration
 	// onPhase, when set, is called immediately before the executor enters each
 	// step of the pipeline. The Runner wires it to a persist-and-broadcast
 	// callback. It must never fail the run — implementations swallow their own
@@ -37,7 +41,11 @@ type Executor struct {
 // If claudePath is empty or "claude", it will be resolved via exec.LookPath.
 // waker and sshTarget may be nil/empty if the deployment has no Box host;
 // remote projects will then fail fast when execution is attempted.
-func NewExecutor(claudePath string, waker *box.Waker, sshTarget string) (*Executor, error) {
+// taskTimeout caps a single agent attempt; a non-positive value falls back to
+// defaultExecTimeout.
+func NewExecutor(
+	claudePath string, waker *box.Waker, sshTarget string, taskTimeout time.Duration,
+) (*Executor, error) {
 	resolved, err := exec.LookPath(claudePath)
 	if err != nil {
 		return nil, fmt.Errorf("claude CLI not found at %q: %w", claudePath, err)
@@ -47,7 +55,17 @@ func NewExecutor(claudePath string, waker *box.Waker, sshTarget string) (*Execut
 		remoteClaudePath: claudePath,
 		waker:            waker,
 		sshTarget:        sshTarget,
+		execTimeout:      taskTimeout,
 	}, nil
+}
+
+// agentTimeout returns the per-attempt cap for the Claude agent subprocess,
+// falling back to defaultExecTimeout when execTimeout is unset (zero or negative).
+func (e *Executor) agentTimeout() time.Duration {
+	if e.execTimeout <= 0 {
+		return defaultExecTimeout
+	}
+	return e.execTimeout
 }
 
 // ExecutionResult holds the outcome of a task execution attempt.
@@ -78,7 +96,10 @@ type spawnOutput struct {
 }
 
 const (
-	execTimeout         = 30 * time.Minute
+	// defaultExecTimeout bounds the Claude agent subprocess when no timeout is
+	// configured (Executor.execTimeout == 0), e.g. in unit tests that build an
+	// Executor literal. Production callers set it from config.TaskTimeout.
+	defaultExecTimeout  = 30 * time.Minute
 	verifyTimeout       = 5 * time.Minute
 	gracefulStopTimeout = 10 * time.Second
 	maxRetries          = 1
@@ -113,7 +134,7 @@ func (e *Executor) Execute(
 		}
 	}
 
-	execCtx, cancel := context.WithTimeout(ctx, execTimeout)
+	execCtx, cancel := context.WithTimeout(ctx, e.agentTimeout())
 	defer cancel()
 
 	e.recordPhase(task, models.RunPhaseAgent)

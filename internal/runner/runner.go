@@ -39,6 +39,32 @@ const (
 	orphanGracePeriod = 30 * time.Second
 )
 
+// Force-run outcome sentinels, mapped to HTTP status codes by the handler.
+var (
+	// ErrRunnerStopped is returned when force-run is attempted while the runner
+	// is hard-stopped.
+	ErrRunnerStopped = errors.New("runner is stopped")
+	// ErrTaskNotQueued is returned when the target task is not in the queued
+	// state.
+	ErrTaskNotQueued = errors.New("task is not queued")
+	// ErrWorkersBusy is returned when all worker slots are occupied.
+	ErrWorkersBusy = errors.New("all workers are busy")
+	// ErrProjectBusy is returned when the pre-flight check finds the task's
+	// project already has a running task (an in-memory executor is present).
+	ErrProjectBusy = errors.New("another task on this project is already running")
+	// ErrLaunchRace is returned when the task could not be claimed or
+	// launched because of a race between the pre-flight check and the actual
+	// claim/launch step: the task stopped being eligible (its status changed
+	// underneath us, or a concurrent transaction claimed it first) or a
+	// worker/project slot was taken in the gap between the pre-flight check
+	// and launchTask. Distinct from ErrProjectBusy, which means the
+	// pre-flight itself already found the project busy in memory — this one
+	// means the pre-flight passed but reality changed before the claim or
+	// launch completed. The caller should treat it as transient and may
+	// retry.
+	ErrLaunchRace = errors.New("could not launch the task right now; try again")
+)
+
 // activeTask tracks a currently executing task.
 type activeTask struct {
 	task      *models.Task
@@ -105,6 +131,10 @@ type Runner struct {
 	resetsAtFn     func() time.Time          // overridable for testing; nil reads from usageMon
 	pushNotifier   PushNotifier              // optional; nil disables push triggers
 	rateLimitGate  *RateLimitGate
+	// launchFn, when non-nil, replaces launchTask. Test-only seam (like pingFn /
+	// activityFn / resetsAtFn) so force-run tests can assert launch behavior
+	// without spawning a real Claude subprocess.
+	launchFn func(task *models.Task, execution *models.TaskExecution) bool
 }
 
 // NewRunner creates a new Runner instance and loads persisted state from the database.
@@ -114,7 +144,7 @@ func NewRunner(db *gorm.DB, cfg *config.Config, usageMon *UsageMonitor, boxWaker
 	if boxWaker != nil {
 		sshTarget = boxWaker.SSHTarget()
 	}
-	exec, err := NewExecutor(cfg.ClaudePath, boxWaker, sshTarget)
+	exec, err := NewExecutor(cfg.ClaudePath, boxWaker, sshTarget, cfg.TaskTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -605,6 +635,111 @@ func (r *Runner) pickNextTask(
 	return t, exec, nil
 }
 
+// pickTaskByID claims one specific queued task by ID, bypassing the scheduler's
+// gate checks and priority ordering. It still enforces one-running-per-project
+// via the NOT EXISTS subquery and FOR UPDATE SKIP LOCKED, with the DB unique
+// index as the final backstop. Returns (nil, nil, nil) when the task is no
+// longer eligible (status changed, or the project already has a running task).
+func (r *Runner) pickTaskByID(
+	taskID uuid.UUID,
+) (*models.Task, *models.TaskExecution, error) {
+	tx := r.db.Begin()
+	if tx.Error != nil {
+		return nil, nil, fmt.Errorf("begin transaction: %w", tx.Error)
+	}
+	defer tx.Rollback() //nolint:errcheck // safe no-op after commit
+
+	var task models.Task
+	err := tx.
+		Where("id = ? AND status = ?", taskID, models.TaskStatusQueued).
+		Where("NOT EXISTS (SELECT 1 FROM tasks t2 WHERE t2.project_id = tasks.project_id AND t2.status = ?)", models.TaskStatusRunning).
+		Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+		First(&task).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("query task: %w", err)
+	}
+
+	t, exec, err := r.claimTask(tx, &task)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	return t, exec, nil
+}
+
+// ForceRunTask launches a specific queued task immediately, bypassing both
+// rate-limit gates (the UsageMonitor 5h/7d threshold and the RateLimitGate
+// cooldown). It backs the "Spustit teď" escape hatch for tasks stuck behind an
+// exhausted limit. It still honors the hard invariants: the runner must not be
+// hard-stopped, a worker slot must be free, and the task's project must have no
+// other running task. A forced task runs through the normal executeTask path, so
+// if it fails on a genuine rate-limit error the gate re-arms itself.
+func (r *Runner) ForceRunTask(taskID uuid.UUID) (*models.Task, error) {
+	var task models.Task
+	if err := r.db.First(&task, "id = ?", taskID).Error; err != nil {
+		return nil, err // gorm.ErrRecordNotFound maps to 404 in the handler
+	}
+	if task.Status != models.TaskStatusQueued {
+		return nil, ErrTaskNotQueued
+	}
+
+	// Pre-flight capacity check under the lock (mirrors collectTickState +
+	// launchTask). The lock is released before the claim transaction; the DB
+	// unique index and launchTask's re-check are the final authority, exactly as
+	// in the normal tick path.
+	r.mu.Lock()
+	if r.state == models.StateStopped {
+		r.mu.Unlock()
+		return nil, ErrRunnerStopped
+	}
+	if len(r.executors) >= r.maxWorkers {
+		r.mu.Unlock()
+		return nil, ErrWorkersBusy
+	}
+	if _, busy := r.executors[task.ProjectID]; busy {
+		r.mu.Unlock()
+		return nil, ErrProjectBusy
+	}
+	r.mu.Unlock()
+
+	claimed, execution, err := r.pickTaskByID(taskID)
+	if err != nil {
+		return nil, fmt.Errorf("claim task: %w", err)
+	}
+	if claimed == nil {
+		// Lost the race: status changed or the project became busy between the
+		// pre-flight check and the claim.
+		return nil, ErrLaunchRace
+	}
+
+	// Snapshot the claimed task (status = running, started_at advanced) before
+	// handing the pointer to doLaunch. In production doLaunch reaches
+	// `go r.executeTask(...)`, whose goroutine mutates exported, json-tagged
+	// fields of *claimed (BaseCommitSHA, HeadCommitSHA, RunPhase, Status,
+	// FailureReason, UpdatedAt) concurrently with this function returning. The
+	// caller JSON-marshals whatever ForceRunTask returns on the HTTP goroutine,
+	// so returning the live pointer would be an unsynchronized read/write race.
+	// A shallow copy is safe here because the executor only ever assigns new
+	// pointers to those fields — it never mutates through the pointers already
+	// on this snapshot.
+	snapshot := *claimed
+
+	if !r.doLaunch(claimed, execution) {
+		// launchTask requeued it (a worker slot or the project was taken in the
+		// gap between the pre-flight check and the launch).
+		return nil, ErrLaunchRace
+	}
+
+	slog.Info("force-run: launched task past rate-limit gates",
+		"task_id", claimed.ID, "project_id", claimed.ProjectID)
+	return &snapshot, nil
+}
+
 // buildPickQuery constructs the GORM query for finding the next eligible task.
 // Uses SELECT FOR UPDATE SKIP LOCKED for safe concurrent access without blocking.
 // Excludes projects that already have a running task (one task per project) to
@@ -675,8 +810,24 @@ func (r *Runner) claimTask(
 	return task, &execution, nil
 }
 
-func (r *Runner) launchTask(task *models.Task, execution *models.TaskExecution) {
+func (r *Runner) launchTask(task *models.Task, execution *models.TaskExecution) bool {
 	r.mu.Lock()
+
+	// Re-check the runner state under the lock: a caller (force-run's claim,
+	// or tick's pickNextTask) can pass its pre-flight check, release r.mu for
+	// the DB round-trip, and lose a race with HardStop, which sets state and
+	// cancels only the executors present at that instant. Without this check
+	// a task claimed just after HardStop would still be launched with a fresh
+	// context.Background(), running unbounded on a runner the user just
+	// stopped.
+	if r.state == models.StateStopped {
+		r.mu.Unlock()
+		slog.Warn("scheduler: refusing to launch task, runner was hard-stopped",
+			"task_id", task.ID, "project_id", task.ProjectID)
+		r.unclaimTask(task)
+		return false
+	}
+
 	if existing, ok := r.executors[task.ProjectID]; ok {
 		r.mu.Unlock()
 		slog.Error("scheduler: refusing to launch second task for same project",
@@ -684,7 +835,7 @@ func (r *Runner) launchTask(task *models.Task, execution *models.TaskExecution) 
 			"existing_task", existing.task.ID,
 			"new_task", task.ID)
 		r.unclaimTask(task)
-		return
+		return false
 	}
 
 	if len(r.executors) >= r.maxWorkers {
@@ -692,7 +843,7 @@ func (r *Runner) launchTask(task *models.Task, execution *models.TaskExecution) 
 		slog.Warn("scheduler: worker limit reached, requeuing task",
 			"task_id", task.ID, "current_workers", len(r.executors), "max_workers", r.maxWorkers)
 		r.unclaimTask(task)
-		return
+		return false
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -711,6 +862,23 @@ func (r *Runner) launchTask(task *models.Task, execution *models.TaskExecution) 
 
 	r.wg.Add(1)
 	go r.executeTask(ctx, task, execution, buf)
+	return true
+}
+
+// doLaunch launches a task, honoring a test override if one is installed. Used
+// by ForceRunTask so tests can stub the launch; the scheduler's tick calls
+// launchTask directly.
+func (r *Runner) doLaunch(task *models.Task, execution *models.TaskExecution) bool {
+	if r.launchFn != nil {
+		return r.launchFn(task, execution)
+	}
+	return r.launchTask(task, execution)
+}
+
+// SetLaunchHookForTest installs a launch override. Intended for tests; production
+// code leaves launchFn nil so doLaunch calls launchTask.
+func (r *Runner) SetLaunchHookForTest(fn func(task *models.Task, execution *models.TaskExecution) bool) {
+	r.launchFn = fn
 }
 
 // unclaimTask returns a freshly claimed task to the queue without counting it as
@@ -1000,8 +1168,8 @@ func (r *Runner) resetTreeToBase(task *models.Task) {
 // commitLeftovers is the terminal-path safety net: on a task's final outcome it
 // commits and pushes any work the agent left uncommitted in the working tree,
 // so a task never ends `done`/`failed` with dirty, un-saved changes (the usual
-// cause: the 30-minute timeout killing the agent mid-`make check`, before it
-// committed). On a user kill GitRevert has already cleaned the tree, so this is
+// cause: the execution timeout (TASK_TIMEOUT) killing the agent mid-`make check`,
+// before it committed). On a user kill GitRevert has already cleaned the tree, so this is
 // a no-op there; likewise for a clean success. It runs before the terminal
 // status write and only when an executor is wired (skipped in unit tests).
 func (r *Runner) commitLeftovers(task *models.Task) {

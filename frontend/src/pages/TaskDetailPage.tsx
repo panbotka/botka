@@ -18,6 +18,7 @@ import {
   ChevronDown,
   ChevronRight,
   Play,
+  Zap,
   Ban,
   RefreshCw,
   Sparkles,
@@ -28,7 +29,7 @@ import TaskOutputView from '../components/TaskOutputView'
 import TaskChangesSection from '../components/TaskChangesSection'
 import { TaskTagPicker } from '../components/TaskTagPicker'
 import { TaskNotesSection } from '../components/TaskNotesSection'
-import { fetchTask, retryTask, deleteTask, updateTask, killTask, fetchTaskRawOutput, regenerateTaskFailureSummary } from '../api/client'
+import { fetchTask, retryTask, deleteTask, updateTask, killTask, forceRunTask, fetchTaskRawOutput, regenerateTaskFailureSummary } from '../api/client'
 import { parseNDJSON, type TaskOutputEvent } from '../utils/parseNDJSON'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import { useTaskEvents } from '../hooks/useTaskEvents'
@@ -150,6 +151,18 @@ function TaskDetail({ taskId }: { taskId: string }) {
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Retry failed')
+    } finally {
+      setActing(false)
+    }
+  }
+
+  async function handleForceRun() {
+    setActing(true)
+    try {
+      await forceRunTask(taskId)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Force run failed')
     } finally {
       setActing(false)
     }
@@ -416,6 +429,17 @@ function TaskDetail({ taskId }: { taskId: string }) {
       {/* Actions */}
       {task.status !== 'running' && (
         <div className="flex gap-3">
+          {task.status === 'queued' && (
+            <button
+              onClick={handleForceRun}
+              disabled={acting}
+              title="Obejde rate-limit bránu a spustí task hned"
+              className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+            >
+              <Zap className="h-3.5 w-3.5" />
+              Spustit teď
+            </button>
+          )}
           {task.status === 'pending' && (
             <button
               onClick={handleQueue}
