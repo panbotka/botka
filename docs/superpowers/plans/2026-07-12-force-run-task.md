@@ -16,7 +16,7 @@
 - Force operates on `queued` tasks only. It bypasses both rate-limit gates but refuses when the runner is `Stopped`, when all workers are busy, or when the task's project already has a running task.
 - Every git commit message ends with the trailer:
   `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
-- Work happens on branch `feat/force-run-task` (already created). Stage only the files each task touches — the working tree has unrelated pre-existing modifications that must NOT be committed.
+- Work happens on branch `feat/force-run-task` (already created). The working tree is clean at the start of Task 1. Stage only the files your task touches.
 
 ## File Map
 
