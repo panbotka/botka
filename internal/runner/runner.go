@@ -114,7 +114,7 @@ func NewRunner(db *gorm.DB, cfg *config.Config, usageMon *UsageMonitor, boxWaker
 	if boxWaker != nil {
 		sshTarget = boxWaker.SSHTarget()
 	}
-	exec, err := NewExecutor(cfg.ClaudePath, boxWaker, sshTarget)
+	exec, err := NewExecutor(cfg.ClaudePath, boxWaker, sshTarget, cfg.TaskTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -1000,8 +1000,8 @@ func (r *Runner) resetTreeToBase(task *models.Task) {
 // commitLeftovers is the terminal-path safety net: on a task's final outcome it
 // commits and pushes any work the agent left uncommitted in the working tree,
 // so a task never ends `done`/`failed` with dirty, un-saved changes (the usual
-// cause: the 30-minute timeout killing the agent mid-`make check`, before it
-// committed). On a user kill GitRevert has already cleaned the tree, so this is
+// cause: the execution timeout (TASK_TIMEOUT) killing the agent mid-`make check`,
+// before it committed). On a user kill GitRevert has already cleaned the tree, so this is
 // a no-op there; likewise for a clean success. It runs before the terminal
 // status write and only when an executor is wired (skipped in unit tests).
 func (r *Runner) commitLeftovers(task *models.Task) {

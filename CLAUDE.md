@@ -196,6 +196,7 @@ Exposes 19 tools across categories: task management (create_task, list_tasks, ge
 | `CLAUDE_CONTEXT_DIR` | `./data/context` | Directory for assembled context files |
 | `CLAUDE_DEFAULT_WORK_DIR` | `/home/pi` | Default working directory for Claude chat sessions |
 | `MAX_WORKERS` | `2` | Concurrent task execution slots |
+| `TASK_TIMEOUT` | `90m` | Per-attempt cap on the Claude agent subprocess (Go duration). Bounds only the `agent` phase — verification (`verifyTimeout`, 5m) and the PR push run outside it, and a retry gets a fresh full window. A non-positive value falls back to the built-in `defaultExecTimeout` (30m) |
 | `USAGE_THRESHOLD_5H` | `0.90` | 5-hour rate limit threshold (fraction) |
 | `USAGE_THRESHOLD_7D` | `0.95` | 7-day rate limit threshold (fraction) |
 | `OPENCLAW_URL` | `http://localhost:18789` | OpenClaw Whisper transcription endpoint |

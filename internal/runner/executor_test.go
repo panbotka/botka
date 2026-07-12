@@ -10,6 +10,29 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestExecutor_agentTimeout(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		set  time.Duration
+		want time.Duration
+	}{
+		{"zero falls back to default", 0, defaultExecTimeout},
+		{"negative falls back to default", -5 * time.Minute, defaultExecTimeout},
+		{"positive value is used", 90 * time.Minute, 90 * time.Minute},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := &Executor{execTimeout: tt.set}
+			if got := e.agentTimeout(); got != tt.want {
+				t.Errorf("agentTimeout() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestClassifyOutcome_Timeout(t *testing.T) {
 	tests := []struct {
 		name       string

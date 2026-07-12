@@ -2,6 +2,7 @@ package config
 
 import (
 	"testing"
+	"time"
 )
 
 // --- getEnv tests ---
@@ -214,7 +215,7 @@ func TestLoad_Defaults(t *testing.T) {
 	// Clear all config-relevant env vars to ensure defaults are used.
 	envVars := []string{
 		"PORT", "DATABASE_URL", "PROJECTS_DIR", "CLAUDE_PATH",
-		"CLAUDE_USAGE_CMD", "MAX_WORKERS",
+		"CLAUDE_USAGE_CMD", "MAX_WORKERS", "TASK_TIMEOUT",
 		"USAGE_THRESHOLD_5H", "USAGE_THRESHOLD_7D", "OPENCLAW_URL",
 		"OPENCLAW_TOKEN", "OPENCLAW_WORKSPACE", "CLAUDE_CONTEXT_DIR",
 		"CLAUDE_DEFAULT_WORK_DIR", "WHISPER_ENABLED", "UPLOAD_DIR",
@@ -244,6 +245,9 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.MaxWorkers != 2 {
 		t.Errorf("MaxWorkers = %d, want %d", cfg.MaxWorkers, 2)
 	}
+	if cfg.TaskTimeout != 90*time.Minute {
+		t.Errorf("TaskTimeout = %v, want %v", cfg.TaskTimeout, 90*time.Minute)
+	}
 	if cfg.UsageThreshold5h != 0.90 {
 		t.Errorf("UsageThreshold5h = %f, want %f", cfg.UsageThreshold5h, 0.90)
 	}
@@ -262,6 +266,24 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.SignalCLIURL != "http://127.0.0.1:5107" {
 		t.Errorf("SignalCLIURL = %q, want %q", cfg.SignalCLIURL, "http://127.0.0.1:5107")
+	}
+}
+
+func TestLoad_TaskTimeoutCustom(t *testing.T) {
+	t.Setenv("TASK_TIMEOUT", "2h30m")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+	if cfg.TaskTimeout != 2*time.Hour+30*time.Minute {
+		t.Errorf("TaskTimeout = %v, want %v", cfg.TaskTimeout, 2*time.Hour+30*time.Minute)
+	}
+}
+
+func TestLoad_TaskTimeoutInvalid(t *testing.T) {
+	t.Setenv("TASK_TIMEOUT", "not_a_duration")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error for invalid TASK_TIMEOUT, got nil")
 	}
 }
 
