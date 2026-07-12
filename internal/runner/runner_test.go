@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"sync"
@@ -730,5 +731,144 @@ func TestKillTask_IdempotentAfterCompletion(t *testing.T) {
 	err = r.KillTask(taskID)
 	if err == nil {
 		t.Fatal("expected error on second kill attempt")
+	}
+}
+
+// newForceRunner builds a StateRunning runner whose gates report "ready" so
+// ForceRunTask tests exercise only the force logic, not the gate bypass path.
+func newForceRunner(db *gorm.DB) *Runner {
+	usage := NewUsageMonitor("", 0.99, 0.99)
+	usage.lastPollOK = true
+	return &Runner{
+		db:             db,
+		state:          models.StateRunning,
+		maxWorkers:     2,
+		executors:      make(map[uuid.UUID]*activeTask),
+		buffers:        make(map[uuid.UUID]*Buffer),
+		retryNotBefore: make(map[uuid.UUID]time.Time),
+		usageMon:       usage,
+		rateLimitGate:  NewRateLimitGate(nil),
+		TaskEvents:     NewTaskEventHub(),
+	}
+}
+
+func TestForceRunTask_LaunchesDespiteActiveGates(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	proj := createProject(t, db, "project-force")
+	task := createTask(t, db, proj.ID, "stuck-task", models.TaskStatusQueued)
+
+	// Both gates would block a normal tick: usage never polled OK (rate limited),
+	// and the rate-limit gate is paused.
+	usage := NewUsageMonitor("", 0.99, 0.99)
+	usage.lastPollOK = false // IsRateLimited() == true
+	gate := NewRateLimitGate(nil)
+	gate.PauseUntil(time.Now().Add(2*time.Hour), "test pause", uuid.New())
+
+	var launched *models.Task
+	r := &Runner{
+		db:             db,
+		state:          models.StateRunning,
+		maxWorkers:     2,
+		executors:      make(map[uuid.UUID]*activeTask),
+		buffers:        make(map[uuid.UUID]*Buffer),
+		retryNotBefore: make(map[uuid.UUID]time.Time),
+		usageMon:       usage,
+		rateLimitGate:  gate,
+		TaskEvents:     NewTaskEventHub(),
+		launchFn: func(tk *models.Task, _ *models.TaskExecution) bool {
+			launched = tk
+			return true
+		},
+	}
+
+	got, err := r.ForceRunTask(task.ID)
+	if err != nil {
+		t.Fatalf("ForceRunTask: %v", err)
+	}
+	if got == nil || got.ID != task.ID {
+		t.Fatalf("expected returned task %v, got %v", task.ID, got)
+	}
+	if launched == nil || launched.ID != task.ID {
+		t.Fatalf("expected launch hook called with task %v, got %v", task.ID, launched)
+	}
+	var reloaded models.Task
+	if err := db.First(&reloaded, "id = ?", task.ID).Error; err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if reloaded.Status != models.TaskStatusRunning {
+		t.Errorf("expected task running, got %s", reloaded.Status)
+	}
+}
+
+func TestForceRunTask_RefusesNonQueued(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createProject(t, db, "force-nq")
+	task := createTask(t, db, proj.ID, "done-task", models.TaskStatusDone)
+
+	called := false
+	r := newForceRunner(db)
+	r.launchFn = func(*models.Task, *models.TaskExecution) bool { called = true; return true }
+
+	if _, err := r.ForceRunTask(task.ID); !errors.Is(err, ErrTaskNotQueued) {
+		t.Fatalf("want ErrTaskNotQueued, got %v", err)
+	}
+	if called {
+		t.Error("launch hook must not be called for a non-queued task")
+	}
+}
+
+func TestForceRunTask_RefusesWhenStopped(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createProject(t, db, "force-stopped")
+	task := createTask(t, db, proj.ID, "q", models.TaskStatusQueued)
+
+	r := newForceRunner(db)
+	r.state = models.StateStopped
+
+	if _, err := r.ForceRunTask(task.ID); !errors.Is(err, ErrRunnerStopped) {
+		t.Fatalf("want ErrRunnerStopped, got %v", err)
+	}
+	var reloaded models.Task
+	if err := db.First(&reloaded, "id = ?", task.ID).Error; err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if reloaded.Status != models.TaskStatusQueued {
+		t.Errorf("task must stay queued, got %s", reloaded.Status)
+	}
+}
+
+func TestForceRunTask_RefusesWhenWorkersBusy(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	projA := createProject(t, db, "force-a")
+	projB := createProject(t, db, "force-b")
+	taskA := createTask(t, db, projA.ID, "a", models.TaskStatusRunning)
+	task := createTask(t, db, projB.ID, "b", models.TaskStatusQueued)
+
+	r := newForceRunner(db)
+	r.maxWorkers = 1
+	r.executors[projA.ID] = &activeTask{task: &taskA, execution: &models.TaskExecution{TaskID: taskA.ID}}
+
+	if _, err := r.ForceRunTask(task.ID); !errors.Is(err, ErrWorkersBusy) {
+		t.Fatalf("want ErrWorkersBusy, got %v", err)
+	}
+}
+
+func TestForceRunTask_RefusesWhenProjectBusy(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createProject(t, db, "force-proj-busy")
+	running := createTask(t, db, proj.ID, "running", models.TaskStatusRunning)
+	task := createTask(t, db, proj.ID, "queued", models.TaskStatusQueued)
+
+	r := newForceRunner(db)
+	r.executors[proj.ID] = &activeTask{task: &running, execution: &models.TaskExecution{TaskID: running.ID}}
+
+	if _, err := r.ForceRunTask(task.ID); !errors.Is(err, ErrProjectBusy) {
+		t.Fatalf("want ErrProjectBusy, got %v", err)
 	}
 }

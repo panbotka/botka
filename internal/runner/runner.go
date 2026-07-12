@@ -39,6 +39,21 @@ const (
 	orphanGracePeriod = 30 * time.Second
 )
 
+// Force-run outcome sentinels, mapped to HTTP status codes by the handler.
+var (
+	// ErrRunnerStopped is returned when force-run is attempted while the runner
+	// is hard-stopped.
+	ErrRunnerStopped = errors.New("runner is stopped")
+	// ErrTaskNotQueued is returned when the target task is not in the queued
+	// state.
+	ErrTaskNotQueued = errors.New("task is not queued")
+	// ErrWorkersBusy is returned when all worker slots are occupied.
+	ErrWorkersBusy = errors.New("all workers are busy")
+	// ErrProjectBusy is returned when the task's project already has a running
+	// task.
+	ErrProjectBusy = errors.New("another task on this project is already running")
+)
+
 // activeTask tracks a currently executing task.
 type activeTask struct {
 	task      *models.Task
@@ -609,6 +624,95 @@ func (r *Runner) pickNextTask(
 	return t, exec, nil
 }
 
+// pickTaskByID claims one specific queued task by ID, bypassing the scheduler's
+// gate checks and priority ordering. It still enforces one-running-per-project
+// via the NOT EXISTS subquery and FOR UPDATE SKIP LOCKED, with the DB unique
+// index as the final backstop. Returns (nil, nil, nil) when the task is no
+// longer eligible (status changed, or the project already has a running task).
+func (r *Runner) pickTaskByID(
+	taskID uuid.UUID,
+) (*models.Task, *models.TaskExecution, error) {
+	tx := r.db.Begin()
+	if tx.Error != nil {
+		return nil, nil, fmt.Errorf("begin transaction: %w", tx.Error)
+	}
+	defer tx.Rollback() //nolint:errcheck // safe no-op after commit
+
+	var task models.Task
+	err := tx.
+		Where("id = ? AND status = ?", taskID, models.TaskStatusQueued).
+		Where("NOT EXISTS (SELECT 1 FROM tasks t2 WHERE t2.project_id = tasks.project_id AND t2.status = ?)", models.TaskStatusRunning).
+		Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+		First(&task).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("query task: %w", err)
+	}
+
+	t, exec, err := r.claimTask(tx, &task)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	return t, exec, nil
+}
+
+// ForceRunTask launches a specific queued task immediately, bypassing both
+// rate-limit gates (the UsageMonitor 5h/7d threshold and the RateLimitGate
+// cooldown). It backs the "Spustit teď" escape hatch for tasks stuck behind an
+// exhausted limit. It still honors the hard invariants: the runner must not be
+// hard-stopped, a worker slot must be free, and the task's project must have no
+// other running task. A forced task runs through the normal executeTask path, so
+// if it fails on a genuine rate-limit error the gate re-arms itself.
+func (r *Runner) ForceRunTask(taskID uuid.UUID) (*models.Task, error) {
+	var task models.Task
+	if err := r.db.First(&task, "id = ?", taskID).Error; err != nil {
+		return nil, err // gorm.ErrRecordNotFound maps to 404 in the handler
+	}
+	if task.Status != models.TaskStatusQueued {
+		return nil, ErrTaskNotQueued
+	}
+
+	// Pre-flight capacity check under the lock (mirrors collectTickState +
+	// launchTask). The lock is released before the claim transaction; the DB
+	// unique index and launchTask's re-check are the final authority, exactly as
+	// in the normal tick path.
+	r.mu.Lock()
+	if r.state == models.StateStopped {
+		r.mu.Unlock()
+		return nil, ErrRunnerStopped
+	}
+	if len(r.executors) >= r.maxWorkers {
+		r.mu.Unlock()
+		return nil, ErrWorkersBusy
+	}
+	if _, busy := r.executors[task.ProjectID]; busy {
+		r.mu.Unlock()
+		return nil, ErrProjectBusy
+	}
+	r.mu.Unlock()
+
+	claimed, execution, err := r.pickTaskByID(taskID)
+	if err != nil {
+		return nil, fmt.Errorf("claim task: %w", err)
+	}
+	if claimed == nil {
+		// Lost the race: status changed or the project became busy between the
+		// pre-flight check and the claim.
+		return nil, ErrProjectBusy
+	}
+	if !r.doLaunch(claimed, execution) {
+		// launchTask requeued it (a worker slot or the project was taken in the
+		// gap between the pre-flight check and the launch).
+		return nil, ErrProjectBusy
+	}
+	return claimed, nil
+}
+
 // buildPickQuery constructs the GORM query for finding the next eligible task.
 // Uses SELECT FOR UPDATE SKIP LOCKED for safe concurrent access without blocking.
 // Excludes projects that already have a running task (one task per project) to
@@ -721,7 +825,7 @@ func (r *Runner) launchTask(task *models.Task, execution *models.TaskExecution) 
 // doLaunch launches a task, honoring a test override if one is installed. Used
 // by ForceRunTask so tests can stub the launch; the scheduler's tick calls
 // launchTask directly.
-func (r *Runner) doLaunch(task *models.Task, execution *models.TaskExecution) bool { //nolint:unused
+func (r *Runner) doLaunch(task *models.Task, execution *models.TaskExecution) bool {
 	if r.launchFn != nil {
 		return r.launchFn(task, execution)
 	}
