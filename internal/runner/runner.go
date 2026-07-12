@@ -49,9 +49,20 @@ var (
 	ErrTaskNotQueued = errors.New("task is not queued")
 	// ErrWorkersBusy is returned when all worker slots are occupied.
 	ErrWorkersBusy = errors.New("all workers are busy")
-	// ErrProjectBusy is returned when the task's project already has a running
-	// task.
+	// ErrProjectBusy is returned when the pre-flight check finds the task's
+	// project already has a running task (an in-memory executor is present).
 	ErrProjectBusy = errors.New("another task on this project is already running")
+	// ErrLaunchRace is returned when the task could not be claimed or
+	// launched because of a race between the pre-flight check and the actual
+	// claim/launch step: the task stopped being eligible (its status changed
+	// underneath us, or a concurrent transaction claimed it first) or a
+	// worker/project slot was taken in the gap between the pre-flight check
+	// and launchTask. Distinct from ErrProjectBusy, which means the
+	// pre-flight itself already found the project busy in memory — this one
+	// means the pre-flight passed but reality changed before the claim or
+	// launch completed. The caller should treat it as transient and may
+	// retry.
+	ErrLaunchRace = errors.New("could not launch the task right now; try again")
 )
 
 // activeTask tracks a currently executing task.
@@ -703,17 +714,30 @@ func (r *Runner) ForceRunTask(taskID uuid.UUID) (*models.Task, error) {
 	if claimed == nil {
 		// Lost the race: status changed or the project became busy between the
 		// pre-flight check and the claim.
-		return nil, ErrProjectBusy
+		return nil, ErrLaunchRace
 	}
+
+	// Snapshot the claimed task (status = running, started_at advanced) before
+	// handing the pointer to doLaunch. In production doLaunch reaches
+	// `go r.executeTask(...)`, whose goroutine mutates exported, json-tagged
+	// fields of *claimed (BaseCommitSHA, HeadCommitSHA, RunPhase, Status,
+	// FailureReason, UpdatedAt) concurrently with this function returning. The
+	// caller JSON-marshals whatever ForceRunTask returns on the HTTP goroutine,
+	// so returning the live pointer would be an unsynchronized read/write race.
+	// A shallow copy is safe here because the executor only ever assigns new
+	// pointers to those fields — it never mutates through the pointers already
+	// on this snapshot.
+	snapshot := *claimed
+
 	if !r.doLaunch(claimed, execution) {
 		// launchTask requeued it (a worker slot or the project was taken in the
 		// gap between the pre-flight check and the launch).
-		return nil, ErrProjectBusy
+		return nil, ErrLaunchRace
 	}
 
 	slog.Info("force-run: launched task past rate-limit gates",
 		"task_id", claimed.ID, "project_id", claimed.ProjectID)
-	return claimed, nil
+	return &snapshot, nil
 }
 
 // buildPickQuery constructs the GORM query for finding the next eligible task.
@@ -788,6 +812,22 @@ func (r *Runner) claimTask(
 
 func (r *Runner) launchTask(task *models.Task, execution *models.TaskExecution) bool {
 	r.mu.Lock()
+
+	// Re-check the runner state under the lock: a caller (force-run's claim,
+	// or tick's pickNextTask) can pass its pre-flight check, release r.mu for
+	// the DB round-trip, and lose a race with HardStop, which sets state and
+	// cancels only the executors present at that instant. Without this check
+	// a task claimed just after HardStop would still be launched with a fresh
+	// context.Background(), running unbounded on a runner the user just
+	// stopped.
+	if r.state == models.StateStopped {
+		r.mu.Unlock()
+		slog.Warn("scheduler: refusing to launch task, runner was hard-stopped",
+			"task_id", task.ID, "project_id", task.ProjectID)
+		r.unclaimTask(task)
+		return false
+	}
+
 	if existing, ok := r.executors[task.ProjectID]; ok {
 		r.mu.Unlock()
 		slog.Error("scheduler: refusing to launch second task for same project",

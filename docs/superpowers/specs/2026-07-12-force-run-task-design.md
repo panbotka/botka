@@ -89,20 +89,22 @@ Reuses the existing claim/launch machinery. Sequence:
    `NOT EXISTS (running task on same project)` subquery and
    `FOR UPDATE SKIP LOCKED`, with **no gate checks and no ordering**, then
    calls the unchanged `claimTask` (`runner.go:634`). Record-not-found
-   (status changed or project became busy between steps) →
-   `ErrTaskNotQueued`. Unique violation (`isUniqueViolation`) →
-   `ErrProjectBusy`.
+   (status changed or project became busy between steps) or a caught
+   unique violation (`isUniqueViolation`) both surface as `(nil, nil, nil)`
+   — indistinguishable at that point — and `ForceRunTask` reports either as
+   `ErrLaunchRace`.
 5. `launchTask(task, execution)` — **change its signature to return
    `bool`** (`true` when the goroutine was started, `false` on the two
-   existing early-return unclaim paths). `tick()` ignores the return
-   value; `ForceRunTask` treats `false` as a lost race and returns
-   `ErrProjectBusy`. This makes the API honest: it returns success only
-   when the task actually started.
+   existing early-return unclaim paths, plus a third added later: the
+   runner was hard-stopped between the pre-flight and the lock). `tick()`
+   ignores the return value; `ForceRunTask` treats `false` as a lost race
+   and returns `ErrLaunchRace`. This makes the API honest: it returns
+   success only when the task actually started.
 
 Typed sentinel errors live in the runner package
 (`ErrRunnerStopped`, `ErrTaskNotQueued`, `ErrWorkersBusy`,
-`ErrProjectBusy`) so the handler can map each to a message without string
-matching.
+`ErrProjectBusy`, `ErrLaunchRace`) so the handler can map each to a message
+without string matching.
 
 ### REST `POST /api/v1/tasks/:id/force-run`
 
@@ -113,13 +115,36 @@ New method `RunnerHandler.ForceRun`, registered next to the existing
 
 | Result | HTTP | Body |
 |---|---|---|
-| launched | `200` | `{"data": <task>}` (reloaded, now `running`) |
+| launched | `200` | `{"data": <task>}` (a snapshot of the task taken right after the claim, before launch — see note below; reflects `running` and the advanced `started_at`) |
 | `gorm.ErrRecordNotFound` | `404` | `{"error":"task not found"}` |
 | `ErrTaskNotQueued` | `409` | `{"error":"task is not queued"}` |
 | `ErrRunnerStopped` | `409` | `{"error":"runner is stopped; start it first"}` |
 | `ErrWorkersBusy` | `409` | `{"error":"all workers are busy"}` |
 | `ErrProjectBusy` | `409` | `{"error":"another task on this project is already running"}` |
+| `ErrLaunchRace` | `409` | `{"error":"could not launch the task right now; try again"}` |
 | other | `500` | `{"error": <msg>}` |
+
+`ErrProjectBusy` is reserved for the in-memory pre-flight check finding the
+project already busy (an executor is present in `r.executors` before the
+claim is even attempted). `ErrLaunchRace` covers every other way the launch
+can lose a race after that pre-flight passed: `pickTaskByID` returning `nil`
+(status changed, or a concurrent transaction claimed the task or the
+project's only slot first — including the `idx_one_running_per_project`
+unique-violation case, which is indistinguishable from the others at that
+point) or `doLaunch` returning `false` (a worker or project slot was taken
+between the pre-flight and the launch). Collapsing these into one sentinel
+avoids telling the user "another task on this project is already running"
+when their project is in fact idle and a *different* project's task filled
+the last worker slot.
+
+**200 body is a snapshot, not the live task.** `doLaunch` reaches
+`go r.executeTask(...)` in production, and that goroutine mutates exported,
+json-tagged fields of the claimed task (`BaseCommitSHA`, `HeadCommitSHA`,
+`RunPhase`, `Status`, `FailureReason`, plus GORM's `UpdatedAt`) concurrently
+with the HTTP response being marshaled. `ForceRunTask` therefore takes a
+shallow copy of the claimed task right after the claim (so it still carries
+`status = running` and the advanced `started_at`) and returns that copy
+instead of the live pointer, avoiding an unsynchronized read/write race.
 
 ### Frontend
 
@@ -138,7 +163,7 @@ New method `RunnerHandler.ForceRun`, registered next to the existing
 
 - `internal/runner/runner.go`
   - Add `ErrRunnerStopped`, `ErrTaskNotQueued`, `ErrWorkersBusy`,
-    `ErrProjectBusy` sentinel errors.
+    `ErrProjectBusy`, `ErrLaunchRace` sentinel errors.
   - Add `ForceRunTask(taskID uuid.UUID) error`.
   - Add `pickTaskByID(taskID uuid.UUID) (*models.Task,
     *models.TaskExecution, error)` (by-ID sibling of `pickNextTask`).
@@ -166,10 +191,21 @@ type-check) must pass before commit.
     executor; no second executor is created (one-per-project preserved).
   - Refuses with `ErrTaskNotQueued` for a non-queued task.
   - Refuses with `ErrRunnerStopped` when `state == StateStopped`.
+  - Refuses with `ErrLaunchRace` when `pickTaskByID` loses the race (DB-only
+    project-busy case) and when `doLaunch` returns `false`.
+  - `doLaunch` with `launchFn` left nil delegates to the real `launchTask`
+    (the only path production takes) instead of relying on the test-only
+    hook every other force-run test installs.
+  - `launchTask` refuses and unclaims when `state == StateStopped`, closing
+    the TOCTOU window between a caller's pre-flight and the actual launch
+    for both `ForceRunTask` and the normal `tick()` path.
 - `internal/handlers/runner_test.go` (integration, needs `botka_test`)
   - `200` + status flips to `running` on success.
-  - `409` with the right message for a busy/non-queued task.
+  - `409` with the right message for a busy/non-queued/launch-race task.
   - `404` for a missing task id.
-- `frontend/src/pages/TaskDetailPage.test.tsx` (or a focused test)
+- `frontend/src/pages/TaskDetailPage.forcerun.test.tsx`
   - "Spustit teď" renders only for `queued` tasks.
-  - Clicking calls `forceRunTask` and refetches.
+  - Clicking calls `forceRunTask` and refetches (asserts `fetchTask` is
+    called a second time after a successful force).
+  - A rejected `forceRunTask` (e.g. a 409's error message) is rendered in
+    the page's error UI.

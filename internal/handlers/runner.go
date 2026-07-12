@@ -122,6 +122,8 @@ func (h *RunnerHandler) ForceRun(c *gin.Context) {
 			respondError(c, http.StatusConflict, "all workers are busy")
 		case errors.Is(err, runner.ErrProjectBusy):
 			respondError(c, http.StatusConflict, "another task on this project is already running")
+		case errors.Is(err, runner.ErrLaunchRace):
+			respondError(c, http.StatusConflict, "could not launch the task right now; try again")
 		default:
 			respondError(c, http.StatusInternalServerError, err.Error())
 		}

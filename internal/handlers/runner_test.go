@@ -179,6 +179,36 @@ func TestForceRun_Success(t *testing.T) {
 	}
 }
 
+// TestForceRun_LaunchRace covers the (c) cause of the ErrLaunchRace sentinel:
+// the pre-flight capacity check passes but the launch itself loses the race
+// (a worker or project slot was taken in the gap). This must map to 409 with
+// the launch-race message, distinct from the "project busy" message that
+// covers only the in-memory pre-flight finding the project busy up front.
+func TestForceRun_LaunchRace(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createTestProject(t, db)
+	task := createTestTask(t, db, proj.ID, models.TaskStatusQueued)
+	usage := runner.NewUsageMonitor("", 0.99, 0.99)
+	r := runner.NewRunnerForTest(db, usage, runner.NewRateLimitGate(nil))
+	r.SetLaunchHookForTest(func(*models.Task, *models.TaskExecution) bool { return false })
+	router := newRunnerTestRouter(r)
+
+	w := doRequest(router, http.MethodPost, "/api/v1/tasks/"+task.ID.String()+"/force-run", "")
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Error != "could not launch the task right now; try again" {
+		t.Errorf("unexpected error message: %q", body.Error)
+	}
+}
+
 // newTestRunner builds a runner that's wired enough for HTTP-level status
 // tests. It deliberately avoids the full NewRunner constructor (which requires
 // a real claude binary on PATH) by using the runner package's testing helper.
