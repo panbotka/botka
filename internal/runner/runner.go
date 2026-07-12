@@ -105,6 +105,10 @@ type Runner struct {
 	resetsAtFn     func() time.Time          // overridable for testing; nil reads from usageMon
 	pushNotifier   PushNotifier              // optional; nil disables push triggers
 	rateLimitGate  *RateLimitGate
+	// launchFn, when non-nil, replaces launchTask. Test-only seam (like pingFn /
+	// activityFn / resetsAtFn) so force-run tests can assert launch behavior
+	// without spawning a real Claude subprocess.
+	launchFn func(task *models.Task, execution *models.TaskExecution) bool
 }
 
 // NewRunner creates a new Runner instance and loads persisted state from the database.
@@ -675,7 +679,7 @@ func (r *Runner) claimTask(
 	return task, &execution, nil
 }
 
-func (r *Runner) launchTask(task *models.Task, execution *models.TaskExecution) {
+func (r *Runner) launchTask(task *models.Task, execution *models.TaskExecution) bool {
 	r.mu.Lock()
 	if existing, ok := r.executors[task.ProjectID]; ok {
 		r.mu.Unlock()
@@ -684,7 +688,7 @@ func (r *Runner) launchTask(task *models.Task, execution *models.TaskExecution) 
 			"existing_task", existing.task.ID,
 			"new_task", task.ID)
 		r.unclaimTask(task)
-		return
+		return false
 	}
 
 	if len(r.executors) >= r.maxWorkers {
@@ -692,7 +696,7 @@ func (r *Runner) launchTask(task *models.Task, execution *models.TaskExecution) 
 		slog.Warn("scheduler: worker limit reached, requeuing task",
 			"task_id", task.ID, "current_workers", len(r.executors), "max_workers", r.maxWorkers)
 		r.unclaimTask(task)
-		return
+		return false
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -711,6 +715,23 @@ func (r *Runner) launchTask(task *models.Task, execution *models.TaskExecution) 
 
 	r.wg.Add(1)
 	go r.executeTask(ctx, task, execution, buf)
+	return true
+}
+
+// doLaunch launches a task, honoring a test override if one is installed. Used
+// by ForceRunTask so tests can stub the launch; the scheduler's tick calls
+// launchTask directly.
+func (r *Runner) doLaunch(task *models.Task, execution *models.TaskExecution) bool { //nolint:unused
+	if r.launchFn != nil {
+		return r.launchFn(task, execution)
+	}
+	return r.launchTask(task, execution)
+}
+
+// SetLaunchHookForTest installs a launch override. Intended for tests; production
+// code leaves launchFn nil so doLaunch calls launchTask.
+func (r *Runner) SetLaunchHookForTest(fn func(task *models.Task, execution *models.TaskExecution) bool) {
+	r.launchFn = fn
 }
 
 // unclaimTask returns a freshly claimed task to the queue without counting it as

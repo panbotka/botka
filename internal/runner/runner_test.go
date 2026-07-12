@@ -223,7 +223,9 @@ func TestLaunchTask_RefusesDuplicateProject(t *testing.T) {
 	}
 
 	// Try to launch second task for the same project.
-	r.launchTask(&task2, &models.TaskExecution{TaskID: task2.ID})
+	if r.launchTask(&task2, &models.TaskExecution{TaskID: task2.ID}) {
+		t.Error("expected launchTask to return false when project is busy")
+	}
 
 	// The executor should still reference the first task.
 	r.mu.RLock()
@@ -276,7 +278,9 @@ func TestLaunchTask_RefusesWhenMaxWorkersReached(t *testing.T) {
 	}
 
 	// Try to launch a third task on a different project.
-	r.launchTask(&taskC, &models.TaskExecution{TaskID: taskC.ID})
+	if r.launchTask(&taskC, &models.TaskExecution{TaskID: taskC.ID}) {
+		t.Error("expected launchTask to return false when workers are full")
+	}
 
 	// Should still have only 2 executors.
 	r.mu.RLock()
