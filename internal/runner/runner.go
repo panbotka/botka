@@ -710,6 +710,9 @@ func (r *Runner) ForceRunTask(taskID uuid.UUID) (*models.Task, error) {
 		// gap between the pre-flight check and the launch).
 		return nil, ErrProjectBusy
 	}
+
+	slog.Info("force-run: launched task past rate-limit gates",
+		"task_id", claimed.ID, "project_id", claimed.ProjectID)
 	return claimed, nil
 }
 

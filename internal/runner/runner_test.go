@@ -736,10 +736,19 @@ func TestKillTask_IdempotentAfterCompletion(t *testing.T) {
 
 // newForceRunner builds a StateRunning runner whose gates report "ready" so
 // ForceRunTask tests exercise only the force logic, not the gate bypass path.
-func newForceRunner(db *gorm.DB) *Runner {
+//
+// launchFn is pre-installed as a fail-fast hook: if a regression ever breaks
+// the pre-flight refusal checks, a test that expects ForceRunTask to bail out
+// early would otherwise fall through to the real launchTask on a Runner whose
+// executor/config fields are nil, panicking in a background goroutine after
+// the test has already finished (a flaky truncation race, not a clean
+// failure). Tests that legitimately expect a launch must override r.launchFn
+// themselves after construction.
+func newForceRunner(t *testing.T, db *gorm.DB) *Runner {
+	t.Helper()
 	usage := NewUsageMonitor("", 0.99, 0.99)
 	usage.lastPollOK = true
-	return &Runner{
+	r := &Runner{
 		db:             db,
 		state:          models.StateRunning,
 		maxWorkers:     2,
@@ -750,6 +759,11 @@ func newForceRunner(db *gorm.DB) *Runner {
 		rateLimitGate:  NewRateLimitGate(nil),
 		TaskEvents:     NewTaskEventHub(),
 	}
+	r.launchFn = func(*models.Task, *models.TaskExecution) bool {
+		t.Fatal("launch must not be called")
+		return false
+	}
+	return r
 }
 
 func TestForceRunTask_LaunchesDespiteActiveGates(t *testing.T) {
@@ -809,7 +823,7 @@ func TestForceRunTask_RefusesNonQueued(t *testing.T) {
 	task := createTask(t, db, proj.ID, "done-task", models.TaskStatusDone)
 
 	called := false
-	r := newForceRunner(db)
+	r := newForceRunner(t, db)
 	r.launchFn = func(*models.Task, *models.TaskExecution) bool { called = true; return true }
 
 	if _, err := r.ForceRunTask(task.ID); !errors.Is(err, ErrTaskNotQueued) {
@@ -826,7 +840,7 @@ func TestForceRunTask_RefusesWhenStopped(t *testing.T) {
 	proj := createProject(t, db, "force-stopped")
 	task := createTask(t, db, proj.ID, "q", models.TaskStatusQueued)
 
-	r := newForceRunner(db)
+	r := newForceRunner(t, db)
 	r.state = models.StateStopped
 
 	if _, err := r.ForceRunTask(task.ID); !errors.Is(err, ErrRunnerStopped) {
@@ -849,7 +863,7 @@ func TestForceRunTask_RefusesWhenWorkersBusy(t *testing.T) {
 	taskA := createTask(t, db, projA.ID, "a", models.TaskStatusRunning)
 	task := createTask(t, db, projB.ID, "b", models.TaskStatusQueued)
 
-	r := newForceRunner(db)
+	r := newForceRunner(t, db)
 	r.maxWorkers = 1
 	r.executors[projA.ID] = &activeTask{task: &taskA, execution: &models.TaskExecution{TaskID: taskA.ID}}
 
@@ -865,10 +879,76 @@ func TestForceRunTask_RefusesWhenProjectBusy(t *testing.T) {
 	running := createTask(t, db, proj.ID, "running", models.TaskStatusRunning)
 	task := createTask(t, db, proj.ID, "queued", models.TaskStatusQueued)
 
-	r := newForceRunner(db)
+	r := newForceRunner(t, db)
 	r.executors[proj.ID] = &activeTask{task: &running, execution: &models.TaskExecution{TaskID: running.ID}}
 
 	if _, err := r.ForceRunTask(task.ID); !errors.Is(err, ErrProjectBusy) {
 		t.Fatalf("want ErrProjectBusy, got %v", err)
+	}
+}
+
+// TestForceRunTask_RefusesWhenProjectBusyInDBOnly exercises the DB-level
+// project-busy guard in pickTaskByID's NOT EXISTS subquery in isolation.
+// r.executors is left empty on purpose, so the in-memory pre-flight check in
+// ForceRunTask passes and the only thing standing between this force-run and
+// a second running task on the project is the database. Every other
+// ForceRunTask test short-circuits at the in-memory pre-flight, so without
+// this test the NOT EXISTS clause could be deleted from pickTaskByID and
+// nothing would fail — yet it's what stops a force-run from starting a second
+// task on a project whose running task exists only in the DB (another
+// process, or an orphan between claimTask and launchTask).
+func TestForceRunTask_RefusesWhenProjectBusyInDBOnly(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createProject(t, db, "force-proj-busy-db-only")
+	createTask(t, db, proj.ID, "running", models.TaskStatusRunning)
+	task := createTask(t, db, proj.ID, "queued", models.TaskStatusQueued)
+
+	// executors intentionally left empty (default from newForceRunner) — the
+	// running task above is known only to the database.
+	r := newForceRunner(t, db)
+
+	if _, err := r.ForceRunTask(task.ID); !errors.Is(err, ErrProjectBusy) {
+		t.Fatalf("want ErrProjectBusy, got %v", err)
+	}
+
+	var reloaded models.Task
+	if err := db.First(&reloaded, "id = ?", task.ID).Error; err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if reloaded.Status != models.TaskStatusQueued {
+		t.Errorf("expected task to remain queued, got %s", reloaded.Status)
+	}
+}
+
+// TestForceRunTask_DoLaunchFalseIsTreatedAsFailure guards against ForceRunTask
+// being "simplified" to ignore doLaunch's return value. A false return means
+// launchTask (or the test's stand-in) has already unclaimed the task back to
+// queued; if ForceRunTask stopped checking that return value, it would report
+// success while the task silently sat back in queued and never ran.
+func TestForceRunTask_DoLaunchFalseIsTreatedAsFailure(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+	proj := createProject(t, db, "force-launch-false")
+	task := createTask(t, db, proj.ID, "queued", models.TaskStatusQueued)
+
+	r := newForceRunner(t, db)
+	r.launchFn = func(tk *models.Task, _ *models.TaskExecution) bool {
+		// Mirror launchTask's real contract: a false return means the caller
+		// has already unclaimed the task back to queued.
+		r.unclaimTask(tk)
+		return false
+	}
+
+	if _, err := r.ForceRunTask(task.ID); err == nil {
+		t.Fatal("expected a non-nil error when doLaunch returns false")
+	}
+
+	var reloaded models.Task
+	if err := db.First(&reloaded, "id = ?", task.ID).Error; err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if reloaded.Status != models.TaskStatusQueued {
+		t.Errorf("expected task back to queued, got %s", reloaded.Status)
 	}
 }
