@@ -69,4 +69,30 @@ describe('TaskDetailPage force run', () => {
     await screen.findByText('Stuck task')
     expect(screen.queryByText('Spustit teď')).toBeNull()
   })
+
+  it('refetches the task after a successful force run', async () => {
+    fetchTask.mockResolvedValue(baseTask)
+    renderPage()
+    const btn = await screen.findByText('Spustit teď')
+
+    // Initial load on mount is the first call; the click must trigger a second.
+    await waitFor(() => expect(fetchTask).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(btn)
+
+    await waitFor(() => expect(forceRunTask).toHaveBeenCalledWith(baseTask.id))
+    await waitFor(() => expect(fetchTask).toHaveBeenCalledTimes(2))
+  })
+
+  it('renders the server error message when force run is rejected with a 409', async () => {
+    fetchTask.mockResolvedValue(baseTask)
+    forceRunTask.mockRejectedValue(new Error('all workers are busy'))
+    renderPage()
+    const btn = await screen.findByText('Spustit teď')
+
+    fireEvent.click(btn)
+
+    await waitFor(() => expect(forceRunTask).toHaveBeenCalledWith(baseTask.id))
+    expect(await screen.findByText('all workers are busy')).toBeInTheDocument()
+  })
 })
