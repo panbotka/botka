@@ -309,24 +309,31 @@ func TestLaunchTask_RefusesWhenMaxWorkersReached(t *testing.T) {
 // TestDoLaunch_NilLaunchFnUsesRealLaunchTask exercises the branch of doLaunch
 // that every other force-run test bypasses by installing launchFn: with
 // launchFn left nil (as it always is in production), doLaunch must delegate
-// to the real launchTask. It sets up a project that already has a running
-// in-memory executor so the real launchTask hits its duplicate-project guard
-// and returns false without ever spawning executeTask — if doLaunch were
-// changed to `return false` unconditionally when launchFn == nil, this test
-// would still fail (wrong reason: the pre-existing executor would be gone
-// too), but every launchFn-stubbed test in this file would stay green.
+// to the real launchTask. It proves delegation by giving the task under test
+// a "running" DB row before the call: only a real launchTask call — hitting
+// the duplicate-project guard, which calls unclaimTask — can flip that row
+// back to "queued". If doLaunch instead short-circuited to `return false`
+// without ever calling launchTask, the row would stay "running" and the
+// final assertion below would fail. maxWorkers is set to 1 so the guard that
+// fires is unambiguously the duplicate-project one, not a max-workers
+// coincidence.
 func TestDoLaunch_NilLaunchFnUsesRealLaunchTask(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)
 
 	proj := createProject(t, db, "dolaunch-real")
-	running := createTask(t, db, proj.ID, "already-running", models.TaskStatusRunning)
-	task := createTask(t, db, proj.ID, "queued", models.TaskStatusQueued)
+	// This row's own status is irrelevant to the guard under test; it is
+	// created non-"running" only because idx_one_running_per_project forbids
+	// two running rows for the same project, and the task under test below
+	// occupies that slot for the duration of this test.
+	running := createTask(t, db, proj.ID, "already-running", models.TaskStatusDone)
+	task := createTask(t, db, proj.ID, "queued", models.TaskStatusRunning)
 
 	r := &Runner{
-		db:        db,
-		executors: make(map[uuid.UUID]*activeTask),
-		buffers:   make(map[uuid.UUID]*Buffer),
+		db:         db,
+		maxWorkers: 1,
+		executors:  make(map[uuid.UUID]*activeTask),
+		buffers:    make(map[uuid.UUID]*Buffer),
 	}
 	r.executors[proj.ID] = &activeTask{
 		task:      &running,
@@ -347,6 +354,10 @@ func TestDoLaunch_NilLaunchFnUsesRealLaunchTask(t *testing.T) {
 		t.Error("expected executor for project to still reference the original running task")
 	}
 
+	// Only a real launchTask call reaches the duplicate-project guard and
+	// calls unclaimTask, which is what can flip this row from "running" back
+	// to "queued". A doLaunch that never delegates to launchTask would leave
+	// it "running".
 	var reloaded models.Task
 	if err := db.First(&reloaded, "id = ?", task.ID).Error; err != nil {
 		t.Fatalf("reload: %v", err)
@@ -362,18 +373,26 @@ func TestDoLaunch_NilLaunchFnUsesRealLaunchTask(t *testing.T) {
 // launchTask acquires the lock, launchTask must still refuse rather than
 // start an executor with a fresh context.Background() that HardStop never
 // had a chance to cancel.
+//
+// The task row is created "running" (mirroring claimTask's write in
+// production, which always precedes a launchTask call) and maxWorkers is set
+// to 1 with an empty executors map, so the max-workers guard (len(executors)
+// = 0 >= maxWorkers = 1 is false) cannot fire and produce the same
+// running -> queued unclaim as a side effect. Only the hard-stop guard can
+// explain the DB write asserted below.
 func TestLaunchTask_RefusesWhenHardStopped(t *testing.T) {
 	db := setupTestDB(t)
 	cleanTables(t, db)
 
 	proj := createProject(t, db, "project-stopped")
-	task := createTask(t, db, proj.ID, "task", models.TaskStatusQueued)
+	task := createTask(t, db, proj.ID, "task", models.TaskStatusRunning)
 
 	r := &Runner{
-		db:        db,
-		state:     models.StateStopped,
-		executors: make(map[uuid.UUID]*activeTask),
-		buffers:   make(map[uuid.UUID]*Buffer),
+		db:         db,
+		state:      models.StateStopped,
+		maxWorkers: 1,
+		executors:  make(map[uuid.UUID]*activeTask),
+		buffers:    make(map[uuid.UUID]*Buffer),
 	}
 
 	if r.launchTask(&task, &models.TaskExecution{TaskID: task.ID}) {
@@ -387,6 +406,9 @@ func TestLaunchTask_RefusesWhenHardStopped(t *testing.T) {
 		t.Error("expected no executor to be registered for a hard-stopped runner")
 	}
 
+	// Only the hard-stop guard's unclaimTask call can flip this row from
+	// "running" back to "queued" — with maxWorkers: 1 and an empty executors
+	// map, the max-workers guard cannot fire here.
 	var reloaded models.Task
 	if err := db.First(&reloaded, "id = ?", task.ID).Error; err != nil {
 		t.Fatalf("reload: %v", err)
@@ -893,6 +915,15 @@ func TestForceRunTask_LaunchesDespiteActiveGates(t *testing.T) {
 	}
 	if got == nil || got.ID != task.ID {
 		t.Fatalf("expected returned task %v, got %v", task.ID, got)
+	}
+	// The returned snapshot must be taken after the claim, not before: it
+	// should already carry the claimed running status and advanced
+	// started_at, not the pre-claim "queued"/nil-started_at struct.
+	if got.Status != models.TaskStatusRunning {
+		t.Errorf("expected returned task status %q, got %q", models.TaskStatusRunning, got.Status)
+	}
+	if got.StartedAt == nil {
+		t.Error("expected returned task to have StartedAt set")
 	}
 	if launched == nil || launched.ID != task.ID {
 		t.Fatalf("expected launch hook called with task %v, got %v", task.ID, launched)

@@ -184,8 +184,10 @@ type-check) must pass before commit.
 - `internal/runner/*_test.go`
   - Force-run launches a `queued` task even when the injected
     `UsageMonitor` reports `IsRateLimited() == true` (proves gate #1 is
-    bypassed) — assert the task transitions to `running` and an executor
-    is registered.
+    bypassed) — assert the DB row transitions to `running`, the stubbed
+    `launchFn` is invoked with the task, and the *returned* snapshot
+    already carries `status = running` with `StartedAt` set (proving it
+    was taken after the claim, not before).
   - Refuses with `ErrWorkersBusy` when `maxWorkers` slots are full.
   - Refuses with `ErrProjectBusy` when the project already has a running
     executor; no second executor is created (one-per-project preserved).
@@ -195,10 +197,17 @@ type-check) must pass before commit.
     project-busy case) and when `doLaunch` returns `false`.
   - `doLaunch` with `launchFn` left nil delegates to the real `launchTask`
     (the only path production takes) instead of relying on the test-only
-    hook every other force-run test installs.
+    hook every other force-run test installs — proven by giving the task
+    under test a `running` DB row beforehand and asserting only a real
+    `launchTask` call (via its duplicate-project guard and `unclaimTask`)
+    can flip it back to `queued`.
   - `launchTask` refuses and unclaims when `state == StateStopped`, closing
     the TOCTOU window between a caller's pre-flight and the actual launch
-    for both `ForceRunTask` and the normal `tick()` path.
+    for both `ForceRunTask` and the normal `tick()` path — proven the same
+    way: the task row starts `running`, `maxWorkers` is set to `1` so the
+    max-workers guard cannot also explain the flip, and only the hard-stop
+    guard's `unclaimTask` call can account for the row coming back
+    `queued`.
 - `internal/handlers/runner_test.go` (integration, needs `botka_test`)
   - `200` + status flips to `running` on success.
   - `409` with the right message for a busy/non-queued/launch-race task.
