@@ -49,13 +49,17 @@ running across the boundary would suppress exactly the ping that matters.
 
 ### Timing
 
-Schedule the ping at `resets_at + KEEPALIVE_RESET_DELAY`, default `1m`.
+Schedule the ping at `resets_at + KEEPALIVE_RESET_DELAY`, default `2m`.
 
-One minute comfortably covers clock skew and the precision of `resets_at`,
-while still being "immediately" for a 5-hour window. Firing too early is the
-failure that costs a whole window: a ping that lands a second before the true
-reset is spent on the old window, opens nothing, and the loop then waits ~5h.
-Firing a minute late costs a minute.
+The trade is asymmetric, so the default is deliberately conservative. Firing
+too early is the failure that costs a whole window: a ping landing a second
+before the true reset is spent on the closing window, opens nothing, and the
+loop then waits ~5h for the next boundary. Firing late costs exactly the wait —
+two minutes out of three hundred, 0.7% of a window. Two minutes covers clock
+skew, the precision of `resets_at`, and timer latency with room left over.
+
+The delay is an env var precisely so it can be tightened without a rebuild if
+it proves over-cautious in practice.
 
 `KEEPALIVE_LEAD_TIME` is removed rather than reinterpreted — there is no longer
 anything to lead.
@@ -88,8 +92,8 @@ stack:
    whether the new target falls at or before `lastTarget`. That holds only
    because the old target is `resets_at - lead`. With the target moved to
    `resets_at + delay`, the recomputed target lands *after* `lastTarget`, the
-   guard does not trigger, and the loop pings again one minute later — into the
-   window it just opened.
+   guard does not trigger, and the loop pings again one `KEEPALIVE_RESET_DELAY`
+   later — into the window it just opened.
 
 The fix drops target-ordering in favour of a direct claim about the window we
 opened. Replace the `lastTarget` state with `lastPing` (the time of the last
@@ -103,6 +107,15 @@ Our own ping at `P` opened a window, so that window resets at `P + 5h`. That is
 a more reliable figure than a `resets_at` we know may be stale, and it is what
 the `max` selects while the cache lags. Once the monitor catches up, the two
 branches agree and the loop re-syncs onto the authoritative value.
+
+`lastPing` must be stamped **before** the ping runs, not after. `keepalivePing`
+blocks on the `claude -p` subprocess for several seconds, but the window opens
+when the request reaches the API, near the start of that call. Stamping
+afterwards would fold the ping's own duration into every subsequent target,
+putting each ping a few seconds further past the reset than intended. The error
+does not accumulate across cycles either way, so this is about precision, not
+correctness — but `lastPing` means "when we opened the window" and the code
+should say so.
 
 Two properties fall out for free:
 
@@ -138,24 +151,24 @@ projection, which never returns a target inside a window we already served.
 
 ### Worked trace
 
-`R1` = current reset, `delay` = 1m, window = 5h.
+`R1` = current reset, `delay` = 2m, window = 5h.
 
 | Step | `resets_at` reported | `lastPing` | target |
 |---|---|---|---|
-| Cold start | `R1` | zero | `R1 + 1m` |
-| Ping at `T1 = R1 + 1m` | `R1` (cache lags) | `T1` | `max(R1, T1+5h) + 1m = T1 + 5h + 1m` |
-| Ping at `T2 = T1 + 5h + 1m` | `R2 = T1 + 5h` (fresh) | `T2` | `max(R2, T2+5h) + 1m = T2 + 5h + 1m` |
+| Cold start | `R1` | zero | `R1 + 2m` |
+| Ping at `T1 = R1 + 2m` | `R1` (cache lags) | `T1` | `max(R1, T1+5h) + 2m = T1 + 5h + 2m` |
+| Ping at `T2 = T1 + 5h + 2m` | `R2 = T1 + 5h` (fresh) | `T2` | `max(R2, T2+5h) + 2m = T2 + 5h + 2m` |
 
 At step 3 the true reset of the window opened at `T1` is `R2 = T1 + 5h`, and
-the ping fires at `T2 = R2 + 1m` — one minute after the reset, as intended. Had
-the monitor instead already reported `R3 = T2 + 5h`, `max` returns the same
+the ping fires at `T2 = R2 + 2m` — two minutes after the reset, as intended.
+Had the monitor instead already reported `R3 = T2 + 5h`, `max` returns the same
 `T2 + 5h`; both branches agree.
 
 ## Changes
 
 | File | Change |
 |---|---|
-| `internal/config/config.go` | `KeepaliveLeadTime` → `KeepaliveResetDelay` (`KEEPALIVE_RESET_DELAY`, default `1m`); drop `KeepaliveActivityThreshold` and its `KEEPALIVE_ACTIVITY_THRESHOLD` parse |
+| `internal/config/config.go` | `KeepaliveLeadTime` → `KeepaliveResetDelay` (`KEEPALIVE_RESET_DELAY`, default `2m`); drop `KeepaliveActivityThreshold` and its `KEEPALIVE_ACTIVITY_THRESHOLD` parse |
 | `internal/runner/keepalive.go` | New scheduling rule; `lastTarget` → `lastPing`; add `maxTime` helper; narrow the clamp to `delay < 0` and delete `keepaliveMinDelay`; delete `recentActivity`, `mostRecentActivity`, and the activity branch of `keepalivePing`; update doc comments |
 | `internal/runner/runner.go` | Delete the `activityFn` field (:130); update the `launchFn` comment (:135) that references it |
 | `internal/runner/keepalive_test.go` | Delete the 5 activity-skip tests; rewrite the schedule tests |
