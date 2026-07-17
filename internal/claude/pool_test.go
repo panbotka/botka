@@ -187,6 +187,52 @@ sleep 30
 	}
 }
 
+func TestSession_BackgroundTaskDefersCompletion(t *testing.T) {
+	// Regression guard for the async-subagent desync. Newer Claude Code can
+	// launch a background task and end its turn early: it emits an intermediate
+	// result while background_tasks_changed still lists active tasks, then a
+	// second (final) result once they finish. SendMessage must NOT complete on
+	// the intermediate result — doing so returns control while the follow-up
+	// turn is still streaming, leaving those events unread in the pipe and
+	// desyncing the next message. Completion must wait for the result that
+	// arrives with no background tasks remaining.
+	dir := t.TempDir()
+	body := `printf '{"type":"system","subtype":"init","session_id":"bg-test"}\n'
+read line
+printf '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"a"}]}\n'
+printf '{"type":"result","subtype":"success","result":"launched","is_error":false,"num_turns":3}\n'
+printf '{"type":"system","subtype":"background_tasks_changed","tasks":[]}\n'
+printf '{"type":"result","subtype":"success","result":"done","is_error":false,"num_turns":1}\n'
+sleep 30
+`
+	script := writeFakeClaude(t, dir, body)
+
+	mgr := NewSessionManager(5 * time.Minute)
+	defer mgr.Shutdown()
+
+	cfg := RunConfig{ClaudePath: script, WorkDir: dir, SessionID: "bg-test"}
+	s, _ := mgr.GetOrCreate(cfg, 200, "bg-test-thread", "")
+	if s == nil {
+		t.Fatal("failed to start session")
+	}
+
+	events := drain(t, mgr.SendMessage(s, "hello"), 10*time.Second)
+
+	var results []string
+	for _, ev := range events {
+		if ev.Kind == KindResult {
+			results = append(results, ev.ResultText)
+		}
+	}
+	if len(results) == 0 {
+		t.Fatal("no result events received")
+	}
+	final := results[len(results)-1]
+	if final != "done" {
+		t.Fatalf("session completed on the wrong result: final %q, want %q (results seen: %v)", final, "done", results)
+	}
+}
+
 func TestSession_ScannerUnblockedOnExit(t *testing.T) {
 	// Regression guard: when the process exits without printing a result
 	// event, the SendMessage scanner must not hang waiting for more output.

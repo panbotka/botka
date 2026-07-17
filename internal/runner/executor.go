@@ -102,8 +102,12 @@ const (
 	defaultExecTimeout  = 30 * time.Minute
 	verifyTimeout       = 5 * time.Minute
 	gracefulStopTimeout = 10 * time.Second
-	maxRetries          = 1
-	maxErrLen           = 500
+	// groupKillGrace is the extra slack added to cmd.WaitDelay beyond
+	// gracefulStopTimeout so the whole-group SIGKILL escalation (killGroupOnCancel)
+	// runs before Go's os/exec backstop, which only SIGKILLs the leader PID.
+	groupKillGrace = 2 * time.Second
+	maxRetries     = 1
+	maxErrLen      = 500
 	// leftoverCommitBudget bounds the git work of preserving a task's
 	// uncommitted changes; it must comfortably cover an add + commit + push
 	// over the network.
@@ -476,6 +480,35 @@ func buildTaskSSHArgs(sshTarget, remoteDir, claudePath string, claudeArgs []stri
 	}
 }
 
+// killGroupOnCancel escalates process-group termination when ctx is cancelled.
+// The spawned command's Cancel hook already sends SIGTERM to the whole group;
+// if the group is still alive after grace, this sends SIGKILL to the entire
+// group (-pgid) so children that ignore SIGTERM — e.g. a hung test runner a
+// subagent spawned — don't survive as orphans. Go's os/exec WaitDelay only
+// SIGKILLs the leader PID, which is what leaves such grandchildren running.
+//
+// The SIGKILL is sent only while the process is still un-reaped: the caller
+// closes reaped after cmd.Wait() returns, and this checks it (non-blocking)
+// immediately before signaling, so the pgid cannot have been reused by then.
+func killGroupOnCancel(ctx context.Context, pgid int, grace time.Duration, reaped <-chan struct{}) {
+	select {
+	case <-ctx.Done():
+	case <-reaped:
+		return
+	}
+	// ctx cancelled: the Cancel hook already SIGTERM'd the group. Escalate to a
+	// group-wide SIGKILL if it doesn't exit within the grace period.
+	select {
+	case <-reaped:
+	case <-time.After(grace):
+		select {
+		case <-reaped:
+		default:
+			_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		}
+	}
+}
+
 func (e *Executor) spawnClaude(
 	ctx context.Context, pr *projectRunner, task *models.Task, buffer *Buffer,
 	mcpConfigPath string,
@@ -505,7 +538,11 @@ func (e *Executor) spawnClaude(
 	// or the ssh client + its children) on timeout or cancellation.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
-	cmd.WaitDelay = gracefulStopTimeout
+	// WaitDelay is Go's backstop force-kill, but it only SIGKILLs the leader PID.
+	// killGroupOnCancel (started after Start below) escalates to a group-wide
+	// SIGKILL first; the extra groupKillGrace keeps Go's leader-only kill strictly
+	// after our group kill so the two never race over a reaped pgid.
+	cmd.WaitDelay = gracefulStopTimeout + groupKillGrace
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -516,6 +553,14 @@ func (e *Executor) spawnClaude(
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start claude: %w", err)
 	}
+
+	// Escalate a cancelled run to a group-wide SIGKILL so stubborn grandchildren
+	// (e.g. a subagent's hung test runner) don't survive as orphans. reaped is
+	// closed on every return path once cmd.Wait has reaped the process, so the
+	// kill can never target a reused pgid.
+	reaped := make(chan struct{})
+	defer close(reaped)
+	go killGroupOnCancel(ctx, cmd.Process.Pid, gracefulStopTimeout, reaped)
 
 	out := &spawnOutput{}
 	parseErr := ParseStream(io.TeeReader(stdout, buffer), func(ev Event) {

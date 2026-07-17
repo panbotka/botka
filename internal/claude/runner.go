@@ -55,6 +55,9 @@ type StreamEvent struct {
 	IsError      bool
 	ErrorMsg     string
 
+	// Number of background tasks still active (for KindBackgroundTasks)
+	BackgroundTaskCount int
+
 	// Raw JSON for pass-through
 	Raw json.RawMessage
 }
@@ -63,16 +66,17 @@ type StreamEvent struct {
 type EventKind int
 
 const (
-	KindInit          EventKind = iota
-	KindContentDelta            // text_delta streaming chunk
-	KindContentDone             // content block finished
-	KindThinkingDelta           // thinking text chunk
-	KindThinkingDone            // thinking block finished
-	KindToolUse                 // tool call started
-	KindToolResult              // tool result received
-	KindResult                  // turn complete (success or error)
-	KindError                   // process error
-	KindIgnored                 // hook events, rate limits, etc.
+	KindInit            EventKind = iota
+	KindContentDelta              // text_delta streaming chunk
+	KindContentDone               // content block finished
+	KindThinkingDelta             // thinking text chunk
+	KindThinkingDone              // thinking block finished
+	KindToolUse                   // tool call started
+	KindToolResult                // tool result received
+	KindResult                    // turn complete (success or error)
+	KindError                     // process error
+	KindIgnored                   // hook events, rate limits, etc.
+	KindBackgroundTasks           // background_tasks_changed: carries active task count
 )
 
 // RunConfig holds configuration for a Claude Code subprocess invocation.
@@ -286,6 +290,17 @@ func parseEvent(line []byte) StreamEvent {
 		}
 		if subtype == "init" {
 			return StreamEvent{Kind: KindInit, Raw: line}
+		}
+		if subtype == "background_tasks_changed" {
+			// Carries the full current list of active background tasks. An empty
+			// list means the model is no longer waiting on anything in the
+			// background — the signal SendMessage uses to tell a real turn end
+			// from an intermediate one when a background subagent is running.
+			var payload struct {
+				Tasks []json.RawMessage `json:"tasks"`
+			}
+			_ = json.Unmarshal(line, &payload)
+			return StreamEvent{Kind: KindBackgroundTasks, BackgroundTaskCount: len(payload.Tasks)}
 		}
 		return StreamEvent{Kind: KindIgnored}
 

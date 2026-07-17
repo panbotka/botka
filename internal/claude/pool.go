@@ -335,9 +335,17 @@ func (m *SessionManager) SendMessage(s *Session, prompt string) <-chan StreamEve
 			return
 		}
 
-		// Read events from stdout until result event.
+		// Read events from stdout until the turn completes. A turn ends on a
+		// result event, but only once no background tasks remain. Newer Claude
+		// Code can end a turn early right after launching a background subagent:
+		// it emits an intermediate result while background_tasks_changed still
+		// lists active tasks, then a second turn (and result) when the subagent
+		// finishes. Completing on the intermediate result would return control
+		// while that follow-up turn is still streaming, leaving its events
+		// unread in the pipe and desyncing the next message.
 		var gotResultError bool
 		var readErr error
+		var pendingBgTasks int
 		for {
 			line, err := s.reader.ReadBytes('\n')
 			if n := len(line); n > 0 && line[n-1] == '\n' {
@@ -346,12 +354,16 @@ func (m *SessionManager) SendMessage(s *Session, prompt string) <-chan StreamEve
 			var sawResult bool
 			if len(line) > 0 {
 				event := parseEvent(line)
-				if event.Kind != KindIgnored {
+				switch {
+				case event.Kind == KindBackgroundTasks:
+					// Internal bookkeeping only — not forwarded to the client.
+					pendingBgTasks = event.BackgroundTaskCount
+				case event.Kind != KindIgnored:
 					if event.Kind == KindResult && event.IsError {
 						gotResultError = true
 					}
 					ch <- event
-					if event.Kind == KindResult {
+					if event.Kind == KindResult && pendingBgTasks == 0 {
 						// Turn complete — process is idle, ready for next message
 						sawResult = true
 					}
