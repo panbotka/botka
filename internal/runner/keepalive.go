@@ -2,13 +2,9 @@ package runner
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"log/slog"
 	"os/exec"
 	"time"
-
-	"gorm.io/gorm"
 
 	"botka/internal/models"
 )
@@ -125,13 +121,11 @@ func logKeepaliveSchedule(target time.Time, delay time.Duration) {
 		"delay", delay)
 }
 
-// keepalivePing runs a minimal Claude Code session if the runner is not stopped
-// and there has been no recent activity. The activity check is a pre-flight
-// optimization: if a task started or a chat message was sent within
-// KeepaliveActivityThreshold, that real interaction has already kept the 5h
-// window alive, so the redundant ping is skipped. Errors querying the DB are
-// logged at warn level and fall through to pinging (fail open — better to ping
-// unnecessarily than to let the window expire).
+// keepalivePing runs a minimal Claude Code session unless the runner is stopped
+// or already rate limited. The ping is unconditional with respect to activity:
+// it is scheduled to fire just after the 5h window resets, and a task or chat
+// message from before that reset belongs to the closing window and cannot open
+// the next one, so there is nothing for prior activity to make redundant.
 func (r *Runner) keepalivePing() {
 	r.mu.RLock()
 	state := r.state
@@ -149,71 +143,11 @@ func (r *Runner) keepalivePing() {
 		}
 	}
 
-	threshold := r.config.KeepaliveActivityThreshold
-	if threshold > 0 {
-		latest, err := r.recentActivity()
-		switch {
-		case err != nil:
-			slog.Warn("keepalive activity check failed, pinging anyway", "error", err)
-		case !latest.IsZero() && time.Since(latest) < threshold:
-			slog.Info("keepalive skipped: recent activity",
-				"age", time.Since(latest).Round(time.Second),
-				"threshold", threshold)
-			return
-		}
-	}
-
 	if err := r.doPing(); err != nil {
 		slog.Warn("keepalive ping failed", "error", err)
 		return
 	}
 	slog.Info("keepalive ping completed")
-}
-
-// recentActivity returns the most recent activity timestamp from either the
-// tasks or messages tables. Returns the zero time when both tables are empty.
-// Uses activityFn if set (for testing), otherwise queries the database via
-// mostRecentActivity().
-func (r *Runner) recentActivity() (time.Time, error) {
-	if r.activityFn != nil {
-		return r.activityFn()
-	}
-	return r.mostRecentActivity()
-}
-
-// mostRecentActivity queries the database for the most recent task start or
-// chat message and returns the maximum of the two timestamps. Returns the
-// zero time when both tables are empty. Each query is bounded to LIMIT 1 and
-// uses an indexed ordering column (started_at DESC NULLS LAST for tasks,
-// id DESC for messages where id is the bigserial primary key and serves as a
-// monotonic proxy for created_at).
-func (r *Runner) mostRecentActivity() (time.Time, error) {
-	if r.db == nil {
-		return time.Time{}, errors.New("no database")
-	}
-
-	var taskStarted sql.NullTime
-	if err := r.db.Raw(
-		"SELECT started_at FROM tasks WHERE started_at IS NOT NULL ORDER BY started_at DESC LIMIT 1",
-	).Scan(&taskStarted).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return time.Time{}, err
-	}
-
-	var msgCreated sql.NullTime
-	if err := r.db.Raw(
-		"SELECT created_at FROM messages WHERE deleted_at IS NULL ORDER BY id DESC LIMIT 1",
-	).Scan(&msgCreated).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return time.Time{}, err
-	}
-
-	var latest time.Time
-	if taskStarted.Valid {
-		latest = taskStarted.Time
-	}
-	if msgCreated.Valid && msgCreated.Time.After(latest) {
-		latest = msgCreated.Time
-	}
-	return latest, nil
 }
 
 // doPing executes the ping. Uses pingFn if set (for testing), otherwise runs

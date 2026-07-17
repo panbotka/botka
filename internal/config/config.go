@@ -13,45 +13,44 @@ import (
 
 // Config holds all application configuration values.
 type Config struct {
-	Port                       string
-	DatabaseURL                string
-	ProjectsDir                string
-	ClaudePath                 string
-	ClaudeUsageCmd             string
-	MaxWorkers                 int
-	TaskTimeout                time.Duration
-	UsageThreshold5h           float64
-	UsageThreshold7d           float64
-	OpenClawURL                string
-	OpenClawToken              string
-	OpenClawWorkspace          string
-	ClaudeContextDir           string
-	ClaudeDefaultWorkDir       string
-	WhisperEnabled             bool
-	UploadDir                  string
-	AIModel                    string
-	AvailableModels            []string
-	WebAuthnOrigin             string
-	WebAuthnRPID               string
-	SessionMaxAge              time.Duration
-	MCPToken                   string
-	BoxHost                    string
-	BoxSSHUser                 string
-	BoxSSHHost                 string
-	BoxWOLCommand              string
-	KeepaliveEnabled           bool
-	KeepaliveInterval          time.Duration
-	KeepaliveActivityThreshold time.Duration
-	KeepaliveLeadTime          time.Duration
-	SignalCLIURL               string
-	FailureSummaryEnabled      bool
-	FailureSummaryModel        string
-	VAPIDPublicKey             string
-	VAPIDPrivateKey            string
-	VAPIDSubject               string
-	PushNotificationsEnabled   bool
-	ClaudeRateLimitCooldown    time.Duration
-	RateLimitDetectionEnabled  bool
+	Port                      string
+	DatabaseURL               string
+	ProjectsDir               string
+	ClaudePath                string
+	ClaudeUsageCmd            string
+	MaxWorkers                int
+	TaskTimeout               time.Duration
+	UsageThreshold5h          float64
+	UsageThreshold7d          float64
+	OpenClawURL               string
+	OpenClawToken             string
+	OpenClawWorkspace         string
+	ClaudeContextDir          string
+	ClaudeDefaultWorkDir      string
+	WhisperEnabled            bool
+	UploadDir                 string
+	AIModel                   string
+	AvailableModels           []string
+	WebAuthnOrigin            string
+	WebAuthnRPID              string
+	SessionMaxAge             time.Duration
+	MCPToken                  string
+	BoxHost                   string
+	BoxSSHUser                string
+	BoxSSHHost                string
+	BoxWOLCommand             string
+	KeepaliveEnabled          bool
+	KeepaliveInterval         time.Duration
+	KeepaliveLeadTime         time.Duration
+	SignalCLIURL              string
+	FailureSummaryEnabled     bool
+	FailureSummaryModel       string
+	VAPIDPublicKey            string
+	VAPIDPrivateKey           string
+	VAPIDSubject              string
+	PushNotificationsEnabled  bool
+	ClaudeRateLimitCooldown   time.Duration
+	RateLimitDetectionEnabled bool
 }
 
 // Load reads configuration from the .env file and environment variables.
@@ -93,11 +92,6 @@ func Load() (*Config, error) {
 	keepaliveInterval, err := time.ParseDuration(getEnv("KEEPALIVE_INTERVAL", "60m"))
 	if err != nil {
 		return nil, fmt.Errorf("parsing KEEPALIVE_INTERVAL: %w", err)
-	}
-
-	keepaliveActivityThreshold, err := time.ParseDuration(getEnv("KEEPALIVE_ACTIVITY_THRESHOLD", "50m"))
-	if err != nil {
-		return nil, fmt.Errorf("parsing KEEPALIVE_ACTIVITY_THRESHOLD: %w", err)
 	}
 
 	keepaliveLeadTime, err := time.ParseDuration(getEnv("KEEPALIVE_LEAD_TIME", "15m"))
@@ -144,45 +138,44 @@ func Load() (*Config, error) {
 	}
 
 	return &Config{
-		Port:                       getEnv("PORT", "5110"),
-		DatabaseURL:                getEnv("DATABASE_URL", "postgres://botka:botka@localhost:5432/botka?sslmode=disable"),
-		ProjectsDir:                getEnv("PROJECTS_DIR", "/home/pi/projects"),
-		ClaudePath:                 getEnv("CLAUDE_PATH", "claude"),
-		ClaudeUsageCmd:             getEnv("CLAUDE_USAGE_CMD", "/home/pi/bin/claude-usage"),
-		MaxWorkers:                 maxWorkers,
-		TaskTimeout:                taskTimeout,
-		UsageThreshold5h:           threshold5h,
-		UsageThreshold7d:           threshold7d,
-		OpenClawURL:                getEnv("OPENCLAW_URL", "http://localhost:18789"),
-		OpenClawToken:              getEnv("OPENCLAW_TOKEN", ""),
-		OpenClawWorkspace:          getEnv("OPENCLAW_WORKSPACE", "/home/pi/.openclaw/workspace"),
-		ClaudeContextDir:           getEnv("CLAUDE_CONTEXT_DIR", "./data/context"),
-		ClaudeDefaultWorkDir:       getEnv("CLAUDE_DEFAULT_WORK_DIR", "/home/pi"),
-		WhisperEnabled:             whisperEnabled,
-		UploadDir:                  getEnv("UPLOAD_DIR", "./data/uploads"),
-		AIModel:                    getEnv("AI_MODEL", "sonnet"),
-		AvailableModels:            availableModels,
-		WebAuthnOrigin:             webAuthnOrigin,
-		WebAuthnRPID:               webAuthnRPID,
-		SessionMaxAge:              sessionMaxAge,
-		MCPToken:                   getEnv("MCP_TOKEN", ""),
-		BoxHost:                    getEnv("BOX_HOST", "100.127.79.1"),
-		BoxSSHUser:                 getEnv("BOX_SSH_USER", "box"),
-		BoxSSHHost:                 getEnv("BOX_SSH_HOST", "box"),
-		BoxWOLCommand:              getEnv("BOX_WOL_COMMAND", "/home/pi/bin/boxon"),
-		KeepaliveEnabled:           keepaliveEnabled,
-		KeepaliveInterval:          keepaliveInterval,
-		KeepaliveActivityThreshold: keepaliveActivityThreshold,
-		KeepaliveLeadTime:          keepaliveLeadTime,
-		SignalCLIURL:               getEnv("SIGNAL_CLI_URL", "http://127.0.0.1:5107"),
-		FailureSummaryEnabled:      failureSummaryEnabled,
-		FailureSummaryModel:        getEnv("FAILURE_SUMMARY_MODEL", "haiku"),
-		VAPIDPublicKey:             getEnv("VAPID_PUBLIC_KEY", ""),
-		VAPIDPrivateKey:            getEnv("VAPID_PRIVATE_KEY", ""),
-		VAPIDSubject:               getEnv("VAPID_SUBJECT", "mailto:kozak@talko.cz"),
-		PushNotificationsEnabled:   pushNotificationsEnabled,
-		ClaudeRateLimitCooldown:    claudeRateLimitCooldown,
-		RateLimitDetectionEnabled:  rateLimitDetectionEnabled,
+		Port:                      getEnv("PORT", "5110"),
+		DatabaseURL:               getEnv("DATABASE_URL", "postgres://botka:botka@localhost:5432/botka?sslmode=disable"),
+		ProjectsDir:               getEnv("PROJECTS_DIR", "/home/pi/projects"),
+		ClaudePath:                getEnv("CLAUDE_PATH", "claude"),
+		ClaudeUsageCmd:            getEnv("CLAUDE_USAGE_CMD", "/home/pi/bin/claude-usage"),
+		MaxWorkers:                maxWorkers,
+		TaskTimeout:               taskTimeout,
+		UsageThreshold5h:          threshold5h,
+		UsageThreshold7d:          threshold7d,
+		OpenClawURL:               getEnv("OPENCLAW_URL", "http://localhost:18789"),
+		OpenClawToken:             getEnv("OPENCLAW_TOKEN", ""),
+		OpenClawWorkspace:         getEnv("OPENCLAW_WORKSPACE", "/home/pi/.openclaw/workspace"),
+		ClaudeContextDir:          getEnv("CLAUDE_CONTEXT_DIR", "./data/context"),
+		ClaudeDefaultWorkDir:      getEnv("CLAUDE_DEFAULT_WORK_DIR", "/home/pi"),
+		WhisperEnabled:            whisperEnabled,
+		UploadDir:                 getEnv("UPLOAD_DIR", "./data/uploads"),
+		AIModel:                   getEnv("AI_MODEL", "sonnet"),
+		AvailableModels:           availableModels,
+		WebAuthnOrigin:            webAuthnOrigin,
+		WebAuthnRPID:              webAuthnRPID,
+		SessionMaxAge:             sessionMaxAge,
+		MCPToken:                  getEnv("MCP_TOKEN", ""),
+		BoxHost:                   getEnv("BOX_HOST", "100.127.79.1"),
+		BoxSSHUser:                getEnv("BOX_SSH_USER", "box"),
+		BoxSSHHost:                getEnv("BOX_SSH_HOST", "box"),
+		BoxWOLCommand:             getEnv("BOX_WOL_COMMAND", "/home/pi/bin/boxon"),
+		KeepaliveEnabled:          keepaliveEnabled,
+		KeepaliveInterval:         keepaliveInterval,
+		KeepaliveLeadTime:         keepaliveLeadTime,
+		SignalCLIURL:              getEnv("SIGNAL_CLI_URL", "http://127.0.0.1:5107"),
+		FailureSummaryEnabled:     failureSummaryEnabled,
+		FailureSummaryModel:       getEnv("FAILURE_SUMMARY_MODEL", "haiku"),
+		VAPIDPublicKey:            getEnv("VAPID_PUBLIC_KEY", ""),
+		VAPIDPrivateKey:           getEnv("VAPID_PRIVATE_KEY", ""),
+		VAPIDSubject:              getEnv("VAPID_SUBJECT", "mailto:kozak@talko.cz"),
+		PushNotificationsEnabled:  pushNotificationsEnabled,
+		ClaudeRateLimitCooldown:   claudeRateLimitCooldown,
+		RateLimitDetectionEnabled: rateLimitDetectionEnabled,
 	}, nil
 }
 
