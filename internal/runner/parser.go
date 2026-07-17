@@ -92,63 +92,79 @@ type contentBlock struct {
 // ParseStream reads line-by-line from reader, parses each JSON line from
 // Claude's stream-json output format, and calls onEvent for each extracted event.
 // Non-JSON lines are emitted as AssistantText. Empty lines are skipped.
+//
+// Lines are read with bufio.Reader.ReadBytes, which accepts lines of any size.
+// A previous bufio.Scanner implementation capped a line at 1MB and aborted the
+// whole stream on anything larger — which newer Claude Code hits routinely when
+// a tool returns a base64 image/screenshot as a single tool_result line. When
+// that happened the trailing "result" event was never parsed and the task was
+// misclassified as "claude process crashed". This mirrors the chat runner
+// (internal/claude/runner.go), which reads stdout the same way for the same reason.
 func ParseStream(reader io.Reader, onEvent func(Event)) error {
-	scanner := bufio.NewScanner(reader)
-	// Allow up to 1MB per line for large tool inputs
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
+	br := bufio.NewReader(reader)
+	for {
+		line, err := br.ReadBytes('\n')
+		if n := len(line); n > 0 && line[n-1] == '\n' {
+			line = line[:n-1]
 		}
-
-		var sl streamLine
-		if err := json.Unmarshal(line, &sl); err != nil {
-			// Not valid JSON — treat as raw text output
-			slog.Debug("stream parser: non-JSON line")
-			onEvent(Event{Type: EventAssistantText, Text: string(line)})
-			continue
+		if len(line) > 0 {
+			parseLine(line, onEvent)
 		}
-
-		switch sl.Type {
-		case "assistant":
-			parseAssistantMessage(sl.Message, onEvent)
-		case "result":
-			cost := sl.CostUSD
-			if cost == 0 {
-				cost = sl.TotalCostUSD
+		if err != nil {
+			if err == io.EOF {
+				return nil
 			}
-			inputTokens := sl.InputTokens
-			if inputTokens == 0 {
-				inputTokens = sl.Usage.InputTokens
-			}
-			outputTokens := sl.OutputTokens
-			if outputTokens == 0 {
-				outputTokens = sl.Usage.OutputTokens
-			}
-			onEvent(Event{
-				Type:                EventResult,
-				CostUSD:             cost,
-				DurationMs:          sl.DurationMs,
-				InputTokens:         inputTokens,
-				OutputTokens:        outputTokens,
-				CacheReadTokens:     sl.Usage.CacheReadInputTokens,
-				CacheCreationTokens: sl.Usage.CacheCreationInputTokens,
-				IsError:             sl.Subtype != "success",
-			})
-		case "system":
-			if sl.Subtype == "init" && sl.Model != "" {
-				onEvent(Event{Type: EventSystemInit, Model: sl.Model})
-			}
-			parseSystemMessage(sl.Message, onEvent)
-		default:
-			// Unknown type — skip silently
-			slog.Debug("stream parser: unknown line type", "type", sl.Type)
+			return err
 		}
 	}
+}
 
-	return scanner.Err()
+// parseLine parses a single stream-json line and emits the extracted events via
+// onEvent. Lines that are not valid JSON are emitted as raw assistant text.
+func parseLine(line []byte, onEvent func(Event)) {
+	var sl streamLine
+	if err := json.Unmarshal(line, &sl); err != nil {
+		// Not valid JSON — treat as raw text output
+		slog.Debug("stream parser: non-JSON line")
+		onEvent(Event{Type: EventAssistantText, Text: string(line)})
+		return
+	}
+
+	switch sl.Type {
+	case "assistant":
+		parseAssistantMessage(sl.Message, onEvent)
+	case "result":
+		cost := sl.CostUSD
+		if cost == 0 {
+			cost = sl.TotalCostUSD
+		}
+		inputTokens := sl.InputTokens
+		if inputTokens == 0 {
+			inputTokens = sl.Usage.InputTokens
+		}
+		outputTokens := sl.OutputTokens
+		if outputTokens == 0 {
+			outputTokens = sl.Usage.OutputTokens
+		}
+		onEvent(Event{
+			Type:                EventResult,
+			CostUSD:             cost,
+			DurationMs:          sl.DurationMs,
+			InputTokens:         inputTokens,
+			OutputTokens:        outputTokens,
+			CacheReadTokens:     sl.Usage.CacheReadInputTokens,
+			CacheCreationTokens: sl.Usage.CacheCreationInputTokens,
+			IsError:             sl.Subtype != "success",
+		})
+	case "system":
+		if sl.Subtype == "init" && sl.Model != "" {
+			onEvent(Event{Type: EventSystemInit, Model: sl.Model})
+		}
+		parseSystemMessage(sl.Message, onEvent)
+	default:
+		// Unknown type — skip silently
+		slog.Debug("stream parser: unknown line type", "type", sl.Type)
+	}
 }
 
 // parseAssistantMessage extracts text and tool_use blocks from the message content.

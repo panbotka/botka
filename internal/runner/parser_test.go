@@ -335,3 +335,35 @@ func TestParseStream_TextBlockWithEmptyTextSkipped(t *testing.T) {
 		t.Fatalf("expected 0 events for empty text block, got %d", len(events))
 	}
 }
+
+// TestParseStream_OversizedLineDoesNotDropSubsequentResult guards against the
+// production failure where a single stream-json event larger than the old 1MB
+// scanner cap aborted the whole stream. Newer Claude Code returns screenshots
+// and image reads as a base64 image tool_result on one line, which routinely
+// exceeds 1MB. When that line aborts parsing, the trailing "result" event is
+// never seen and the task is misclassified as "claude process crashed".
+func TestParseStream_OversizedLineDoesNotDropSubsequentResult(t *testing.T) {
+	// One stream-json event carrying a ~2MB base64 image tool_result, well
+	// over the old 1MB-per-line limit, followed by the real result line.
+	bigImage := strings.Repeat("A", 2*1024*1024)
+	imageLine := `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":[{"type":"image","source":{"type":"base64","data":"` + bigImage + `"}}]}]}}`
+	if len(imageLine) <= 1024*1024 {
+		t.Fatalf("test setup: image line must exceed 1MB, got %d bytes", len(imageLine))
+	}
+	resultLine := `{"type":"result","subtype":"success","duration_ms":1200}`
+	input := imageLine + "\n" + resultLine
+
+	events := collectEvents(t, input)
+
+	// The oversized user line produces no event, but the trailing result must
+	// still be parsed — that is the signal the executor keys success on.
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event (the result after the oversized line), got %d", len(events))
+	}
+	if events[0].Type != EventResult {
+		t.Errorf("expected EventResult after oversized line, got %d", events[0].Type)
+	}
+	if events[0].IsError {
+		t.Error("expected IsError=false for the trailing success result")
+	}
+}
