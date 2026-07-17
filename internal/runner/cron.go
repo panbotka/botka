@@ -265,7 +265,9 @@ func (cs *CronScheduler) runExecution(job *models.CronJob, execution *models.Cro
 	cmd.Env = claude.SanitizedEnv()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
-	cmd.WaitDelay = gracefulStopTimeout
+	// See spawnClaude: Go's WaitDelay only SIGKILLs the leader PID, so the extra
+	// groupKillGrace keeps it strictly after killGroupOnCancel's group-wide kill.
+	cmd.WaitDelay = gracefulStopTimeout + groupKillGrace
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -279,6 +281,12 @@ func (cs *CronScheduler) runExecution(job *models.CronJob, execution *models.Cro
 		cs.finishExecution(job, execution, "failed", "", fmt.Sprintf("start claude: %v", err), 0, 0, 0, 0)
 		return
 	}
+
+	// Escalate a cancelled/timed-out cron run to a group-wide SIGKILL so a
+	// stubborn grandchild doesn't survive as an orphan (see killGroupOnCancel).
+	reaped := make(chan struct{})
+	defer close(reaped)
+	go killGroupOnCancel(ctx, cmd.Process.Pid, gracefulStopTimeout, reaped)
 
 	var lastResult *Event
 	var lastText string
