@@ -300,6 +300,16 @@ export interface ThreadSource {
   updated_at: string
 }
 
+export interface Bookmark {
+  id: number
+  url: string
+  title: string
+  favicon_url: string
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
 export interface PersistedToolCall {
   name: string
   input: Record<string, unknown>

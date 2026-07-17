@@ -332,6 +332,9 @@ func setupRouter(
 	threadSourceHandler := handlers.NewThreadSourceHandler(db)
 	handlers.RegisterThreadSourceRoutes(v1, threadSourceHandler)
 
+	bookmarkHandler := handlers.NewBookmarkHandler(db)
+	handlers.RegisterBookmarkRoutes(v1, bookmarkHandler)
+
 	folderHandler := handlers.NewFolderHandler(db)
 	handlers.RegisterFolderRoutes(v1, folderHandler)
 

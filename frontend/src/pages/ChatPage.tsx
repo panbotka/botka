@@ -10,6 +10,7 @@ import ChatView from '../components/ChatView'
 import ThreadSidebar from '../components/ThreadSidebar'
 import ChatTabsBar from '../components/ChatTabsBar'
 import ProjectPicker, { isBoxProject } from '../components/ProjectPicker'
+import BookmarksBar from '../components/BookmarksBar'
 import CommandButtons from '../components/CommandButtons'
 import BoxRunningIndicator from '../components/BoxRunningIndicator'
 import ThreadSettingsPanel from '../components/ThreadSettingsPanel'
@@ -302,6 +303,8 @@ export default function ChatPage() {
                 </>
               )}
             </header>
+            {/* Mobile: bookmarks live on their own row since the header is full */}
+            <BookmarksBar variant="row" readOnly={isExternal} />
             <ChatView
               threadId={activeThreadId}
               thread={activeThread}
@@ -405,6 +408,7 @@ export default function ChatPage() {
                   <span className="text-[11px] text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md flex-shrink-0">
                     {activeThread.model || 'Default'}
                   </span>
+                  <BookmarksBar variant="inline" readOnly={isExternal} />
                   {!isExternal && (
                     <button
                       onClick={() => setSettingsPanelOpen(true)}

@@ -1,4 +1,4 @@
-import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, TaskNote, TaskTag, Thread, ThreadDetail, ThreadFolder, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, TaskStatsAggregated, TaskStatsGroupBy, GlobalSearchResults, MessageSearchResponse, UnifiedSearchResult, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, Skill, EffectiveSkill, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo } from '../types'
+import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, TaskNote, TaskTag, Thread, ThreadDetail, ThreadFolder, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, TaskStatsAggregated, TaskStatsGroupBy, GlobalSearchResults, MessageSearchResponse, UnifiedSearchResult, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, Skill, EffectiveSkill, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo, Bookmark } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -506,6 +506,23 @@ export function reorderThreadSources(threadId: number, ids: number[]): Promise<v
     method: 'PUT',
     body: JSON.stringify({ ids }),
   })
+}
+
+// Bookmarks
+
+export function fetchBookmarks(): Promise<Bookmark[]> {
+  return requestData<Bookmark[]>('/bookmarks')
+}
+
+export function createBookmark(url: string): Promise<Bookmark> {
+  return requestData<Bookmark>('/bookmarks', {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+  })
+}
+
+export function deleteBookmark(id: number): Promise<void> {
+  return request<void>(`/bookmarks/${id}`, { method: 'DELETE' })
 }
 
 // Signal Bridge
@@ -1419,6 +1436,10 @@ export const api = {
   updateThreadSource,
   deleteThreadSource,
   reorderThreadSources,
+  // Bookmarks
+  fetchBookmarks,
+  createBookmark,
+  deleteBookmark,
   // Signal Bridge
   getSignalGroups,
   getSignalBridge,

@@ -31,6 +31,9 @@ vi.mock('../components/ThreadSettingsPanel', () => ({
 vi.mock('../components/ThreadForkBadges', () => ({
   default: () => <div data-testid="thread-fork-badges" />,
 }))
+vi.mock('../components/BookmarksBar', () => ({
+  default: () => <div data-testid="bookmarks-bar" />,
+}))
 
 vi.mock('../hooks/useIsMobile', () => ({
   useIsMobile: () => false,
