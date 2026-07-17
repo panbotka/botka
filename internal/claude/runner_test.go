@@ -28,6 +28,28 @@ func TestParseEvent_SystemNonInit(t *testing.T) {
 	}
 }
 
+func TestParseEvent_BackgroundTasksActive(t *testing.T) {
+	line := []byte(`{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"a"},{"task_id":"b"}]}`)
+	evt := parseEvent(line)
+	if evt.Kind != KindBackgroundTasks {
+		t.Fatalf("expected KindBackgroundTasks, got %d", evt.Kind)
+	}
+	if evt.BackgroundTaskCount != 2 {
+		t.Errorf("expected 2 active background tasks, got %d", evt.BackgroundTaskCount)
+	}
+}
+
+func TestParseEvent_BackgroundTasksEmpty(t *testing.T) {
+	line := []byte(`{"type":"system","subtype":"background_tasks_changed","tasks":[]}`)
+	evt := parseEvent(line)
+	if evt.Kind != KindBackgroundTasks {
+		t.Fatalf("expected KindBackgroundTasks, got %d", evt.Kind)
+	}
+	if evt.BackgroundTaskCount != 0 {
+		t.Errorf("expected 0 active background tasks, got %d", evt.BackgroundTaskCount)
+	}
+}
+
 func TestParseEvent_ContentDelta(t *testing.T) {
 	line := []byte(`{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"hello"}}}`)
 	evt := parseEvent(line)
