@@ -119,8 +119,7 @@ All settings are loaded from `.env` file and environment variables (env vars tak
 | `USAGE_THRESHOLD_7D` | `0.95` | 7-day rate limit threshold (0.0–1.0) |
 | `KEEPALIVE_ENABLED` | `true` | Enable periodic Claude Code ping to keep 5h rate limit window active |
 | `KEEPALIVE_INTERVAL` | `60m` | Fallback interval used only on cold start, before the usage monitor reports a `resets_at` |
-| `KEEPALIVE_ACTIVITY_THRESHOLD` | `50m` | Skip the keepalive ping when a task started or chat message was created within this window (set to `0` to always ping) |
-| `KEEPALIVE_LEAD_TIME` | `15m` | Lead time before the current 5h window resets at; the ping is dynamically scheduled at `resets_at - lead_time` |
+| `KEEPALIVE_RESET_DELAY` | `2m` | How long after the current 5h window's `resets_at` to fire the keepalive ping, opening the next window immediately |
 
 ### Voice & Files
 

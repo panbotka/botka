@@ -126,14 +126,13 @@ type Runner struct {
 	wg             sync.WaitGroup
 	retryNotBefore map[uuid.UUID]time.Time // key: task ID
 	TaskEvents     *TaskEventHub
-	pingFn         func() error              // overridable for testing; nil uses defaultPing
-	activityFn     func() (time.Time, error) // overridable for testing; nil queries the database
-	resetsAtFn     func() time.Time          // overridable for testing; nil reads from usageMon
-	pushNotifier   PushNotifier              // optional; nil disables push triggers
+	pingFn         func() error     // overridable for testing; nil uses defaultPing
+	resetsAtFn     func() time.Time // overridable for testing; nil reads from usageMon
+	pushNotifier   PushNotifier     // optional; nil disables push triggers
 	rateLimitGate  *RateLimitGate
 	// launchFn, when non-nil, replaces launchTask. Test-only seam (like pingFn /
-	// activityFn / resetsAtFn) so force-run tests can assert launch behavior
-	// without spawning a real Claude subprocess.
+	// resetsAtFn) so force-run tests can assert launch behavior without spawning
+	// a real Claude subprocess.
 	launchFn func(task *models.Task, execution *models.TaskExecution) bool
 }
 

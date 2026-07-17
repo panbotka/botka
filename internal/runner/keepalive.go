@@ -2,13 +2,9 @@ package runner
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"log/slog"
 	"os/exec"
 	"time"
-
-	"gorm.io/gorm"
 
 	"botka/internal/models"
 )
@@ -16,31 +12,28 @@ import (
 const (
 	keepaliveTimeout = 2 * time.Minute
 	// keepaliveWindowLength is the assumed Anthropic 5-hour rate-limit window
-	// length. Used to project the next ping time after one has just fired.
+	// length. Used to project the next ping time off the window our own ping
+	// just opened, while the usage monitor's cache still reports the old one.
 	keepaliveWindowLength = 5 * time.Hour
-	// keepaliveMinDelay is the threshold below which a computed delay is
-	// treated as "ping immediately". One minute is enough slack for clock
-	// skew and short delays in the usage monitor's poll cycle.
-	keepaliveMinDelay = time.Minute
 )
 
 // keepaliveLoop periodically runs a minimal Claude Code session to keep the
 // Anthropic API 5h rate limit window active. Runs in a dedicated goroutine
 // alongside the scheduler loop and does not consume worker slots. Pings are
-// scheduled to fire KEEPALIVE_LEAD_TIME before the current window resets, so
-// the surviving window is refreshed just before it would expire. When no
-// usage data is available yet, falls back to the legacy fixed-interval
-// behavior driven by KEEPALIVE_INTERVAL.
+// scheduled to fire KEEPALIVE_RESET_DELAY after the current window resets, so
+// the next window opens back-to-back with the one that just closed instead of
+// waiting for organic traffic. When no usage data is available yet, falls back
+// to the fixed-interval behavior driven by KEEPALIVE_INTERVAL.
 func (r *Runner) keepaliveLoop(stopCh <-chan struct{}) {
 	defer r.wg.Done()
 
-	leadTime := r.config.KeepaliveLeadTime
+	resetDelay := r.config.KeepaliveResetDelay
 	fallback := r.config.KeepaliveInterval
 
-	slog.Info("keepalive loop started", "lead_time", leadTime, "fallback_interval", fallback)
+	slog.Info("keepalive loop started", "reset_delay", resetDelay, "fallback_interval", fallback)
 
-	var lastTarget time.Time
-	target, delay := r.computeKeepaliveSchedule(leadTime, fallback, lastTarget)
+	var lastPing time.Time
+	target, delay := r.computeKeepaliveSchedule(resetDelay, fallback, lastPing)
 	logKeepaliveSchedule(target, delay)
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
@@ -51,9 +44,13 @@ func (r *Runner) keepaliveLoop(stopCh <-chan struct{}) {
 			slog.Info("keepalive loop stopped")
 			return
 		case <-timer.C:
+			// Stamp before the ping, not after: the window opens when the request
+			// reaches the API, near the start of keepalivePing, which then blocks
+			// on the subprocess for several seconds. Stamping afterwards would
+			// fold that duration into every subsequent target.
+			lastPing = time.Now()
 			r.keepalivePing()
-			lastTarget = target
-			target, delay = r.computeKeepaliveSchedule(leadTime, fallback, lastTarget)
+			target, delay = r.computeKeepaliveSchedule(resetDelay, fallback, lastPing)
 			logKeepaliveSchedule(target, delay)
 			timer.Reset(delay)
 		}
@@ -61,41 +58,49 @@ func (r *Runner) keepaliveLoop(stopCh <-chan struct{}) {
 }
 
 // computeKeepaliveSchedule returns the target time of the next ping and the
-// delay until then. It reads the current 5h reset time from the usage monitor
-// and schedules the ping leadTime before reset.
+// delay until then. The ping fires resetDelay after the 5h window resets, so
+// the new window opens immediately rather than waiting for organic traffic.
 //
 // Behavior:
 //   - If the reset time is unknown (zero), fall back to the fixed interval and
 //     return a zero target — this is the cold-start path when the usage monitor
 //     hasn't polled yet.
-//   - If `resetsAt - leadTime` is in the past or within keepaliveMinDelay,
-//     return a zero delay so the loop pings immediately.
-//   - If we already pinged at or after the computed target (lastTarget is at
-//     or past target), advance to the next window so we don't tight-loop on a
-//     stale resetsAt.
+//   - Otherwise target the later of resetsAt and lastPing+5h, plus resetDelay.
+//     Our own ping at lastPing opened a window that resets 5h later, which is a
+//     more reliable figure than a resetsAt we know may be stale by up to the
+//     claude-usage cache interval. Taking the later of the two keeps the loop
+//     from firing a second time into the window it just opened, and re-syncs
+//     onto the authoritative resetsAt once the monitor catches up. On cold start
+//     lastPing is the zero time, so lastPing+5h lands in year 1 and resetsAt
+//     wins — no special case needed.
+//   - Only a target in the past collapses to a zero delay. A target in the near
+//     future must be waited out: firing before resetsAt spends the ping on the
+//     closing window and opens nothing, costing a full 5h window, whereas
+//     firing late costs only the wait.
 //
-// Always computes the deadline freshly from time.Now() and resetsAt to avoid
+// Always computes the deadline freshly from time.Now() and the target to avoid
 // timer drift across iterations.
-func (r *Runner) computeKeepaliveSchedule(leadTime, fallback time.Duration, lastTarget time.Time) (time.Time, time.Duration) {
+func (r *Runner) computeKeepaliveSchedule(resetDelay, fallback time.Duration, lastPing time.Time) (time.Time, time.Duration) {
 	resetsAt := r.currentResetsAt()
 	if resetsAt.IsZero() {
 		return time.Time{}, fallback
 	}
 
-	target := resetsAt.Add(-leadTime)
-
-	// We've already pinged at or past this target — usage monitor hasn't
-	// reflected the new window yet. Project to the next window so the loop
-	// doesn't fire repeatedly off the same resetsAt.
-	if !lastTarget.IsZero() && !target.After(lastTarget) {
-		target = lastTarget.Add(keepaliveWindowLength)
-	}
+	target := maxTime(resetsAt, lastPing.Add(keepaliveWindowLength)).Add(resetDelay)
 
 	delay := time.Until(target)
-	if delay < keepaliveMinDelay {
+	if delay < 0 {
 		delay = 0
 	}
 	return target, delay
+}
+
+// maxTime returns the later of a and b.
+func maxTime(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
 
 // currentResetsAt returns the current 5h reset time, using resetsAtFn for
@@ -125,13 +130,11 @@ func logKeepaliveSchedule(target time.Time, delay time.Duration) {
 		"delay", delay)
 }
 
-// keepalivePing runs a minimal Claude Code session if the runner is not stopped
-// and there has been no recent activity. The activity check is a pre-flight
-// optimization: if a task started or a chat message was sent within
-// KeepaliveActivityThreshold, that real interaction has already kept the 5h
-// window alive, so the redundant ping is skipped. Errors querying the DB are
-// logged at warn level and fall through to pinging (fail open — better to ping
-// unnecessarily than to let the window expire).
+// keepalivePing runs a minimal Claude Code session unless the runner is stopped
+// or already rate limited. The ping is unconditional with respect to activity:
+// it is scheduled to fire just after the 5h window resets, and a task or chat
+// message from before that reset belongs to the closing window and cannot open
+// the next one, so there is nothing for prior activity to make redundant.
 func (r *Runner) keepalivePing() {
 	r.mu.RLock()
 	state := r.state
@@ -149,71 +152,11 @@ func (r *Runner) keepalivePing() {
 		}
 	}
 
-	threshold := r.config.KeepaliveActivityThreshold
-	if threshold > 0 {
-		latest, err := r.recentActivity()
-		switch {
-		case err != nil:
-			slog.Warn("keepalive activity check failed, pinging anyway", "error", err)
-		case !latest.IsZero() && time.Since(latest) < threshold:
-			slog.Info("keepalive skipped: recent activity",
-				"age", time.Since(latest).Round(time.Second),
-				"threshold", threshold)
-			return
-		}
-	}
-
 	if err := r.doPing(); err != nil {
 		slog.Warn("keepalive ping failed", "error", err)
 		return
 	}
 	slog.Info("keepalive ping completed")
-}
-
-// recentActivity returns the most recent activity timestamp from either the
-// tasks or messages tables. Returns the zero time when both tables are empty.
-// Uses activityFn if set (for testing), otherwise queries the database via
-// mostRecentActivity().
-func (r *Runner) recentActivity() (time.Time, error) {
-	if r.activityFn != nil {
-		return r.activityFn()
-	}
-	return r.mostRecentActivity()
-}
-
-// mostRecentActivity queries the database for the most recent task start or
-// chat message and returns the maximum of the two timestamps. Returns the
-// zero time when both tables are empty. Each query is bounded to LIMIT 1 and
-// uses an indexed ordering column (started_at DESC NULLS LAST for tasks,
-// id DESC for messages where id is the bigserial primary key and serves as a
-// monotonic proxy for created_at).
-func (r *Runner) mostRecentActivity() (time.Time, error) {
-	if r.db == nil {
-		return time.Time{}, errors.New("no database")
-	}
-
-	var taskStarted sql.NullTime
-	if err := r.db.Raw(
-		"SELECT started_at FROM tasks WHERE started_at IS NOT NULL ORDER BY started_at DESC LIMIT 1",
-	).Scan(&taskStarted).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return time.Time{}, err
-	}
-
-	var msgCreated sql.NullTime
-	if err := r.db.Raw(
-		"SELECT created_at FROM messages WHERE deleted_at IS NULL ORDER BY id DESC LIMIT 1",
-	).Scan(&msgCreated).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return time.Time{}, err
-	}
-
-	var latest time.Time
-	if taskStarted.Valid {
-		latest = taskStarted.Time
-	}
-	if msgCreated.Valid && msgCreated.Time.After(latest) {
-		latest = msgCreated.Time
-	}
-	return latest, nil
 }
 
 // doPing executes the ping. Uses pingFn if set (for testing), otherwise runs
