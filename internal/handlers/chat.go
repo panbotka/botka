@@ -615,7 +615,7 @@ func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread
 	clientGone := c.Request.Context().Done()
 	clientDisconnected := false
 
-	var fullResponse strings.Builder
+	var fullResponse responseAccumulator
 	var hasContent bool
 	var errored bool
 	var lastErrorMsg string
@@ -639,7 +639,7 @@ loop:
 			switch event.Kind {
 			case claude.KindContentDelta:
 				hasContent = true
-				fullResponse.WriteString(event.Text)
+				fullResponse.addDelta(event.Text)
 				chunk, _ := json.Marshal(map[string]string{"content": event.Text})
 				sseData := fmt.Sprintf("data: %s\n\n", chunk)
 				claude.Streams.Publish(threadID, sseData)
@@ -726,9 +726,7 @@ loop:
 						lastErrorMsg = event.ErrorMsg
 					}
 				} else {
-					if fullResponse.Len() == 0 && event.ResultText != "" {
-						fullResponse.WriteString(event.ResultText)
-					}
+					fullResponse.addResult(event.ResultText)
 					lastCostUSD = event.CostUSD
 					lastInputTokens = event.InputTokens
 					lastOutputTokens = event.OutputTokens
