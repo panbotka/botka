@@ -216,7 +216,7 @@ Exposes 19 tools across categories: task management (create_task, list_tasks, ge
 | `BOX_WOL_COMMAND` | `/home/pi/bin/boxon` | Wake-on-LAN command for Box server |
 | `KEEPALIVE_ENABLED` | `true` | Enable periodic Claude Code ping to keep 5h rate limit window active |
 | `KEEPALIVE_INTERVAL` | `60m` | Fallback interval between keepalive pings, used only on cold start before the usage monitor reports a `resets_at` (Go duration) |
-| `KEEPALIVE_LEAD_TIME` | `15m` | How long before the current 5h window's `resets_at` to fire the keepalive ping. The ping is dynamically scheduled at `resets_at - lead_time`; if that's already in the past or within ~1 minute, ping immediately and reschedule for the next window (Go duration) |
+| `KEEPALIVE_RESET_DELAY` | `2m` | How long after the current 5h window's `resets_at` to fire the keepalive ping. Anthropic's 5h windows are anchored at first use, so the ping must land *after* the reset to open the next window; the loop then projects the following ping off `lastPing + 5h` while the `claude-usage` cache still reports the old `resets_at` (Go duration) |
 | `SIGNAL_CLI_URL` | `http://127.0.0.1:5107` | Base URL of signal-cli daemon HTTP JSON-RPC endpoint |
 | `FAILURE_SUMMARY_ENABLED` | `true` | Generate an LLM failure summary in Czech after a task transitions to `failed`. Runs asynchronously; failures leave the column null and log a warning |
 | `FAILURE_SUMMARY_MODEL` | `haiku` | Claude model passed to `claude -p --output-format json` when generating the failure summary |

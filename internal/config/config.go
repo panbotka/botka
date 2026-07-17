@@ -41,7 +41,7 @@ type Config struct {
 	BoxWOLCommand             string
 	KeepaliveEnabled          bool
 	KeepaliveInterval         time.Duration
-	KeepaliveLeadTime         time.Duration
+	KeepaliveResetDelay       time.Duration
 	SignalCLIURL              string
 	FailureSummaryEnabled     bool
 	FailureSummaryModel       string
@@ -94,9 +94,9 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("parsing KEEPALIVE_INTERVAL: %w", err)
 	}
 
-	keepaliveLeadTime, err := time.ParseDuration(getEnv("KEEPALIVE_LEAD_TIME", "15m"))
+	keepaliveResetDelay, err := time.ParseDuration(getEnv("KEEPALIVE_RESET_DELAY", "2m"))
 	if err != nil {
-		return nil, fmt.Errorf("parsing KEEPALIVE_LEAD_TIME: %w", err)
+		return nil, fmt.Errorf("parsing KEEPALIVE_RESET_DELAY: %w", err)
 	}
 
 	failureSummaryEnabled, err := getEnvBool("FAILURE_SUMMARY_ENABLED", true)
@@ -166,7 +166,7 @@ func Load() (*Config, error) {
 		BoxWOLCommand:             getEnv("BOX_WOL_COMMAND", "/home/pi/bin/boxon"),
 		KeepaliveEnabled:          keepaliveEnabled,
 		KeepaliveInterval:         keepaliveInterval,
-		KeepaliveLeadTime:         keepaliveLeadTime,
+		KeepaliveResetDelay:       keepaliveResetDelay,
 		SignalCLIURL:              getEnv("SIGNAL_CLI_URL", "http://127.0.0.1:5107"),
 		FailureSummaryEnabled:     failureSummaryEnabled,
 		FailureSummaryModel:       getEnv("FAILURE_SUMMARY_MODEL", "haiku"),

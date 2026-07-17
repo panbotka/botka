@@ -276,47 +276,51 @@ func TestComputeKeepaliveSchedule_FutureResetsAt(t *testing.T) {
 		resetsAtFn: func() time.Time { return resetsAt },
 	}
 
-	target, delay := r.computeKeepaliveSchedule(15*time.Minute, 60*time.Minute, time.Time{})
+	target, delay := r.computeKeepaliveSchedule(2*time.Minute, 60*time.Minute, time.Time{})
 
-	wantTarget := resetsAt.Add(-15 * time.Minute)
+	wantTarget := resetsAt.Add(2 * time.Minute)
 	if !target.Equal(wantTarget) {
 		t.Errorf("expected target %v, got %v", wantTarget, target)
 	}
-	// Delay should be ~30min (45min until reset minus 15min lead time).
-	if delay < 29*time.Minute || delay > 31*time.Minute {
-		t.Errorf("expected delay around 30m, got %v", delay)
+	// Delay should be ~47min: 45min until the reset, plus the 2min delay after it.
+	if delay < 46*time.Minute || delay > 48*time.Minute {
+		t.Errorf("expected delay around 47m, got %v", delay)
 	}
 }
 
 func TestComputeKeepaliveSchedule_PastTargetPingsImmediately(t *testing.T) {
 	t.Parallel()
 
-	// resetsAt is 5 minutes from now, leadTime is 15 minutes — target is in past.
-	resetsAt := time.Now().Add(5 * time.Minute)
+	// The window reset 5 minutes ago and we have not pinged for it — the target
+	// is in the past, so open a window now.
+	resetsAt := time.Now().Add(-5 * time.Minute)
 	r := &Runner{
 		resetsAtFn: func() time.Time { return resetsAt },
 	}
 
-	_, delay := r.computeKeepaliveSchedule(15*time.Minute, 60*time.Minute, time.Time{})
+	_, delay := r.computeKeepaliveSchedule(2*time.Minute, 60*time.Minute, time.Time{})
 
 	if delay != 0 {
 		t.Errorf("expected immediate ping (delay=0), got %v", delay)
 	}
 }
 
-func TestComputeKeepaliveSchedule_NearTargetPingsImmediately(t *testing.T) {
+func TestComputeKeepaliveSchedule_NearTargetWaitsInsteadOfFiringEarly(t *testing.T) {
 	t.Parallel()
 
-	// Target is 30 seconds from now — within the ~1 minute "imminent" window.
-	resetsAt := time.Now().Add(15*time.Minute + 30*time.Second)
+	// The reset is 30s away, so the target is 2m30s away. The old
+	// keepaliveMinDelay clamp would round any sub-minute delay down to zero;
+	// under the new timing that fires the ping BEFORE the reset, spending it on
+	// the closing window and opening nothing. The delay must be waited out.
+	resetsAt := time.Now().Add(30 * time.Second)
 	r := &Runner{
 		resetsAtFn: func() time.Time { return resetsAt },
 	}
 
-	_, delay := r.computeKeepaliveSchedule(15*time.Minute, 60*time.Minute, time.Time{})
+	_, delay := r.computeKeepaliveSchedule(2*time.Minute, 60*time.Minute, time.Time{})
 
-	if delay != 0 {
-		t.Errorf("expected immediate ping (delay=0) when target is within minDelay, got %v", delay)
+	if delay < 2*time.Minute {
+		t.Errorf("expected the delay to be waited out (>=2m), got %v — a ping this early lands before the reset", delay)
 	}
 }
 
@@ -327,7 +331,7 @@ func TestComputeKeepaliveSchedule_ZeroResetsAtUsesFallback(t *testing.T) {
 		resetsAtFn: func() time.Time { return time.Time{} },
 	}
 
-	target, delay := r.computeKeepaliveSchedule(15*time.Minute, 60*time.Minute, time.Time{})
+	target, delay := r.computeKeepaliveSchedule(2*time.Minute, 60*time.Minute, time.Time{})
 
 	if !target.IsZero() {
 		t.Errorf("expected zero target in fallback mode, got %v", target)
@@ -337,49 +341,47 @@ func TestComputeKeepaliveSchedule_ZeroResetsAtUsesFallback(t *testing.T) {
 	}
 }
 
-func TestComputeKeepaliveSchedule_AdvancesToNextWindowAfterPing(t *testing.T) {
+func TestComputeKeepaliveSchedule_ProjectsNextWindowWhileMonitorIsStale(t *testing.T) {
 	t.Parallel()
 
-	// Simulate: we just pinged at the current target, but resetsAt hasn't
-	// updated yet. The next computation should project to the next window
-	// (5h later) instead of looping on the same target.
-	resetsAt := time.Now().Add(45 * time.Minute)
+	// We just pinged 2m after the reset, opening a new window. claude-usage is a
+	// cron-refreshed cache, so the monitor keeps reporting the OLD resets_at for
+	// several minutes. Recomputing must project to the window our own ping
+	// opened (lastPing + 5h) instead of re-firing into it 2m later.
+	resetsAt := time.Now().Add(-2 * time.Minute)
+	lastPing := time.Now()
 	r := &Runner{
 		resetsAtFn: func() time.Time { return resetsAt },
 	}
-	lastTarget := resetsAt.Add(-15 * time.Minute)
 
-	target, delay := r.computeKeepaliveSchedule(15*time.Minute, 60*time.Minute, lastTarget)
+	target, delay := r.computeKeepaliveSchedule(2*time.Minute, 60*time.Minute, lastPing)
 
-	wantTarget := lastTarget.Add(5 * time.Hour)
+	wantTarget := lastPing.Add(5*time.Hour + 2*time.Minute)
 	if !target.Equal(wantTarget) {
-		t.Errorf("expected target advanced by one window to %v, got %v", wantTarget, target)
+		t.Errorf("expected target projected to the next window %v, got %v", wantTarget, target)
 	}
-	// Delay should be roughly 5h30m (5h + 30min until original target).
-	wantDelay := time.Until(wantTarget)
-	if delay < wantDelay-time.Second || delay > wantDelay+time.Second {
-		t.Errorf("expected delay near %v, got %v", wantDelay, delay)
+	if delay < 5*time.Hour {
+		t.Errorf("expected a ~5h delay, got %v — this is the double ping the projection exists to prevent", delay)
 	}
 }
 
-func TestComputeKeepaliveSchedule_UsesFreshResetsAtAfterWindowAdvanced(t *testing.T) {
+func TestComputeKeepaliveSchedule_FreshResetsAtAgreesWithProjection(t *testing.T) {
 	t.Parallel()
 
-	// After we ping for the current window, the usage monitor refreshes and
-	// reports the next window's resetsAt. The new target is well after
-	// lastTarget, so we use it directly without projecting.
-	prevResetsAt := time.Now().Add(45 * time.Minute)
-	newResetsAt := prevResetsAt.Add(5*time.Hour + 10*time.Minute)
+	// Same moment as the stale-cache case, except the monitor has caught up and
+	// reports the reset of the window our ping opened. Both branches of the max
+	// must land on the same target.
+	lastPing := time.Now()
+	resetsAt := lastPing.Add(5 * time.Hour)
 	r := &Runner{
-		resetsAtFn: func() time.Time { return newResetsAt },
+		resetsAtFn: func() time.Time { return resetsAt },
 	}
-	lastTarget := prevResetsAt.Add(-15 * time.Minute)
 
-	target, _ := r.computeKeepaliveSchedule(15*time.Minute, 60*time.Minute, lastTarget)
+	target, _ := r.computeKeepaliveSchedule(2*time.Minute, 60*time.Minute, lastPing)
 
-	wantTarget := newResetsAt.Add(-15 * time.Minute)
+	wantTarget := resetsAt.Add(2 * time.Minute)
 	if !target.Equal(wantTarget) {
-		t.Errorf("expected target derived from fresh resetsAt %v, got %v", wantTarget, target)
+		t.Errorf("expected target %v, got %v", wantTarget, target)
 	}
 }
 
@@ -388,8 +390,8 @@ func TestKeepaliveLoop_FallbackWhenResetsAtZero(t *testing.T) {
 
 	var count atomic.Int32
 	cfg := &config.Config{
-		KeepaliveInterval: 10 * time.Millisecond,
-		KeepaliveLeadTime: 15 * time.Minute,
+		KeepaliveInterval:   10 * time.Millisecond,
+		KeepaliveResetDelay: 2 * time.Minute,
 	}
 	r := &Runner{
 		state:      models.StateRunning,
@@ -420,8 +422,8 @@ func TestKeepaliveLoop_PingsImmediatelyWhenTargetInPast(t *testing.T) {
 	// (5h later) so we don't see a flood.
 	resetsAt := time.Now().Add(-1 * time.Hour)
 	cfg := &config.Config{
-		KeepaliveInterval: 10 * time.Millisecond,
-		KeepaliveLeadTime: 15 * time.Minute,
+		KeepaliveInterval:   10 * time.Millisecond,
+		KeepaliveResetDelay: 2 * time.Minute,
 	}
 	r := &Runner{
 		state:      models.StateRunning,
@@ -452,8 +454,8 @@ func TestKeepaliveLoop_StopsCleanlyWhileWaitingOnLongDelay(t *testing.T) {
 	// but stopCh must interrupt cleanly without leaking the timer.
 	resetsAt := time.Now().Add(2 * time.Hour)
 	cfg := &config.Config{
-		KeepaliveInterval: 10 * time.Millisecond,
-		KeepaliveLeadTime: 15 * time.Minute,
+		KeepaliveInterval:   10 * time.Millisecond,
+		KeepaliveResetDelay: 2 * time.Minute,
 	}
 	pinged := false
 	r := &Runner{
