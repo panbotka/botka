@@ -100,7 +100,7 @@ export default function LoginPage() {
   }, [navigate, redirectTo])
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-zinc-100 p-4">
+    <div className="flex min-h-[100lvh] items-center justify-center bg-zinc-100 p-4">
       <div className="w-full max-w-sm space-y-6 rounded-xl border border-zinc-200 bg-white dark:bg-zinc-200 p-8 shadow-sm">
         <div className="text-center">
           <span className="text-4xl">🤖</span>

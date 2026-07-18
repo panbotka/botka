@@ -59,7 +59,7 @@ function PageLoader() {
 
 function FullPageLoader() {
   return (
-    <div className="flex h-dvh items-center justify-center bg-zinc-50">
+    <div className="flex h-[100lvh] items-center justify-center bg-zinc-50">
       <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
     </div>
   )
@@ -185,7 +185,7 @@ function AuthenticatedApp() {
 
   return (
     <SSEProvider>
-      <div className="relative flex h-dvh bg-zinc-50" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+      <div className="relative flex h-[100lvh] bg-zinc-50" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
         {!isMobile && (
           <>
             <div
@@ -216,30 +216,31 @@ function AuthenticatedApp() {
             </button>
           </>
         )}
-        <main className={clsx(
-          'flex-1',
-          isChat ? 'overflow-hidden' : 'overflow-auto p-6',
-          isMobile && !hideBottomNav && !isChat && 'pb-20',
-        )}>
-          <Suspense fallback={<PageLoader />}>
-            <Routes>
-              <Route path="/" element={<DashboardPage />} />
-              <Route path="/chat/*" element={<ChatPage />} />
-              <Route path="/tasks" element={<TasksPage />} />
-              <Route path="/tasks/:id" element={<TaskDetailPage />} />
-              <Route path="/stats" element={<StatsPage />} />
-              <Route path="/cron-jobs" element={<CronJobsPage />} />
-              <Route path="/schedules" element={<SchedulesPage />} />
-              <Route path="/projects" element={<Navigate to="/settings?tab=projects" replace />} />
-              <Route path="/projects/:id" element={<ProjectDetailPage />} />
-              <Route path="/cost" element={<Navigate to="/" replace />} />
-              <Route path="/box" element={<BoxPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/help" element={<HelpPage />} />
-            </Routes>
-          </Suspense>
-        </main>
-        {isMobile && !hideBottomNav && <BottomNav />}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <main className={clsx(
+            'min-h-0 flex-1',
+            isChat ? 'overflow-hidden' : 'overflow-auto p-6',
+          )}>
+            <Suspense fallback={<PageLoader />}>
+              <Routes>
+                <Route path="/" element={<DashboardPage />} />
+                <Route path="/chat/*" element={<ChatPage />} />
+                <Route path="/tasks" element={<TasksPage />} />
+                <Route path="/tasks/:id" element={<TaskDetailPage />} />
+                <Route path="/stats" element={<StatsPage />} />
+                <Route path="/cron-jobs" element={<CronJobsPage />} />
+                <Route path="/schedules" element={<SchedulesPage />} />
+                <Route path="/projects" element={<Navigate to="/settings?tab=projects" replace />} />
+                <Route path="/projects/:id" element={<ProjectDetailPage />} />
+                <Route path="/cost" element={<Navigate to="/" replace />} />
+                <Route path="/box" element={<BoxPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/help" element={<HelpPage />} />
+              </Routes>
+            </Suspense>
+          </main>
+          {isMobile && !hideBottomNav && <BottomNav />}
+        </div>
         <OfflineIndicator />
         <UpdateBanner />
         <SearchOverlay open={searchOpen} onClose={closeSearch} initialQuery={searchInitialQuery} />
