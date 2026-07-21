@@ -439,7 +439,15 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
 
         completionContextRef.current = { isEdit: false };
 
-        sseManager.runStream(threadId, () => wrappedStream());
+        // A mid-stream transport drop (iOS PWA backgrounding surfaces a raw
+        // "Load failed" TypeError) must recover, not dead-end: resubscribe with
+        // backoff, then let the completion effect reload from the DB. Genuine
+        // backend errors still surface. Mirrors the initial-subscribe recovery
+        // in the catch below.
+        sseManager.runStream(threadId, () => wrappedStream(), {
+          retryStreamFn: (signal) => streamSubscribe(threadId, signal),
+          recoverConnectionErrors: true,
+        });
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return;
         // On error, refetch messages in case the response completed

@@ -43,6 +43,21 @@ class StreamError extends Error {
   }
 }
 
+/**
+ * True for a raw transport-level failure of the response body read — a network
+ * drop (browser `TypeError` such as "Load failed" / "Failed to fetch") or a
+ * fetch the browser aborted itself (e.g. iOS PWA backgrounding), as opposed to
+ * a `StreamError` carrying a real backend `event: error` payload. Genuine
+ * backend errors are `StreamError`s and must never be classified as transport
+ * drops, so they keep surfacing to the user.
+ */
+function isTransportError(err: unknown): boolean {
+  if (err instanceof StreamError) return false;
+  if (err instanceof TypeError) return true;
+  if (err instanceof Error && err.name === 'AbortError') return true;
+  return false;
+}
+
 // ============= Constants =============
 
 const RETRY_DELAYS = [1000, 2000, 4000];
@@ -224,17 +239,40 @@ export class SSESessionManager {
     createStream: (signal: AbortSignal) => AsyncGenerator<StreamChunk>,
     options?: {
       retryStreamFn?: (signal: AbortSignal) => AsyncGenerator<StreamChunk>;
+      /**
+       * Reconnect path only. When true, a raw transport-level drop of the
+       * response body read (browser `TypeError` / self-aborted fetch) is
+       * treated like a lost connection: it retries via `retryStreamFn` instead
+       * of surfacing a dead-end error block, and on exhausted retries stays
+       * silent so the completion effect can reload the finished answer from the
+       * DB. Genuine backend `event: error` payloads still surface either way.
+       */
+      recoverConnectionErrors?: boolean;
     },
   ): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session) return;
 
+    const recover = options?.recoverConnectionErrors === true;
+    // A recoverable failure is a backend "connection lost" event, or — only on
+    // the reconnect path — a raw transport drop of the body read. A genuine
+    // backend error is neither, so it always surfaces to the user.
+    const isRecoverable = (e: unknown): boolean =>
+      (e instanceof StreamError && e.connectionLost) ||
+      (recover && isTransportError(e));
+
     try {
       await this.consumeStream(session, createStream(session.controller.signal));
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') return;
+      // Our own abort (navigation / new session) ends quietly. On the reconnect
+      // path a browser-initiated abort is instead a transport drop to recover
+      // from, so don't bail early for it there.
+      if (err instanceof Error && err.name === 'AbortError' &&
+          (session.controller.signal.aborted || !recover)) {
+        return;
+      }
 
-      if (err instanceof StreamError && err.connectionLost && options?.retryStreamFn) {
+      if (isRecoverable(err) && options?.retryStreamFn) {
         let succeeded = false;
 
         for (let i = 0; i < RETRY_DELAYS.length; i++) {
@@ -252,11 +290,12 @@ export class SSESessionManager {
             succeeded = true;
             break;
           } catch (retryErr) {
-            if (retryErr instanceof Error && retryErr.name === 'AbortError') return;
-            if (!(retryErr instanceof StreamError && retryErr.connectionLost)) {
-              session.state.streamError = retryErr instanceof Error ? retryErr.message : 'Unknown error';
-              session.state.streamErrorRaw = retryErr instanceof StreamError ? retryErr.raw ?? null : null;
-              this.notify(session);
+            if (retryErr instanceof Error && retryErr.name === 'AbortError' &&
+                (session.controller.signal.aborted || !recover)) {
+              return;
+            }
+            if (!isRecoverable(retryErr)) {
+              this.setStreamError(session, retryErr);
               succeeded = true;
               break;
             }
@@ -264,15 +303,19 @@ export class SSESessionManager {
         }
 
         if (!succeeded) {
-          session.state.streamError = 'Server unavailable';
-          session.state.streamErrorRaw = null;
+          // Retries exhausted. The send path shows the "Server unavailable"
+          // banner + health polling. The reconnect path stays silent: the
+          // completion effect reloads messages from the DB, surfacing the
+          // finished answer instead of a dead-end error block.
+          if (!recover) {
+            session.state.streamError = 'Server unavailable';
+            session.state.streamErrorRaw = null;
+          }
           session.state.reconnecting = null;
           this.notify(session);
         }
       } else {
-        session.state.streamError = err instanceof Error ? err.message : 'Unknown error';
-        session.state.streamErrorRaw = err instanceof StreamError ? err.raw ?? null : null;
-        this.notify(session);
+        this.setStreamError(session, err);
       }
     } finally {
       // Only update if this session hasn't been replaced
@@ -294,6 +337,27 @@ export class SSESessionManager {
         }
       }
     }
+  }
+
+  /**
+   * Set a user-meaningful stream error on the session, never surfacing a raw
+   * browser transport string ("Load failed" / "Failed to fetch") verbatim.
+   * A `StreamError` carries the backend's own message + raw payload; a raw
+   * transport drop shows "Server unavailable"; anything else falls back to its
+   * message or "Unknown error".
+   */
+  private setStreamError(session: Session, err: unknown): void {
+    if (err instanceof StreamError) {
+      session.state.streamError = err.message;
+      session.state.streamErrorRaw = err.raw ?? null;
+    } else if (isTransportError(err)) {
+      session.state.streamError = 'Server unavailable';
+      session.state.streamErrorRaw = null;
+    } else {
+      session.state.streamError = err instanceof Error ? err.message : 'Unknown error';
+      session.state.streamErrorRaw = null;
+    }
+    this.notify(session);
   }
 
   /** Consume an SSE stream, accumulating state in the session. */
