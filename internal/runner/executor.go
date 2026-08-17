@@ -516,8 +516,9 @@ func (e *Executor) spawnClaude(
 	claudeArgs := []string{
 		"--dangerously-skip-permissions", "--verbose",
 		"--output-format", "stream-json",
-		// Autonomous tasks are latency-insensitive, so buy quality with effort.
-		"--effort", "xhigh",
+		// Pinned so effort never drifts with per-model defaults; matches the
+		// chat runner, session pool, and cron job spawn paths.
+		"--effort", "high",
 	}
 	if mcpConfigPath != "" {
 		claudeArgs = append(claudeArgs, "--mcp-config", mcpConfigPath)
