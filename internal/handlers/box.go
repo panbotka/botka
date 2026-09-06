@@ -116,14 +116,15 @@ func NewBoxHandler(db *gorm.DB, host, sshUser, wolCommand string) *BoxHandler {
 
 // RegisterBoxRoutes attaches box endpoints to the given router group.
 func RegisterBoxRoutes(rg *gin.RouterGroup, h *BoxHandler) {
-	box := rg.Group("/box")
-	box.GET("/status", h.Status)
-	box.GET("/auto-off", h.AutoOff)
-	box.GET("/projects", h.ListProjects)
-	box.POST("/wake", h.Wake)
-	box.POST("/shutdown", h.Shutdown)
-	box.POST("/services/:name/start", h.StartService)
-	box.POST("/services/:name/stop", h.StopService)
+	// Not named "box": that shadows the internal/box package this file uses.
+	grp := rg.Group("/box")
+	grp.GET("/status", h.Status)
+	grp.GET("/auto-off", h.AutoOff)
+	grp.GET("/projects", h.ListProjects)
+	grp.POST("/wake", h.Wake)
+	grp.POST("/shutdown", h.Shutdown)
+	grp.POST("/services/:name/start", h.StartService)
+	grp.POST("/services/:name/stop", h.StopService)
 }
 
 // AutoOffSnapshotter is the slice of the auto-off monitor this handler needs.

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	ossignal "os/signal"
 	"strconv"
 	"strings"
@@ -22,6 +23,7 @@ import (
 
 	"botka"
 	"botka/internal/box"
+	"botka/internal/boxoff"
 	"botka/internal/claude"
 	"botka/internal/config"
 	"botka/internal/database"
@@ -171,6 +173,31 @@ func run() error {
 	scheduleScheduler.Start()
 	defer scheduleScheduler.Stop()
 
+	// Box auto-off: shut the build machine down once it has been idle long
+	// enough. The SSH target matches the Waker's, so probe, wake and shutdown
+	// all address Box the same way. The monitor is armed by the box_auto_off
+	// setting, which defaults to off — starting it here does nothing until the
+	// user turns it on.
+	boxRun := func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		return exec.CommandContext(ctx, name, args...).CombinedOutput() //nolint:gosec // args are controlled
+	}
+	autoOffMonitor := boxoff.NewMonitor(boxoff.Config{
+		DB:         db,
+		Prober:     boxoff.NewSSHProbe(boxRun, boxSSHTarget),
+		Kukatko:    boxoff.NewMetricsClient(cfg.KukatkoMetricsURL),
+		Activity:   boxoff.NewAppActivity(taskRunner, claude.Registry, db),
+		Shutdowner: boxoff.NewSSHShutdowner(boxRun, boxSSHTarget),
+		Thresholds: boxoff.Thresholds{
+			Interval:   cfg.BoxAutoOffInterval,
+			MinUptime:  cfg.BoxAutoOffMinUptime,
+			IdleChecks: cfg.BoxAutoOffIdleChecks,
+			GPUPercent: cfg.BoxAutoOffGPUPercent,
+			Load1:      cfg.BoxAutoOffLoad1,
+		},
+	})
+	autoOffMonitor.Start()
+	defer autoOffMonitor.Stop()
+
 	// Web Push sender. Returns nil + error if VAPID keys are missing; we
 	// log a warning and continue with push disabled rather than crashing.
 	pushSender, err := push.NewSender(cfg, db)
@@ -208,7 +235,7 @@ func run() error {
 	defer bridgeCancel()
 	signalBridge.Start(bridgeCtx)
 
-	router := setupRouter(db, cfg, taskRunner, cronScheduler, scheduleScheduler, signalClient, signalBridge, boxWaker, boxSSHTarget, pushSender)
+	router := setupRouter(db, cfg, taskRunner, cronScheduler, scheduleScheduler, signalClient, signalBridge, boxWaker, boxSSHTarget, autoOffMonitor, pushSender)
 
 	return startServer(router, cfg.Port)
 }
@@ -259,6 +286,7 @@ func setupRouter(
 	scheduleScheduler *runner.ScheduleScheduler,
 	signalClient *signal.Client, signalBridge *signal.Bridge,
 	boxWaker *box.Waker, boxSSHTarget string,
+	autoOffMonitor *boxoff.Monitor,
 	pushSender push.Sender,
 ) *gin.Engine {
 	router := gin.New()
@@ -389,6 +417,7 @@ func setupRouter(
 	handlers.RegisterStatusRoutes(v1, statusHandler)
 
 	boxHandler := handlers.NewBoxHandler(db, cfg.BoxHost, cfg.BoxSSHUser, cfg.BoxWOLCommand)
+	boxHandler.SetAutoOffMonitor(autoOffMonitor)
 	handlers.RegisterBoxRoutes(v1, boxHandler)
 
 	skillHandler := handlers.NewSkillHandler(db, skills.HomeDir(), cfg.ProjectsDir, skills.Scan, skills.SyncToDatabase)
@@ -405,11 +434,17 @@ func setupRouter(
 
 	settingsHandler := handlers.NewSettingsHandler(db)
 	settingsHandler.SetOnChange(func(key, value string) {
-		if key == "max_workers" {
+		switch key {
+		case "max_workers":
 			n, err := strconv.Atoi(value)
 			if err == nil {
 				taskRunner.SetMaxWorkers(n)
 			}
+		case "box_auto_off":
+			// Re-read rather than trusting the value: the monitor owns the
+			// interpretation of the setting, and arming it must not wait for
+			// the next tick.
+			autoOffMonitor.ReloadSetting()
 		}
 	})
 	handlers.RegisterSettingsRoutes(v1, settingsHandler)

@@ -9,7 +9,7 @@ import (
 )
 
 // realSample is trimmed from the live https://fotky.kotrzina.cz/metrics
-// response, including the neighbouring families whose names share a prefix
+// response, including the neighboring families whose names share a prefix
 // with the one we read.
 const realSample = `# HELP kukatko_jobs_queue_depth Number of jobs in the queue, partitioned by state.
 # TYPE kukatko_jobs_queue_depth gauge

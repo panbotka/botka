@@ -214,6 +214,7 @@ export interface RunnerStatus {
 
 export interface ServerSettings {
   max_workers: number
+  box_auto_off?: boolean
 }
 
 export interface UsageInfo {
@@ -505,6 +506,60 @@ export interface BoxStatus {
   online: boolean
   host: string
   services: BoxServiceStatus[]
+}
+
+export interface BoxAutoOffBlocker {
+  name: string
+  detail: string
+}
+
+export interface BoxAutoOffBoxReadings {
+  uptime_seconds: number
+  load1: number
+  threads: number
+  gpu_max_percent: number
+}
+
+export interface BoxAutoOffKukatkoReadings {
+  status_code: number
+  queued: number
+  running: number
+  error?: string
+  body_excerpt?: string
+}
+
+export interface BoxAutoOffEvaluation {
+  checked_at: string
+  idle: boolean
+  blockers: BoxAutoOffBlocker[] | null
+  box: BoxAutoOffBoxReadings | null
+  kukatko: BoxAutoOffKukatkoReadings | null
+}
+
+export interface BoxAutoOffEvent {
+  id: number
+  occurred_at: string
+  outcome: 'shutdown' | 'failed' | 'aborted'
+}
+
+/**
+ * BoxAutoOffStatus mirrors GET /api/v1/box/auto-off.
+ *
+ * `earliest_shutdown_at` is the soonest a shutdown could happen if nothing
+ * changes; it is null whenever no honest estimate exists (any blocker other
+ * than uptime), and the UI shows the blocking reason instead of a countdown.
+ */
+export interface BoxAutoOffStatus {
+  enabled: boolean
+  streak: number
+  required_checks: number
+  interval_seconds: number
+  next_check_at: string | null
+  earliest_shutdown_at: string | null
+  last_evaluation: BoxAutoOffEvaluation | null
+  recent: BoxAutoOffEvaluation[] | null
+  events: BoxAutoOffEvent[]
+  last_error?: string
 }
 
 export interface BoxProject {

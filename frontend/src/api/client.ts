@@ -1,4 +1,4 @@
-import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, TaskNote, TaskTag, Thread, ThreadDetail, ThreadFolder, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, TaskStatsAggregated, TaskStatsGroupBy, GlobalSearchResults, MessageSearchResponse, UnifiedSearchResult, CostAnalytics, ServerSettings, Message, BoxStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, Skill, EffectiveSkill, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo, Bookmark } from '../types'
+import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, TaskNote, TaskTag, Thread, ThreadDetail, ThreadFolder, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, TaskStatsAggregated, TaskStatsGroupBy, GlobalSearchResults, MessageSearchResponse, UnifiedSearchResult, CostAnalytics, ServerSettings, Message, BoxStatus, BoxAutoOffStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, Skill, EffectiveSkill, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo, Bookmark } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -1145,6 +1145,10 @@ export function fetchBoxStatus(): Promise<BoxStatus> {
   return requestData<BoxStatus>('/box/status')
 }
 
+export function fetchBoxAutoOff(): Promise<BoxAutoOffStatus> {
+  return requestData<BoxAutoOffStatus>('/box/auto-off')
+}
+
 export function fetchBoxProjects(): Promise<BoxProjectsResponse> {
   return requestData<BoxProjectsResponse>('/box/projects')
 }
@@ -1520,6 +1524,7 @@ export const api = {
   setThreadSkills,
   // Box
   fetchBoxStatus,
+  fetchBoxAutoOff,
   fetchBoxProjects,
   wakeBox,
   shutdownBox,

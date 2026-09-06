@@ -119,7 +119,7 @@ func TestAppActivity_BoxChatThreads_NoProcessesSkipsTheQuery(t *testing.T) {
 
 func TestAppActivity_BoxChatThreads_WithoutDatabaseIsAnError(t *testing.T) {
 	// A running chat whose location cannot be resolved must never read as
-	// "no chats on box" — unknown is a blocker, not a licence to shut down.
+	// "no chats on box" — unknown is a blocker, not a license to shut down.
 	act := NewAppActivity(fakeTaskStatus{}, fakeChatRegistry{procs: []claude.ProcessInfo{
 		{ThreadID: 1, ThreadTitle: "a chat"},
 	}}, nil)

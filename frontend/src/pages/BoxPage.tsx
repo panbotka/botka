@@ -19,6 +19,7 @@ import {
   startBoxService,
   stopBoxService,
 } from '../api/client'
+import BoxAutoOffCard from '../components/BoxAutoOffCard'
 import type { BoxStatus, BoxServiceStatus } from '../types'
 
 const NORMAL_POLL_MS = 10_000
@@ -239,6 +240,9 @@ export default function BoxPage() {
           </div>
         </div>
       )}
+
+      {/* Automatic shutdown when idle */}
+      <BoxAutoOffCard />
 
       {/* Services */}
       <div>
