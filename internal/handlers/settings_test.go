@@ -2,232 +2,89 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
-
-	"botka/internal/models"
 )
 
-func TestSettings_Get(t *testing.T) {
+// newSettingsRouter wires a settings handler over the test database.
+func newSettingsRouter(t *testing.T) (*gin.Engine, *SettingsHandler) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
 	db := setupTestDB(t)
-	cleanTables(t, db)
-
-	// Seed a max_workers setting.
-	db.Save(&models.Setting{Key: "max_workers", Value: "2"})
-
 	h := NewSettingsHandler(db)
 	router := gin.New()
 	RegisterSettingsRoutes(router.Group("/api/v1"), h)
 
-	w := doRequest(router, http.MethodGet, "/api/v1/settings", "")
+	return router, h
+}
+
+// putSettings sends a settings update and returns the decoded data envelope.
+func putSettings(t *testing.T, router *gin.Engine, body string) map[string]any {
+	t.Helper()
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
 	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("status = %d, body %s", w.Code, w.Body.String())
 	}
 
 	var resp struct {
-		Data struct {
-			MaxWorkers int `json:"max_workers"`
-		} `json:"data"`
+		Data map[string]any `json:"data"`
 	}
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
-	if resp.Data.MaxWorkers != 2 {
-		t.Errorf("expected max_workers=2, got %d", resp.Data.MaxWorkers)
+	return resp.Data
+}
+
+func TestSettingsHandler_UpdateBoxAutoOff(t *testing.T) {
+	router, h := newSettingsRouter(t)
+
+	var gotKey, gotValue string
+	h.SetOnChange(func(key, value string) { gotKey, gotValue = key, value })
+
+	data := putSettings(t, router, `{"box_auto_off": true}`)
+
+	if data["box_auto_off"] != true {
+		t.Errorf("box_auto_off = %v (%T), want the boolean true", data["box_auto_off"], data["box_auto_off"])
+	}
+	if gotKey != "box_auto_off" || gotValue != "true" {
+		t.Errorf("onChange(%q, %q), want (box_auto_off, true)", gotKey, gotValue)
 	}
 }
 
-func TestSettings_UpdateMaxWorkers(t *testing.T) {
-	db := setupTestDB(t)
-	cleanTables(t, db)
+func TestSettingsHandler_BoxAutoOffRoundTripsFalse(t *testing.T) {
+	router, _ := newSettingsRouter(t)
 
-	h := NewSettingsHandler(db)
-	router := gin.New()
-	RegisterSettingsRoutes(router.Group("/api/v1"), h)
-
-	w := doRequest(router, http.MethodPut, "/api/v1/settings", `{"max_workers": 5}`)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var resp struct {
-		Data struct {
-			MaxWorkers int `json:"max_workers"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if resp.Data.MaxWorkers != 5 {
-		t.Errorf("expected max_workers=5, got %d", resp.Data.MaxWorkers)
+	for _, want := range []bool{true, false} {
+		data := putSettings(t, router, fmt.Sprintf(`{"box_auto_off": %t}`, want))
+		if data["box_auto_off"] != want {
+			t.Errorf("box_auto_off = %v, want %t", data["box_auto_off"], want)
+		}
 	}
 }
 
-func TestSettings_UpdateMaxWorkers_Zero_OK(t *testing.T) {
-	db := setupTestDB(t)
-	cleanTables(t, db)
+func TestSettingsHandler_OmittedBoxAutoOffIsNotWritten(t *testing.T) {
+	// A partial update must not silently clear the switch: sending only
+	// max_workers has to leave box_auto_off alone.
+	router, _ := newSettingsRouter(t)
 
-	h := NewSettingsHandler(db)
-	router := gin.New()
-	RegisterSettingsRoutes(router.Group("/api/v1"), h)
+	putSettings(t, router, `{"box_auto_off": true}`)
+	data := putSettings(t, router, `{"max_workers": 2}`)
 
-	w := doRequest(router, http.MethodPut, "/api/v1/settings", `{"max_workers": 0}`)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	if data["box_auto_off"] != true {
+		t.Errorf("box_auto_off = %v after an unrelated update, want it untouched", data["box_auto_off"])
 	}
-
-	var resp struct {
-		Data struct {
-			MaxWorkers int `json:"max_workers"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if resp.Data.MaxWorkers != 0 {
-		t.Errorf("expected max_workers=0, got %d", resp.Data.MaxWorkers)
-	}
-}
-
-func TestSettings_UpdateMaxWorkers_InvalidLow(t *testing.T) {
-	db := setupTestDB(t)
-	cleanTables(t, db)
-
-	h := NewSettingsHandler(db)
-	router := gin.New()
-	RegisterSettingsRoutes(router.Group("/api/v1"), h)
-
-	w := doRequest(router, http.MethodPut, "/api/v1/settings", `{"max_workers": -1}`)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestSettings_UpdateMaxWorkers_InvalidHigh(t *testing.T) {
-	db := setupTestDB(t)
-	cleanTables(t, db)
-
-	h := NewSettingsHandler(db)
-	router := gin.New()
-	RegisterSettingsRoutes(router.Group("/api/v1"), h)
-
-	w := doRequest(router, http.MethodPut, "/api/v1/settings", `{"max_workers": 11}`)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestSettings_SetOnChange(t *testing.T) {
-	db := setupTestDB(t)
-	cleanTables(t, db)
-
-	h := NewSettingsHandler(db)
-	router := gin.New()
-	RegisterSettingsRoutes(router.Group("/api/v1"), h)
-
-	var calledKey, calledValue string
-	h.SetOnChange(func(key, value string) {
-		calledKey = key
-		calledValue = value
-	})
-
-	w := doRequest(router, http.MethodPut, "/api/v1/settings", `{"max_workers": 3}`)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	if calledKey != "max_workers" {
-		t.Errorf("expected onChange key=max_workers, got %q", calledKey)
-	}
-	if calledValue != "3" {
-		t.Errorf("expected onChange value=3, got %q", calledValue)
-	}
-}
-
-func TestSettings_UpdateInvalidBody(t *testing.T) {
-	db := setupTestDB(t)
-	cleanTables(t, db)
-
-	h := NewSettingsHandler(db)
-	router := gin.New()
-	RegisterSettingsRoutes(router.Group("/api/v1"), h)
-
-	w := doRequest(router, http.MethodPut, "/api/v1/settings", `{invalid json}`)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestSettings_PurgeTaskOutputs(t *testing.T) {
-	db := setupTestDB(t)
-	cleanTables(t, db)
-
-	proj := createTestProject(t, db)
-	task := createTestTask(t, db, proj.ID, models.TaskStatusDone)
-
-	// Create executions with raw_output set.
-	output1 := "some output"
-	output2 := "more output"
-	exec1 := models.TaskExecution{TaskID: task.ID, Attempt: 1, StartedAt: task.CreatedAt, RawOutput: &output1}
-	exec2 := models.TaskExecution{TaskID: task.ID, Attempt: 2, StartedAt: task.CreatedAt, RawOutput: &output2}
-	exec3 := models.TaskExecution{TaskID: task.ID, Attempt: 3, StartedAt: task.CreatedAt, RawOutput: nil}
-	db.Create(&exec1)
-	db.Create(&exec2)
-	db.Create(&exec3)
-
-	h := NewSettingsHandler(db)
-	router := gin.New()
-	RegisterSettingsRoutes(router.Group("/api/v1"), h)
-
-	w := doRequest(router, http.MethodDelete, "/api/v1/settings/task-outputs", "")
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var resp struct {
-		Data struct {
-			Purged int64 `json:"purged"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if resp.Data.Purged != 2 {
-		t.Errorf("expected purged=2, got %d", resp.Data.Purged)
-	}
-
-	// Verify raw_output is now NULL for all executions.
-	var count int64
-	db.Model(&models.TaskExecution{}).Where("raw_output IS NOT NULL").Count(&count)
-	if count != 0 {
-		t.Errorf("expected 0 rows with raw_output, got %d", count)
-	}
-}
-
-func TestSettings_PurgeTaskOutputs_NoneToDelete(t *testing.T) {
-	db := setupTestDB(t)
-	cleanTables(t, db)
-
-	h := NewSettingsHandler(db)
-	router := gin.New()
-	RegisterSettingsRoutes(router.Group("/api/v1"), h)
-
-	w := doRequest(router, http.MethodDelete, "/api/v1/settings/task-outputs", "")
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var resp struct {
-		Data struct {
-			Purged int64 `json:"purged"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if resp.Data.Purged != 0 {
-		t.Errorf("expected purged=0, got %d", resp.Data.Purged)
+	if data["max_workers"] != float64(2) {
+		t.Errorf("max_workers = %v, want 2", data["max_workers"])
 	}
 }

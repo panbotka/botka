@@ -12,6 +12,11 @@ import (
 	"botka/internal/runner"
 )
 
+// boxAutoOffSettingKey is the app_settings row holding the Box auto-off
+// switch. The switch is a setting rather than an env var because it is
+// something the user flips, not a deployment parameter.
+const boxAutoOffSettingKey = "box_auto_off"
+
 // SettingsHandler handles server-side configuration endpoints.
 type SettingsHandler struct {
 	db       *gorm.DB
@@ -36,8 +41,9 @@ func RegisterSettingsRoutes(rg *gin.RouterGroup, h *SettingsHandler) {
 	rg.DELETE("/settings/cron-executions", h.PurgeCronExecutions)
 }
 
-// Get returns all settings as a key→value map. The max_workers value is
-// returned as an integer rather than a string.
+// Get returns all settings as a key→value map. Values are stored as strings;
+// max_workers is returned as an integer and box_auto_off as a boolean so the
+// frontend does not have to parse them.
 func (h *SettingsHandler) Get(c *gin.Context) {
 	var rows []models.Setting
 	if err := h.db.Find(&rows).Error; err != nil {
@@ -47,14 +53,17 @@ func (h *SettingsHandler) Get(c *gin.Context) {
 
 	result := gin.H{}
 	for _, row := range rows {
-		if row.Key == "max_workers" {
+		switch row.Key {
+		case "max_workers":
 			n, err := strconv.Atoi(row.Value)
 			if err == nil {
 				result["max_workers"] = n
 			} else {
 				result["max_workers"] = row.Value
 			}
-		} else {
+		case boxAutoOffSettingKey:
+			result[boxAutoOffSettingKey] = row.Value == "true"
+		default:
 			result[row.Key] = row.Value
 		}
 	}
@@ -64,7 +73,8 @@ func (h *SettingsHandler) Get(c *gin.Context) {
 
 // settingsUpdateRequest is the request body for PUT /settings.
 type settingsUpdateRequest struct {
-	MaxWorkers *int `json:"max_workers"`
+	MaxWorkers *int  `json:"max_workers"`
+	BoxAutoOff *bool `json:"box_auto_off"`
 }
 
 // Update accepts a partial settings payload, validates it, persists the
@@ -91,6 +101,18 @@ func (h *SettingsHandler) Update(c *gin.Context) {
 
 		if h.onChange != nil {
 			h.onChange("max_workers", val)
+		}
+	}
+
+	if req.BoxAutoOff != nil {
+		val := strconv.FormatBool(*req.BoxAutoOff)
+		if err := h.db.Save(&models.Setting{Key: boxAutoOffSettingKey, Value: val}).Error; err != nil {
+			respondError(c, http.StatusInternalServerError, "failed to save setting")
+			return
+		}
+
+		if h.onChange != nil {
+			h.onChange(boxAutoOffSettingKey, val)
 		}
 	}
 
