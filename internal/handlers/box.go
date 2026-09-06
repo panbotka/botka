@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os/exec"
@@ -16,6 +17,7 @@ import (
 	"gorm.io/gorm"
 
 	"botka/internal/box"
+	"botka/internal/boxoff"
 	"botka/internal/models"
 )
 
@@ -79,6 +81,11 @@ type BoxHandler struct {
 	services   []BoxService
 	runner     CommandRunner
 
+	// autoOff exposes the auto-off monitor's state. Nil when the monitor is
+	// not wired (tests, or a build without it), in which case the endpoint
+	// reports 503 rather than pretending the feature is simply off.
+	autoOff AutoOffSnapshotter
+
 	// projectsCache stores the last successful Box project listing so
 	// repeated UI polls within boxProjectsCacheTTL skip the SSH round-trip.
 	projectsMu       sync.Mutex
@@ -111,11 +118,63 @@ func NewBoxHandler(db *gorm.DB, host, sshUser, wolCommand string) *BoxHandler {
 func RegisterBoxRoutes(rg *gin.RouterGroup, h *BoxHandler) {
 	box := rg.Group("/box")
 	box.GET("/status", h.Status)
+	box.GET("/auto-off", h.AutoOff)
 	box.GET("/projects", h.ListProjects)
 	box.POST("/wake", h.Wake)
 	box.POST("/shutdown", h.Shutdown)
 	box.POST("/services/:name/start", h.StartService)
 	box.POST("/services/:name/stop", h.StopService)
+}
+
+// AutoOffSnapshotter is the slice of the auto-off monitor this handler needs.
+type AutoOffSnapshotter interface {
+	Snapshot() boxoff.Snapshot
+}
+
+// SetAutoOffMonitor wires the auto-off monitor into the handler.
+func (h *BoxHandler) SetAutoOffMonitor(m AutoOffSnapshotter) {
+	h.autoOff = m
+}
+
+// autoOffEventsLimit is how many past shutdown attempts the endpoint returns.
+const autoOffEventsLimit = 20
+
+// AutoOff reports the auto-off monitor's current state: the switch, the idle
+// streak, when the next check runs, the earliest moment a shutdown could
+// happen, the last evaluation with its blockers, and the recent shutdown
+// attempts.
+func (h *BoxHandler) AutoOff(c *gin.Context) {
+	if h.autoOff == nil {
+		respondError(c, http.StatusServiceUnavailable, "box auto-off monitor is not running")
+		return
+	}
+
+	snap := h.autoOff.Snapshot()
+
+	events := make([]models.BoxAutoOffEvent, 0, autoOffEventsLimit)
+	if h.db != nil {
+		if err := h.db.WithContext(c.Request.Context()).
+			Order("occurred_at DESC").
+			Limit(autoOffEventsLimit).
+			Find(&events).Error; err != nil {
+			// History is decoration; the live state is the point. Log and
+			// return the rest rather than failing the whole endpoint.
+			slog.Warn("box auto-off: reading events failed", "error", err)
+		}
+	}
+
+	respondOK(c, gin.H{
+		"enabled":              snap.Enabled,
+		"streak":               snap.Streak,
+		"required_checks":      snap.RequiredChecks,
+		"interval_seconds":     snap.IntervalSeconds,
+		"next_check_at":        snap.NextCheckAt,
+		"earliest_shutdown_at": snap.EarliestShutdownAt,
+		"last_evaluation":      snap.LastEvaluation,
+		"recent":               snap.Recent,
+		"events":               events,
+		"last_error":           snap.LastError,
+	})
 }
 
 // Status checks if the box is online and reports the status of each service.

@@ -8,8 +8,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"botka/internal/boxoff"
 )
 
 // mockCommandRunner records calls and returns canned results.
@@ -533,5 +536,87 @@ func TestAllowedServices_Whitelist(t *testing.T) {
 		if allowedServices[name] {
 			t.Errorf("%q should not be in allowed services", name)
 		}
+	}
+}
+
+// --- auto-off ---
+
+type fakeSnapshotter struct{ snap boxoff.Snapshot }
+
+func (f fakeSnapshotter) Snapshot() boxoff.Snapshot { return f.snap }
+
+func TestBoxHandler_AutoOff_Shape(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	next := time.Now().Add(7 * time.Minute)
+	earliest := next.Add(20 * time.Minute)
+	h := NewBoxHandler(nil, "10.0.0.1", "panbotka", "/bin/true")
+	h.SetAutoOffMonitor(fakeSnapshotter{snap: boxoff.Snapshot{
+		Enabled:            true,
+		Streak:             1,
+		RequiredChecks:     3,
+		IntervalSeconds:    600,
+		NextCheckAt:        &next,
+		EarliestShutdownAt: &earliest,
+		LastEvaluation: &boxoff.Evaluation{
+			CheckedAt: time.Now(),
+			Blockers:  []boxoff.Blocker{{Name: boxoff.BlockerKukatkoQueue, Detail: "12 queued, 1 running"}},
+			Kukatko:   &boxoff.KukatkoReadings{StatusCode: 200, Queued: 12, Running: 1},
+		},
+	}})
+
+	router := gin.New()
+	RegisterBoxRoutes(router.Group("/api/v1"), h)
+
+	w := doRequest(router, http.MethodGet, "/api/v1/box/auto-off", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			Enabled            bool    `json:"enabled"`
+			Streak             int     `json:"streak"`
+			RequiredChecks     int     `json:"required_checks"`
+			EarliestShutdownAt *string `json:"earliest_shutdown_at"`
+			LastEvaluation     *struct {
+				Blockers []struct {
+					Name   string `json:"name"`
+					Detail string `json:"detail"`
+				} `json:"blockers"`
+			} `json:"last_evaluation"`
+			Events []any `json:"events"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if !resp.Data.Enabled || resp.Data.Streak != 1 || resp.Data.RequiredChecks != 3 {
+		t.Errorf("unexpected payload: %+v", resp.Data)
+	}
+	if resp.Data.EarliestShutdownAt == nil {
+		t.Error("earliest_shutdown_at missing; the UI counts down off it")
+	}
+	if resp.Data.LastEvaluation == nil || len(resp.Data.LastEvaluation.Blockers) != 1 {
+		t.Fatal("blockers missing from the payload")
+	}
+	if resp.Data.LastEvaluation.Blockers[0].Detail != "12 queued, 1 running" {
+		t.Errorf("blocker detail = %q", resp.Data.LastEvaluation.Blockers[0].Detail)
+	}
+	if resp.Data.Events == nil {
+		t.Error("events must be an empty array, not null, so the frontend can map it")
+	}
+}
+
+func TestBoxHandler_AutoOff_WithoutMonitor(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := gin.New()
+	RegisterBoxRoutes(router.Group("/api/v1"), NewBoxHandler(nil, "10.0.0.1", "panbotka", "/bin/true"))
+
+	w := doRequest(router, http.MethodGet, "/api/v1/box/auto-off", "")
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when the monitor is not wired, got %d", w.Code)
 	}
 }
