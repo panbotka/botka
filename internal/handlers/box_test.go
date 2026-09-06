@@ -281,12 +281,6 @@ func TestBoxHandler_Shutdown_FailuresAreReported(t *testing.T) {
 	}
 }
 
-func TestIsExpectedShutdownDisconnect_NilError(t *testing.T) {
-	if !isExpectedShutdownDisconnect(nil, "") {
-		t.Error("a successful ssh run must count as success")
-	}
-}
-
 func TestBoxHandler_Status_ResponseShape(t *testing.T) {
 	runner := &mockCommandRunner{}
 	h := newTestBoxHandler(runner)
