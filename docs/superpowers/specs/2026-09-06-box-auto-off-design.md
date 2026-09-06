@@ -90,6 +90,24 @@ of continuous quiet at the default interval. This is what bridges the gap
 between two batches of Kukátko jobs, and what makes a single unlucky GPU
 sample harmless.
 
+**Countdown.** The evaluation carries `earliest_shutdown_at`, the soonest
+moment a shutdown could happen if nothing changes. It is computed by a pure
+function alongside the blocker list, so the UI only has to tick a clock:
+
+- **No blockers.** Ticks land at `next_check_at + k·interval`, and with a
+  streak of `s` the run needs `required − s` more clean ticks:
+  `earliest = next_check_at + (required − s − 1)·interval`. At `s = 2` of 3
+  that is the next tick itself.
+- **`uptime` is the only blocker.** This one blocker has a known expiry, so
+  the countdown stays meaningful: take the first tick at or after
+  `now + (min_uptime − uptime)`, then add `(required − 1)·interval`. A Box
+  booted five minutes ago therefore shows a real ~2 h 30 min countdown
+  instead of a blank.
+- **Anything else blocks** — disabled, offline, tasks, chats, Kukátko, CPU,
+  GPU — `earliest_shutdown_at` is null. Those blockers have no predictable
+  expiry, and a countdown that keeps resetting is worse than none. The UI
+  shows the blocking reason instead.
+
 **Re-check before firing.** Conditions 4 and 5 are re-evaluated immediately
 before the shutdown command is issued. The evaluation involves an SSH probe
 and an HTTPS scrape and takes seconds, during which the runner can claim a
@@ -118,9 +136,11 @@ that the reason be visible with the response.
 Split so each file has one job and the decision logic is testable with no
 network, no database and no Box:
 
-- `evaluate.go` — pure function
-  `Evaluate(now time.Time, in Inputs, cfg Thresholds) Evaluation`. Takes
-  already-gathered readings, returns the blocker list. No I/O.
+- `evaluate.go` — two pure functions.
+  `Evaluate(now time.Time, in Inputs, cfg Thresholds) Evaluation` takes
+  already-gathered readings and returns the blocker list.
+  `EarliestShutdownAt(now time.Time, ev Evaluation, streak int, nextCheck time.Time, cfg Thresholds) *time.Time`
+  turns that into the countdown described above. No I/O in either.
 - `probe.go` — `SSHProbe` runs the command above via a `CommandRunner` and
   parses stdout into `BoxReadings{UptimeSeconds, Load1, Cores, GPUSamples}`.
   Parsing is a separate exported function so malformed output is testable
@@ -201,6 +221,7 @@ same function with the `Waker`'s target. The existing tests in
   "required_checks": 3,
   "interval_seconds": 600,
   "next_check_at": "2026-09-06T20:10:00Z",
+  "earliest_shutdown_at": null,
   "last_evaluation": {
     "checked_at": "2026-09-06T20:00:00Z",
     "idle": false,
@@ -226,8 +247,12 @@ One card on `BoxPage`, below the existing service list, next to the manual
 Shutdown button it complements:
 
 - Header with the toggle (optimistic switch, `updateServerSettings`).
-- When enabled: "Další kontrola za 7 min" and the streak as
-  `2 / 3 klidných kontrol`.
+- When enabled and a countdown exists: the headline is
+  "Vypnutí za 27:14", ticking once a second off `earliest_shutdown_at`,
+  with "pokud zůstane klid" beneath it so nobody reads it as a promise.
+  When `earliest_shutdown_at` is null the same slot names the blocker
+  instead ("Blokuje: fronta Kukátka — 12 queued").
+- "Další kontrola za 7 min" and the streak as `2 / 3 klidných kontrol`.
 - The condition list, each row ✓/✗ with its detail: uptime, load1 with core
   count, GPU max %, Kukátko queue (or its HTTP status and error text), and
   the Botka-side task/chat blockers.
@@ -276,6 +301,10 @@ thing the user flips, not a deployment parameter.
 - **`Evaluate`** — table-driven over every blocker and every combination
   boundary: uptime just under/over 2 h, load and GPU at the threshold,
   queue of exactly zero, unknown readings. Pure function, no fixtures.
+- **`EarliestShutdownAt`** — clean evaluation at streak 0/1/2 of 3; the
+  uptime-only blocker on a freshly booted Box (countdown crosses the 2 h
+  mark and adds two intervals); every other blocker returning nil; a
+  disabled monitor returning nil.
 - **Probe parsing** — the happy 6-line output; multi-GPU output; truncated
   output; `nvidia-smi` error text on stdout; non-numeric fields. Each must
   produce an error rather than a zero reading.
