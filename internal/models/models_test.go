@@ -191,3 +191,9 @@ func TestAttachment_ComputeURL_EmptyName(t *testing.T) {
 		t.Errorf("ComputeURL() set URL = %q, want %q", a.URL, want)
 	}
 }
+
+func TestBoxAutoOffEvent_TableName(t *testing.T) {
+	if got := (BoxAutoOffEvent{}).TableName(); got != "box_auto_off_events" {
+		t.Errorf("TableName() = %q, want box_auto_off_events", got)
+	}
+}
