@@ -363,6 +363,72 @@ func TestLoad_InvalidWhisperEnabled(t *testing.T) {
 	}
 }
 
+func TestLoad_BoxAutoOffDefaults(t *testing.T) {
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.BoxAutoOffInterval != 10*time.Minute {
+		t.Errorf("BoxAutoOffInterval = %v, want 10m", cfg.BoxAutoOffInterval)
+	}
+	if cfg.BoxAutoOffMinUptime != 2*time.Hour {
+		t.Errorf("BoxAutoOffMinUptime = %v, want 2h", cfg.BoxAutoOffMinUptime)
+	}
+	if cfg.BoxAutoOffIdleChecks != 3 {
+		t.Errorf("BoxAutoOffIdleChecks = %d, want 3", cfg.BoxAutoOffIdleChecks)
+	}
+	if cfg.BoxAutoOffGPUPercent != 10 {
+		t.Errorf("BoxAutoOffGPUPercent = %d, want 10", cfg.BoxAutoOffGPUPercent)
+	}
+	if cfg.BoxAutoOffLoad1 != 1.0 {
+		t.Errorf("BoxAutoOffLoad1 = %v, want 1.0", cfg.BoxAutoOffLoad1)
+	}
+	if cfg.KukatkoMetricsURL != "https://fotky.kotrzina.cz/metrics" {
+		t.Errorf("KukatkoMetricsURL = %q", cfg.KukatkoMetricsURL)
+	}
+}
+
+func TestLoad_BoxAutoOffOverrides(t *testing.T) {
+	t.Setenv("BOX_AUTO_OFF_INTERVAL", "3m")
+	t.Setenv("BOX_AUTO_OFF_MIN_UPTIME", "45m")
+	t.Setenv("BOX_AUTO_OFF_IDLE_CHECKS", "5")
+	t.Setenv("BOX_AUTO_OFF_GPU_THRESHOLD", "25")
+	t.Setenv("BOX_AUTO_OFF_LOAD_THRESHOLD", "2.5")
+	t.Setenv("KUKATKO_METRICS_URL", "http://localhost:9999/metrics")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.BoxAutoOffInterval != 3*time.Minute {
+		t.Errorf("BoxAutoOffInterval = %v, want 3m", cfg.BoxAutoOffInterval)
+	}
+	if cfg.BoxAutoOffMinUptime != 45*time.Minute {
+		t.Errorf("BoxAutoOffMinUptime = %v, want 45m", cfg.BoxAutoOffMinUptime)
+	}
+	if cfg.BoxAutoOffIdleChecks != 5 {
+		t.Errorf("BoxAutoOffIdleChecks = %d, want 5", cfg.BoxAutoOffIdleChecks)
+	}
+	if cfg.BoxAutoOffGPUPercent != 25 {
+		t.Errorf("BoxAutoOffGPUPercent = %d, want 25", cfg.BoxAutoOffGPUPercent)
+	}
+	if cfg.BoxAutoOffLoad1 != 2.5 {
+		t.Errorf("BoxAutoOffLoad1 = %v, want 2.5", cfg.BoxAutoOffLoad1)
+	}
+	if cfg.KukatkoMetricsURL != "http://localhost:9999/metrics" {
+		t.Errorf("KukatkoMetricsURL = %q", cfg.KukatkoMetricsURL)
+	}
+}
+
+func TestLoad_InvalidBoxAutoOffInterval(t *testing.T) {
+	t.Setenv("BOX_AUTO_OFF_INTERVAL", "soon")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() expected error for invalid BOX_AUTO_OFF_INTERVAL, got nil")
+	}
+}
+
 // --- helpers ---
 
 func sliceEqual(a, b []string) bool {

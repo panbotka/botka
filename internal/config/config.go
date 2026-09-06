@@ -39,6 +39,12 @@ type Config struct {
 	BoxSSHUser                string
 	BoxSSHHost                string
 	BoxWOLCommand             string
+	BoxAutoOffInterval        time.Duration
+	BoxAutoOffMinUptime       time.Duration
+	BoxAutoOffIdleChecks      int
+	BoxAutoOffGPUPercent      int
+	BoxAutoOffLoad1           float64
+	KukatkoMetricsURL         string
 	KeepaliveEnabled          bool
 	KeepaliveInterval         time.Duration
 	KeepaliveResetDelay       time.Duration
@@ -119,6 +125,31 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("parsing RATE_LIMIT_DETECTION_ENABLED: %w", err)
 	}
 
+	boxAutoOffInterval, err := time.ParseDuration(getEnv("BOX_AUTO_OFF_INTERVAL", "10m"))
+	if err != nil {
+		return nil, fmt.Errorf("parsing BOX_AUTO_OFF_INTERVAL: %w", err)
+	}
+
+	boxAutoOffMinUptime, err := time.ParseDuration(getEnv("BOX_AUTO_OFF_MIN_UPTIME", "2h"))
+	if err != nil {
+		return nil, fmt.Errorf("parsing BOX_AUTO_OFF_MIN_UPTIME: %w", err)
+	}
+
+	boxAutoOffIdleChecks, err := getEnvInt("BOX_AUTO_OFF_IDLE_CHECKS", 3)
+	if err != nil {
+		return nil, fmt.Errorf("parsing BOX_AUTO_OFF_IDLE_CHECKS: %w", err)
+	}
+
+	boxAutoOffGPUPercent, err := getEnvInt("BOX_AUTO_OFF_GPU_THRESHOLD", 10)
+	if err != nil {
+		return nil, fmt.Errorf("parsing BOX_AUTO_OFF_GPU_THRESHOLD: %w", err)
+	}
+
+	boxAutoOffLoad1, err := getEnvFloat("BOX_AUTO_OFF_LOAD_THRESHOLD", 1.0)
+	if err != nil {
+		return nil, fmt.Errorf("parsing BOX_AUTO_OFF_LOAD_THRESHOLD: %w", err)
+	}
+
 	availableModels := getEnvCSV("AVAILABLE_MODELS", []string{"sonnet", "opus", "haiku"})
 
 	sessionMaxAge, err := time.ParseDuration(getEnv("SESSION_MAX_AGE", "720h"))
@@ -164,6 +195,12 @@ func Load() (*Config, error) {
 		BoxSSHUser:                getEnv("BOX_SSH_USER", "box"),
 		BoxSSHHost:                getEnv("BOX_SSH_HOST", "box"),
 		BoxWOLCommand:             getEnv("BOX_WOL_COMMAND", "/home/pi/bin/boxon"),
+		BoxAutoOffInterval:        boxAutoOffInterval,
+		BoxAutoOffMinUptime:       boxAutoOffMinUptime,
+		BoxAutoOffIdleChecks:      boxAutoOffIdleChecks,
+		BoxAutoOffGPUPercent:      boxAutoOffGPUPercent,
+		BoxAutoOffLoad1:           boxAutoOffLoad1,
+		KukatkoMetricsURL:         getEnv("KUKATKO_METRICS_URL", "https://fotky.kotrzina.cz/metrics"),
 		KeepaliveEnabled:          keepaliveEnabled,
 		KeepaliveInterval:         keepaliveInterval,
 		KeepaliveResetDelay:       keepaliveResetDelay,
