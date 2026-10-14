@@ -27,6 +27,7 @@ import { TaskForm } from '../components/TaskForm'
 import { LiveOutputInline } from '../components/LiveOutput'
 import TaskOutputView from '../components/TaskOutputView'
 import TaskChangesSection from '../components/TaskChangesSection'
+import TaskStatsCards from '../components/TaskStatsCards'
 import { TaskTagPicker } from '../components/TaskTagPicker'
 import { TaskNotesSection } from '../components/TaskNotesSection'
 import { fetchTask, retryTask, deleteTask, updateTask, killTask, forceRunTask, fetchTaskRawOutput, regenerateTaskFailureSummary } from '../api/client'
@@ -353,6 +354,9 @@ function TaskDetail({ taskId }: { taskId: string }) {
           Edit
         </button>
       </div>
+
+      {/* At-a-glance dashboard: status, timing (live stopwatch while running), attempts, cost */}
+      <TaskStatsCards task={task} />
 
       {/* Tags */}
       <div className="flex items-center gap-2">
