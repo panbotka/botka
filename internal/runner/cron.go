@@ -253,12 +253,13 @@ func (cs *CronScheduler) runExecution(job *models.CronJob, execution *models.Cro
 		"--dangerously-skip-permissions", "--verbose",
 		"--output-format", "stream-json",
 	}
-	if job.Model != nil && *job.Model != "" {
-		args = append(args, "--model", *job.Model)
+	// Model and effort are always passed explicitly so nothing is inherited
+	// from ~/.claude/settings.json (see claude.PinnedModel).
+	jobModel := ""
+	if job.Model != nil {
+		jobModel = *job.Model
 	}
-
-	// Always run at highest reasoning effort, regardless of per-model defaults.
-	args = append(args, "--effort", "high")
+	args = append(args, "--model", claude.ModelArg(jobModel), "--effort", claude.PinnedEffort)
 
 	cmd := exec.CommandContext(ctx, cs.claudePath, args...) //nolint:gosec // args are controlled
 	cmd.Dir = projectPath

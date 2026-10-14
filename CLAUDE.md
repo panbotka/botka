@@ -204,7 +204,7 @@ Exposes 19 tools across categories: task management (create_task, list_tasks, ge
 | `OPENCLAW_WORKSPACE` | `/home/pi/.openclaw/workspace` | Path to SOUL.md, USER.md, MEMORY.md |
 | `WHISPER_ENABLED` | `true` | Enable voice input transcription |
 | `UPLOAD_DIR` | `./data/uploads` | Directory for uploaded files |
-| `AI_MODEL` | `sonnet` | Default Claude model for new chats |
+| `AI_MODEL` | `opus` | Default Claude model for new chats. Every spawn (chat, tasks, cron) passes `--model` and `--effort high` explicitly — an empty or OpenClaw-format model falls back to `opus` and tasks always run on `opus` — so `~/.claude/settings.json` never leaks into Botka (`internal/claude/pinning.go`) |
 | `AVAILABLE_MODELS` | `sonnet,opus,haiku` | CSV list of available models |
 | `WEBAUTHN_ORIGIN` | `http://localhost:5110` | WebAuthn relying party origin |
 | `WEBAUTHN_RPID` | *(derived from origin)* | WebAuthn relying party ID (hostname) |

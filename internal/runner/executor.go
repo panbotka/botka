@@ -516,9 +516,10 @@ func (e *Executor) spawnClaude(
 	claudeArgs := []string{
 		"--dangerously-skip-permissions", "--verbose",
 		"--output-format", "stream-json",
-		// Pinned so effort never drifts with per-model defaults; matches the
-		// chat runner, session pool, and cron job spawn paths.
-		"--effort", "high",
+		// Tasks always run on the pinned model and effort, never on whatever
+		// ~/.claude/settings.json says; matches the chat and cron spawn paths.
+		"--model", claude.PinnedModel,
+		"--effort", claude.PinnedEffort,
 	}
 	if mcpConfigPath != "" {
 		claudeArgs = append(claudeArgs, "--mcp-config", mcpConfigPath)

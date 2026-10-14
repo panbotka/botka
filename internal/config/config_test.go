@@ -257,8 +257,8 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.WhisperEnabled != true {
 		t.Errorf("WhisperEnabled = %v, want true", cfg.WhisperEnabled)
 	}
-	if cfg.AIModel != "sonnet" {
-		t.Errorf("AIModel = %q, want %q", cfg.AIModel, "sonnet")
+	if cfg.AIModel != "opus" {
+		t.Errorf("AIModel = %q, want %q", cfg.AIModel, "opus")
 	}
 	want := []string{"sonnet", "opus", "haiku"}
 	if !sliceEqual(cfg.AvailableModels, want) {

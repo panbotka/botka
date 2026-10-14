@@ -185,7 +185,7 @@ func Load() (*Config, error) {
 		ClaudeDefaultWorkDir:      getEnv("CLAUDE_DEFAULT_WORK_DIR", "/home/pi"),
 		WhisperEnabled:            whisperEnabled,
 		UploadDir:                 getEnv("UPLOAD_DIR", "./data/uploads"),
-		AIModel:                   getEnv("AI_MODEL", "sonnet"),
+		AIModel:                   getEnv("AI_MODEL", "opus"),
 		AvailableModels:           availableModels,
 		WebAuthnOrigin:            webAuthnOrigin,
 		WebAuthnRPID:              webAuthnRPID,

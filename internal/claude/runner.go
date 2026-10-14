@@ -119,14 +119,9 @@ func buildRunArgs(cfg RunConfig) []string {
 		args = append(args, "--session-id", cfg.SessionID)
 	}
 
-	// Only pass --model for Claude Code model names (sonnet, opus, haiku)
-	// Skip OpenClaw-format models (e.g. "anthropic/claude-sonnet-4-20250514")
-	if cfg.Model != "" && !strings.Contains(cfg.Model, "/") {
-		args = append(args, "--model", cfg.Model)
-	}
-
-	// Always run at highest reasoning effort, regardless of per-model defaults.
-	args = append(args, "--effort", "high")
+	// Model and effort are always passed explicitly so nothing is inherited
+	// from ~/.claude/settings.json (see PinnedModel).
+	args = append(args, "--model", ModelArg(cfg.Model), "--effort", PinnedEffort)
 
 	if cfg.SystemPromptFile != "" && !cfg.Resume {
 		args = append(args, "--append-system-prompt-file", cfg.SystemPromptFile)
