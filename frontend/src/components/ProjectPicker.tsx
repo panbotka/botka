@@ -14,7 +14,7 @@ interface Props {
 /** Returns a score for how well `query` fuzzy-matches `target` (case-insensitive).
  *  Returns -1 if no match. Higher score = better match.
  *  Scoring: exact prefix > substring > fuzzy (non-contiguous). */
-function fuzzyScore(query: string, target: string): number {
+export function fuzzyScore(query: string, target: string): number {
   const q = query.toLowerCase()
   const t = target.toLowerCase()
   if (q.length === 0) return 0

@@ -9,6 +9,7 @@ import { Pagination } from '../components/Pagination'
 import { useTasks } from '../hooks/useTasks'
 import { useTaskCounts } from '../hooks/useTaskCounts'
 import { useProjects } from '../hooks/useProjects'
+import ProjectFilter from '../components/ProjectFilter'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import { useTaskEvents } from '../hooks/useTaskEvents'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
@@ -269,18 +270,7 @@ export default function TasksPage() {
             })}
           </div>
           {projectNames.length > 1 && (
-            <select
-              value={activeProject ?? ''}
-              onChange={(e) => handleProjectChange(e.target.value)}
-              className="ml-auto rounded-md border border-zinc-200 bg-white dark:bg-zinc-100 px-2.5 py-1.5 text-sm text-zinc-700 focus:border-zinc-400 focus:outline-none"
-            >
-              <option value="">All projects</option>
-              {projectNames.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
+            <ProjectFilter names={projectNames} value={activeProject} onChange={(name) => handleProjectChange(name ?? '')} />
           )}
         </div>
         <TaskTagFilterBar selected={activeTagIDs} onChange={handleTagsChange} />
