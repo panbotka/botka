@@ -33,6 +33,8 @@ import {
   clearRateLimitPause,
 } from '../api/client'
 import { CostContent } from './CostDashboardPage'
+import WorkerStepper from '../components/WorkerStepper'
+import { useWorkerCount } from '../hooks/useWorkerCount'
 import type {
   TaskStats,
   RunnerStatus as RunnerStatusType,
@@ -248,16 +250,20 @@ const runnerStateConfig = {
   },
 } as const
 
-function RunnerControls({ status, onStart, onPause, onStop, onClearRateLimit, toggling }: {
+function RunnerControls({ status, onStart, onPause, onStop, onClearRateLimit, onMaxWorkersSaved, toggling }: {
   status: RunnerStatusType
   onStart: (count?: number) => void
   onPause: () => void
   onStop: () => void
   onClearRateLimit: () => void
+  onMaxWorkersSaved: (value: number) => void
   toggling: boolean
 }) {
   const [taskCount, setTaskCount] = useState('')
+  const workers = useWorkerCount(status.max_workers, onMaxWorkersSaved)
   const trackedCount = status.active_tasks.filter((t) => !t.orphaned).length
+  // Lowering the limit never kills running tasks; they just finish first.
+  const overLimit = workers.value > 0 && trackedCount > workers.value
   const orphanedCount = status.active_tasks.length - trackedCount
   const cfg = runnerStateConfig[status.state]
   const hasLimit = status.task_limit > 0
@@ -314,7 +320,7 @@ function RunnerControls({ status, onStart, onPause, onStop, onClearRateLimit, to
         </div>
       )}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <span className={clsx('inline-block h-3 w-3 rounded-full', cfg.dot)} />
           <span className="text-lg font-semibold text-zinc-900">{cfg.label}</span>
           {hasLimit && status.state === 'running' && (
@@ -323,8 +329,16 @@ function RunnerControls({ status, onStart, onPause, onStop, onClearRateLimit, to
             </span>
           )}
           <span className="text-sm text-zinc-500">
-            {status.max_workers === 0 ? 'Disabled' : `${trackedCount}/${status.max_workers} active`}
+            {workers.value === 0 ? 'Disabled' : `${trackedCount}/${workers.value} active`}
           </span>
+          <WorkerStepper
+            value={workers.value}
+            canDecrement={workers.canDecrement}
+            canIncrement={workers.canIncrement}
+            onDecrement={workers.decrement}
+            onIncrement={workers.increment}
+          />
+          {workers.saving && <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />}
           {orphanedCount > 0 && (
             <span
               className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-300"
@@ -382,6 +396,14 @@ function RunnerControls({ status, onStart, onPause, onStop, onClearRateLimit, to
           )}
         </div>
       </div>
+      {workers.error && (
+        <p role="alert" className="mt-2 text-xs text-red-500">{workers.error}</p>
+      )}
+      {overLimit && (
+        <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">
+          More tasks are running than the new limit — nothing is stopped; no new tasks start until they finish.
+        </p>
+      )}
       {showOrphanWarning && (
         <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -559,6 +581,10 @@ export default function DashboardPage() {
     }
   }
 
+  const handleMaxWorkersSaved = useCallback((value: number) => {
+    setRunnerStatus((prev) => prev ? { ...prev, max_workers: value } : prev)
+  }, [])
+
   async function handleKillProcess(threadId: number) {
     try {
       await killProcess(threadId)
@@ -595,12 +621,6 @@ export default function DashboardPage() {
     <div className="mx-auto max-w-5xl space-y-6">
       <h1 className="text-2xl font-bold text-zinc-900">Dashboard</h1>
 
-      {/* API Usage */}
-      <UsageMeters usage={runnerStatus.usage} onRefresh={async () => {
-        const updated = await refreshUsage()
-        setRunnerStatus((prev) => prev ? { ...prev, usage: updated } : prev)
-      }} />
-
       {/* Runner controls */}
       <RunnerControls
         status={runnerStatus}
@@ -608,8 +628,15 @@ export default function DashboardPage() {
         onPause={handlePause}
         onClearRateLimit={handleClearRateLimit}
         onStop={handleStop}
+        onMaxWorkersSaved={handleMaxWorkersSaved}
         toggling={toggling}
       />
+
+      {/* API Usage */}
+      <UsageMeters usage={runnerStatus.usage} onRefresh={async () => {
+        const updated = await refreshUsage()
+        setRunnerStatus((prev) => prev ? { ...prev, usage: updated } : prev)
+      }} />
 
       {/* Active chat sessions */}
       <ActiveSessions processes={processes} onKill={handleKillProcess} />
