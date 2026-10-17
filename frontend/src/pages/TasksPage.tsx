@@ -1,12 +1,14 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { clsx } from 'clsx'
 import { Plus, Loader2, Search, X } from 'lucide-react'
 
 import { TaskList } from '../components/TaskList'
+import RunQueuePanel from '../components/RunQueuePanel'
 import { Pagination } from '../components/Pagination'
 import { useTasks } from '../hooks/useTasks'
 import { useTaskCounts } from '../hooks/useTaskCounts'
+import { useRunQueue } from '../hooks/useRunQueue'
 import { useProjects } from '../hooks/useProjects'
 import ProjectFilter from '../components/ProjectFilter'
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
@@ -14,12 +16,15 @@ import { useTaskEvents } from '../hooks/useTaskEvents'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import type { TaskStatus } from '../types'
 
-type Filter = 'all' | TaskStatus
+type Filter = TaskStatus
+
+// Running and queued tasks are always visible in the panel above the tabs, so
+// the default tab is the one that answers "what do I queue next?".
+const DEFAULT_FILTER: Filter = 'pending'
 
 const PAGE_SIZE = 100
 
 const filters: { value: Filter; label: string }[] = [
-  { value: 'all', label: 'All' },
   { value: 'pending', label: 'Pending' },
   { value: 'queued', label: 'Queued' },
   { value: 'running', label: 'Running' },
@@ -42,8 +47,6 @@ export default function TasksPage() {
   const urlQuery = searchParams.get('q') ?? ''
   const hasValidUrlParam = urlStatus !== null && validFilters.has(urlStatus)
 
-  const autoSelectedFilter = useRef<Filter | null>(null)
-
   // Parse current page from URL (1-based)
   const currentPage = Math.max(1, parseInt(urlPage ?? '1', 10) || 1)
 
@@ -64,18 +67,15 @@ export default function TasksPage() {
     return proj?.id
   }, [activeProject, projects])
 
-  // Determine the active status filter
-  const activeFilter: Filter = hasValidUrlParam
-    ? (urlStatus as Filter)
-    : (autoSelectedFilter.current ?? 'all')
+  // Determine the active status filter; a missing or unknown ?status= (including
+  // the retired "all") falls back to the default tab.
+  const activeFilter: Filter = hasValidUrlParam ? (urlStatus as Filter) : DEFAULT_FILTER
 
-  // Build server-side filter params
-  const apiStatus = activeFilter === 'all' ? undefined : activeFilter
   const offset = (currentPage - 1) * PAGE_SIZE
 
   // Fetch paginated tasks with server-side filters
   const { tasks, total, loading, error, refetch } = useTasks({
-    status: apiStatus,
+    status: activeFilter,
     project_id: activeProjectId,
     q: urlQuery || undefined,
     limit: PAGE_SIZE,
@@ -87,18 +87,13 @@ export default function TasksPage() {
   // Fetch tab counts from stats endpoint
   const { counts, refetch: refetchCounts } = useTaskCounts()
 
-  // Auto-select most actionable status when no valid URL param is present
-  useEffect(() => {
-    if (hasValidUrlParam || autoSelectedFilter.current !== null) return
-    if (counts.running > 0) autoSelectedFilter.current = 'running'
-    else if (counts.queued > 0) autoSelectedFilter.current = 'queued'
-    else if (counts.pending > 0) autoSelectedFilter.current = 'pending'
-    else autoSelectedFilter.current = 'all'
-  }, [counts, hasValidUrlParam])
+  // Running / up-next panel: respects the project filter, ignores search.
+  const runQueue = useRunQueue(activeProjectId)
+  const refetchRunQueue = runQueue.refetch
 
   const refetchAll = useCallback(async () => {
-    await Promise.all([refetch(), refetchCounts()])
-  }, [refetch, refetchCounts])
+    await Promise.all([refetch(), refetchCounts(), refetchRunQueue()])
+  }, [refetch, refetchCounts, refetchRunQueue])
 
   useRefreshOnFocus(refetchAll)
   useTaskEvents(refetchAll)
@@ -129,7 +124,7 @@ export default function TasksPage() {
   // it only clears on navigation (component unmount) or pagination (different page slice).
   const handleFilterChange = useCallback(
     (value: Filter) => {
-      updateSearchParams({ status: value === 'all' ? null : value, page: null })
+      updateSearchParams({ status: value === DEFAULT_FILTER ? null : value, page: null })
     },
     [updateSearchParams],
   )
@@ -213,6 +208,17 @@ export default function TasksPage() {
           </button>
         )}
       </div>
+
+      {/* Running now / up next */}
+      {runQueue.loaded && (
+        <RunQueuePanel
+          running={runQueue.running}
+          queued={runQueue.queued}
+          queuedTotal={runQueue.queuedTotal}
+          runner={runQueue.runner}
+          onShowQueued={() => handleFilterChange('queued')}
+        />
+      )}
 
       {/* Filters */}
       <div className="space-y-3">
