@@ -278,6 +278,25 @@ body {
   animation: palette-in 0.15s ease-out;
 }
 
+/* Mobile "Více" bottom sheet */
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-sheet-up {
+  animation: sheet-up 0.2s ease-out;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
 /* Brief amber halo around a message after jumping to it from search. */
 @keyframes message-flash {
   0%   { box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.55); }

@@ -1,19 +1,6 @@
 import { lazy, Suspense, useState, useEffect, useCallback } from 'react'
 import { Routes, Route, NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import {
-  LayoutDashboard,
-  MessageSquare,
-  ListTodo,
-  Timer,
-  CalendarClock,
-  Settings,
-  HelpCircle,
-  Loader2,
-  Server,
-  ChevronLeft,
-  ChevronRight,
-  BarChart3,
-} from 'lucide-react'
+import { Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useIsMobile } from './hooks/useIsMobile'
 import { SSEProvider } from './context/SSEContext'
@@ -23,6 +10,7 @@ import BottomNav from './components/BottomNav'
 import OfflineIndicator from './components/OfflineIndicator'
 import UpdateBanner from './components/UpdateBanner'
 import SearchOverlay from './components/SearchOverlay'
+import { navItemsFor, type NavItem } from './utils/navItems'
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const ChatPage = lazy(() => import('./pages/ChatPage'))
@@ -36,18 +24,6 @@ const HelpPage = lazy(() => import('./pages/HelpPage'))
 const BoxPage = lazy(() => import('./pages/BoxPage'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const StatsPage = lazy(() => import('./pages/StatsPage'))
-
-const allNavItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard', adminOnly: true },
-  { to: '/chat', icon: MessageSquare, label: 'Chat', adminOnly: false },
-  { to: '/tasks', icon: ListTodo, label: 'Tasks', adminOnly: true },
-  { to: '/stats', icon: BarChart3, label: 'Stats', adminOnly: true },
-  { to: '/schedules', icon: CalendarClock, label: 'Schedules', adminOnly: true },
-  { to: '/cron-jobs', icon: Timer, label: 'Cron Jobs', adminOnly: true },
-  { to: '/box', icon: Server, label: 'Box', adminOnly: true },
-  { to: '/settings', icon: Settings, label: 'Settings', adminOnly: true },
-  { to: '/help', icon: HelpCircle, label: 'Help', adminOnly: false },
-] as const
 
 function PageLoader() {
   return (
@@ -65,36 +41,64 @@ function FullPageLoader() {
   )
 }
 
-function AppSidebar() {
+function SidebarLink({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
+  const Icon = item.icon
+  return (
+    <NavLink
+      to={item.path}
+      end={item.path === '/'}
+      title={collapsed ? item.label : undefined}
+      aria-label={collapsed ? item.label : undefined}
+      className={({ isActive }) =>
+        clsx(
+          'flex items-center gap-2 whitespace-nowrap rounded-md py-2 text-sm font-medium transition-colors',
+          collapsed ? 'justify-center px-2' : 'px-3',
+          isActive
+            ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-300'
+            : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-200',
+        )
+      }
+    >
+      <Icon className="h-4 w-4 flex-shrink-0" />
+      {!collapsed && item.label}
+    </NavLink>
+  )
+}
+
+function AppSidebar({ collapsed }: { collapsed: boolean }) {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
-  const navItems = allNavItems.filter((item) => !item.adminOnly || isAdmin)
+  const primary = navItemsFor('primary', isAdmin)
+  const secondary = navItemsFor('secondary', isAdmin)
 
   return (
-    <aside className="flex h-screen w-56 flex-col border-r border-zinc-200 bg-zinc-50 flex-shrink-0">
-      <div className="flex h-14 items-center gap-2 border-b border-zinc-200 px-4">
+    <aside className="flex h-screen w-full flex-col border-r border-zinc-200 bg-zinc-50 flex-shrink-0">
+      <div
+        className={clsx(
+          'flex h-14 items-center gap-2 border-b border-zinc-200',
+          collapsed ? 'justify-center px-2' : 'px-4',
+        )}
+      >
         <span className="text-xl">🤖</span>
-        <span className="text-lg font-semibold text-zinc-900">Botka</span>
+        {!collapsed && <span className="text-lg font-semibold text-zinc-900">Botka</span>}
       </div>
       <nav className="flex flex-1 flex-col gap-1 p-2">
-        {navItems.map(({ to, icon: Icon, label }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === '/'}
-            className={({ isActive }) =>
-              clsx(
-                'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                isActive
-                  ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-300'
-                  : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-200',
-              )
-            }
-          >
-            <Icon className="h-4 w-4" />
-            {label}
-          </NavLink>
+        {primary.map((item) => (
+          <SidebarLink key={item.path} item={item} collapsed={collapsed} />
         ))}
+        {secondary.length > 0 && (
+          <>
+            <div className="my-2 border-t border-zinc-200 dark:border-zinc-300" role="separator" />
+            {!collapsed && (
+              <div className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
+                Ostatní
+              </div>
+            )}
+            {secondary.map((item) => (
+              <SidebarLink key={item.path} item={item} collapsed={collapsed} />
+            ))}
+          </>
+        )}
       </nav>
     </aside>
   )
@@ -191,12 +195,10 @@ function AuthenticatedApp() {
             <div
               className={clsx(
                 'h-full flex-shrink-0 overflow-hidden transition-[width] duration-200 ease-in-out',
-                sidebarCollapsed ? 'w-0' : 'w-56',
+                sidebarCollapsed ? 'w-14' : 'w-56',
               )}
             >
-              <div className="h-full w-56">
-                <AppSidebar />
-              </div>
+              <AppSidebar collapsed={sidebarCollapsed} />
             </div>
             <button
               type="button"
@@ -204,7 +206,7 @@ function AuthenticatedApp() {
               aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               className={clsx(
                 'absolute top-4 z-30 flex h-6 w-6 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 shadow-sm transition-[left] duration-200 ease-in-out hover:bg-zinc-100 hover:text-zinc-900',
-                sidebarCollapsed ? 'left-1.5' : 'left-[218px]',
+                sidebarCollapsed ? 'left-[50px]' : 'left-[218px]',
               )}
               style={{ top: 'calc(env(safe-area-inset-top, 0px) + 1rem)' }}
             >
