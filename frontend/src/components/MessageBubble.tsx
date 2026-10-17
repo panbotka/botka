@@ -4,14 +4,20 @@ import { formatTime, formatDateTime } from '../utils/dateFormat';
 import MarkdownContent from './MarkdownContent';
 import ThinkingSection from './ThinkingSection';
 import MessageActions from './MessageActions';
-import ToolCallPanel from './ToolCallPanel';
+import ToolActivity from './ToolActivity';
+import type { ToolActivityCall } from './ToolActivity';
 import AttachmentStrip from './AttachmentStrip';
-import { Wrench, ChevronDown, EyeOff } from 'lucide-react';
+import { EyeOff } from 'lucide-react';
 import { linkifyText } from '../utils/linkifyText';
 
 interface Props {
   message: Message;
   isStreaming?: boolean;
+  /**
+   * Tool calls of the reply that is still streaming. Saved messages use
+   * `message.tool_calls` instead; both feed the same ToolActivity row.
+   */
+  liveToolCalls?: ToolActivityCall[];
   isLastAssistant?: boolean;
   isPending?: boolean;
   onEdit?: (messageId: number, content: string) => void;
@@ -71,12 +77,11 @@ function AssistantAvatar() {
   );
 }
 
-function MessageBubble({ message, isStreaming, isLastAssistant, isPending, onEdit, onRegenerate, onHide, onImageClick, onRemoveQueued }: Props) {
+function MessageBubble({ message, isStreaming, liveToolCalls, isLastAssistant, isPending, onEdit, onRegenerate, onHide, onImageClick, onRemoveQueued }: Props) {
   const isUser = message.role === 'user';
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
-  const [toolCallsExpanded, setToolCallsExpanded] = useState(false);
-  const toolCalls = message.tool_calls;
+  const toolCalls: ToolActivityCall[] = (isStreaming ? liveToolCalls : message.tool_calls) ?? [];
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messageId = message.id;
 
@@ -193,6 +198,8 @@ function MessageBubble({ message, isStreaming, isLastAssistant, isPending, onEdi
             </>
           ) : (
             <div className="text-[15px] min-w-0 max-w-full" style={{ lineHeight: 1.7 }}>
+              {/* Top of the message, streaming or saved, so text never shifts when tools finish. */}
+              <ToolActivity toolCalls={toolCalls} isStreaming={isStreaming} />
               {message.thinking && (
                 <ThinkingSection
                   content={message.thinking}
@@ -207,39 +214,6 @@ function MessageBubble({ message, isStreaming, isLastAssistant, isPending, onEdi
                   onImageClick={onImageClick}
                   variant="assistant"
                 />
-              )}
-              {!isStreaming && toolCalls && toolCalls.length > 0 && (
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    onClick={() => setToolCallsExpanded(!toolCallsExpanded)}
-                    className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-600 transition-colors cursor-pointer"
-                  >
-                    <Wrench size={12} />
-                    <span>{toolCalls.length} tool {toolCalls.length === 1 ? 'call' : 'calls'}</span>
-                    <ChevronDown
-                      size={12}
-                      className={`transition-transform duration-200 ${toolCallsExpanded ? 'rotate-180' : ''}`}
-                    />
-                  </button>
-                  <div
-                    className={`grid transition-[grid-template-rows] duration-200 ease-in-out ${
-                      toolCallsExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
-                    }`}
-                  >
-                    <div className="overflow-hidden">
-                      <div className="mt-2">
-                        {toolCalls.map((tc, i) => (
-                          <ToolCallPanel
-                            key={i}
-                            name={tc.name}
-                            input={tc.input}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
               )}
               {isStreaming && (
                 <span className="inline-block w-1.5 h-4 bg-emerald-500/70 ml-0.5 rounded-sm" style={{ animation: 'pulse-glow 1s ease-in-out infinite' }} />
@@ -326,6 +300,7 @@ function sameToolCalls(a?: Message['tool_calls'], b?: Message['tool_calls']): bo
 function propsAreEqual(prev: Props, next: Props): boolean {
   if (
     prev.isStreaming !== next.isStreaming ||
+    prev.liveToolCalls !== next.liveToolCalls ||
     prev.isLastAssistant !== next.isLastAssistant ||
     prev.isPending !== next.isPending ||
     prev.onEdit !== next.onEdit ||

@@ -10,7 +10,6 @@ import MessageBubble from './MessageBubble';
 import ChatInput, { isAllowedFile, getFileExtension, MAX_FILE_SIZE } from './ChatInput';
 import InThreadSearch from './InThreadSearch';
 import type { ChatInputHandle } from './ChatInput';
-import ToolCallPanel from './ToolCallPanel';
 import AskUserPanel from './AskUserPanel';
 import StreamErrorBlock from './StreamErrorBlock';
 import Lightbox from './Lightbox';
@@ -939,45 +938,34 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
           })}
           {isStreamingThisThread && (streamingContent || streamingThinking || activeToolCalls.length > 0) && (
             <>
-              {activeToolCalls.length > 0 && (
+              {/* Tool calls render as one compact ToolActivity row at the top of
+                  this bubble — the same row the saved message shows — instead
+                  of a growing stack of panels. */}
+              <MessageBubble
+                message={{
+                  id: -1,
+                  thread_id: threadId,
+                  role: 'assistant',
+                  content: streamingContent,
+                  thinking: streamingThinking || undefined,
+                  thinking_duration_ms: thinkingDurationMs ?? undefined,
+                  created_at: new Date().toISOString(),
+                }}
+                liveToolCalls={activeToolCalls}
+                isStreaming
+              />
+              {threadId && activeToolCalls.some((tc) => tc.name === 'AskUserQuestion') && (
                 <div className="mb-2 max-w-3xl">
-                  {activeToolCalls.map((tc) =>
-                    tc.name === 'AskUserQuestion' && threadId ? (
-                      <AskUserPanel
-                        key={tc.id}
-                        toolCall={tc}
-                        threadId={threadId}
-                      />
-                    ) : (
-                      <ToolCallPanel
-                        key={tc.id}
-                        name={tc.name}
-                        input={tc.input}
-                        result={tc.result}
-                        isError={tc.isError}
-                        isStreaming={tc.result == null}
-                      />
-                    ),
-                  )}
+                  {activeToolCalls
+                    .filter((tc) => tc.name === 'AskUserQuestion')
+                    .map((tc) => (
+                      <AskUserPanel key={tc.id} toolCall={tc} threadId={threadId} />
+                    ))}
                 </div>
-              )}
-              {(streamingContent || streamingThinking) && (
-                <MessageBubble
-                  message={{
-                    id: -1,
-                    thread_id: threadId,
-                    role: 'assistant',
-                    content: streamingContent,
-                    thinking: streamingThinking || undefined,
-                    thinking_duration_ms: thinkingDurationMs ?? undefined,
-                    created_at: new Date().toISOString(),
-                  }}
-                  isStreaming
-                />
               )}
             </>
           )}
-          {isStreamingThisThread && !streamingContent && !streamingThinking && (
+          {isStreamingThisThread && !streamingContent && !streamingThinking && (activeToolCalls.length === 0 || reconnecting || retryInfo) && (
             <div className="flex items-start gap-3 mb-6 animate-message-in">
               <div className="w-7 h-7 rounded-full bg-zinc-200 flex items-center justify-center flex-shrink-0 mt-1 hidden md:flex">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 text-zinc-500">
