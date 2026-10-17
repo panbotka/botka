@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { clsx } from 'clsx'
-import { Plus, Loader2, Search, X } from 'lucide-react'
+import { Plus, Loader2, Search, X, Check, ListChecks } from 'lucide-react'
 
 import { TaskList } from '../components/TaskList'
 import RunQueuePanel from '../components/RunQueuePanel'
@@ -40,6 +40,10 @@ export default function TasksPage() {
   useDocumentTitle('Tasks')
   const [searchParams, setSearchParams] = useSearchParams()
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // Selection mode makes a row tap toggle selection instead of navigating —
+  // the only reliable way to multi-select on a phone, where the checkbox is
+  // a small target next to a row that would otherwise open the task detail.
+  const [selectionMode, setSelectionMode] = useState(false)
 
   const urlStatus = searchParams.get('status')
   const urlProject = searchParams.get('project')
@@ -120,11 +124,13 @@ export default function TasksPage() {
     [searchParams, setSearchParams],
   )
 
-  // Selection persists across filter/project changes within the same page session;
-  // it only clears on navigation (component unmount) or pagination (different page slice).
+  // Selection persists across project changes within the same page session;
+  // it clears on tab switch, pagination (different page slice), leaving
+  // selection mode, or navigation (component unmount).
   const handleFilterChange = useCallback(
     (value: Filter) => {
       updateSearchParams({ status: value === DEFAULT_FILTER ? null : value, page: null })
+      setSelectedIds(new Set())
     },
     [updateSearchParams],
   )
@@ -146,6 +152,12 @@ export default function TasksPage() {
 
   const handleSelectionChange = useCallback((ids: Set<string>) => {
     setSelectedIds(ids)
+  }, [])
+
+  // Leaving selection mode always drops the selection with it.
+  const handleSelectionModeChange = useCallback((on: boolean) => {
+    setSelectionMode(on)
+    if (!on) setSelectedIds(new Set())
   }, [])
 
   const handleStatusChange = useCallback(() => {
@@ -187,26 +199,42 @@ export default function TasksPage() {
         </Link>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-        <input
-          type="search"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="Search tasks by title, spec, or failure summary…"
-          className="w-full rounded-md border border-zinc-200 bg-white dark:bg-zinc-100 py-2 pl-9 pr-9 text-sm text-zinc-700 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
-        />
-        {searchInput && (
-          <button
-            type="button"
-            onClick={handleClearSearch}
-            aria-label="Clear search"
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        )}
+      {/* Search + selection toggle */}
+      <div className="flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+          <input
+            type="search"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search tasks by title, spec, or failure summary…"
+            className="w-full rounded-md border border-zinc-200 bg-white dark:bg-zinc-100 py-2 pl-9 pr-9 text-sm text-zinc-700 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
+          />
+          {searchInput && (
+            <button
+              type="button"
+              onClick={handleClearSearch}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => handleSelectionModeChange(!selectionMode)}
+          aria-pressed={selectionMode}
+          className={clsx(
+            'inline-flex min-h-[38px] flex-shrink-0 items-center gap-1.5 rounded-md border px-3 text-sm font-medium transition-colors',
+            selectionMode
+              ? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
+              : 'border-zinc-200 bg-white dark:bg-zinc-100 text-zinc-700 hover:bg-zinc-100',
+          )}
+        >
+          {selectionMode ? <Check className="h-4 w-4" /> : <ListChecks className="h-4 w-4" />}
+          {selectionMode ? 'Hotovo' : 'Vybrat'}
+        </button>
       </div>
 
       {/* Running now / up next */}
@@ -274,6 +302,8 @@ export default function TasksPage() {
             onReorder={refetchAll}
             selectedIds={selectedIds}
             onSelectionChange={handleSelectionChange}
+            selectionMode={selectionMode}
+            onSelectionModeChange={handleSelectionModeChange}
             onStatusChange={handleStatusChange}
           />
           <Pagination

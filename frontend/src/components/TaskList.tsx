@@ -30,6 +30,7 @@ import {
   ChevronDown,
   Trash2,
   StickyNote,
+  Check,
 } from 'lucide-react'
 
 import { bulkUpdateTasks, reorderTasks, updateTask } from '../api/client'
@@ -228,13 +229,114 @@ function formatDuration(startedAt: string | null, completedAt: string | null): s
 
 const isDraggable = (status: TaskStatus) => status === 'pending' || status === 'queued'
 
+// LONG_PRESS_MS is how long a row must be held to enter selection mode.
+const LONG_PRESS_MS = 500
+// LONG_PRESS_MOVE_TOLERANCE is how far (px) the pointer may drift before the
+// press counts as a scroll and the long-press is abandoned.
+const LONG_PRESS_MOVE_TOLERANCE = 10
+
+// Pointer-downs that start on these elements belong to the element itself
+// (checkbox, drag handle, status dropdown), never to the row's long-press.
+const INTERACTIVE_SELECTOR = 'input, button, label, a, select, textarea'
+
 interface SortableRowProps {
   task: Task
   onClick: (id: string) => void
   selected: boolean
   onSelect: (id: string, checked: boolean) => void
+  onLongPress: (id: string) => void
+  selectionMode: boolean
   onStatusChange: () => void
   showCost: boolean
+}
+
+// useLongPress fires onLongPress after LONG_PRESS_MS of a stationary press and
+// reports whether the click that follows the release must be swallowed, so a
+// long-press never also navigates. It also suppresses the touch context menu.
+function useLongPress(onLongPress: () => void) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const start = useRef<{ x: number; y: number } | null>(null)
+  const fired = useRef(false)
+  const touch = useRef(false)
+
+  const cancel = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = null
+    start.current = null
+  }, [])
+
+  useEffect(() => cancel, [cancel])
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      fired.current = false
+      touch.current = e.pointerType === 'touch'
+      if (e.button !== undefined && e.button !== 0) return
+      if ((e.target as HTMLElement).closest(INTERACTIVE_SELECTOR)) return
+      cancel()
+      start.current = { x: e.clientX, y: e.clientY }
+      timer.current = setTimeout(() => {
+        timer.current = null
+        fired.current = true
+        onLongPress()
+      }, LONG_PRESS_MS)
+    },
+    [cancel, onLongPress],
+  )
+
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      const s = start.current
+      if (!s) return
+      if (Math.hypot(e.clientX - s.x, e.clientY - s.y) > LONG_PRESS_MOVE_TOLERANCE) cancel()
+    },
+    [cancel],
+  )
+
+  const onContextMenu = useCallback((e: React.MouseEvent) => {
+    // Android raises contextmenu on a long touch; iOS shows its callout.
+    // Either would fight the selection gesture.
+    if (touch.current || fired.current || timer.current) e.preventDefault()
+  }, [])
+
+  // consumeClick returns true when the click is the tail of a long-press.
+  const consumeClick = useCallback(() => {
+    if (!fired.current) return false
+    fired.current = false
+    return true
+  }, [])
+
+  return {
+    handlers: {
+      onPointerDown,
+      onPointerMove,
+      onPointerUp: cancel,
+      onPointerCancel: cancel,
+      onPointerLeave: cancel,
+      onContextMenu,
+    },
+    consumeClick,
+  }
+}
+
+// CheckboxCell is the row/header checkbox: a ~20px box inside a label that
+// fills a 44×44px hit area, so a thumb that misses the box still lands on it
+// instead of on the row (which would navigate away outside selection mode).
+function CheckboxCell({ checked, onChange, label }: { checked: boolean; onChange: (checked: boolean) => void; label: string }) {
+  return (
+    <label
+      className="flex h-11 w-11 cursor-pointer items-center justify-center"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        aria-label={label}
+        className="h-5 w-5 cursor-pointer rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+      />
+    </label>
+  )
 }
 
 function formatCostCell(cost: number | null | undefined): string {
@@ -244,8 +346,10 @@ function formatCostCell(cost: number | null | undefined): string {
   return `$${cost.toFixed(2)}`
 }
 
-function SortableRow({ task, onClick, selected, onSelect, onStatusChange, showCost }: SortableRowProps) {
-  const draggable = isDraggable(task.status)
+function SortableRow({ task, onClick, selected, onSelect, onLongPress, selectionMode, onStatusChange, showCost }: SortableRowProps) {
+  // Dragging is off in selection mode so a tap can't start a reorder by accident.
+  const draggable = isDraggable(task.status) && !selectionMode
+  const longPress = useLongPress(useCallback(() => onLongPress(task.id), [onLongPress, task.id]))
   const {
     attributes,
     listeners,
@@ -263,27 +367,36 @@ function SortableRow({ task, onClick, selected, onSelect, onStatusChange, showCo
     transition,
   }
 
+  const badgeTitle =
+    task.status === 'failed' && task.failure_summary
+      ? firstSentence(task.failure_summary)
+      : undefined
+
   return (
     <tr
       ref={setNodeRef}
-      style={style}
       className={clsx(
-        'group cursor-pointer border-b border-zinc-100 hover:bg-zinc-50',
+        'group cursor-pointer border-b border-zinc-100 pointer-coarse:select-none',
         isDragging && 'z-10 bg-zinc-50 shadow-sm opacity-80',
-        selected && 'bg-blue-50/50',
+        selected ? 'bg-blue-100 hover:bg-blue-100' : 'hover:bg-zinc-50',
       )}
-      onClick={() => onClick(task.id)}
+      style={{ ...style, WebkitTouchCallout: 'none' }}
+      data-testid={`task-row-${task.id}`}
+      {...longPress.handlers}
+      onClick={() => {
+        if (longPress.consumeClick()) return
+        if (selectionMode) onSelect(task.id, !selected)
+        else onClick(task.id)
+      }}
     >
-      <td className="w-8 py-2.5 pl-2 text-center">
-        <input
-          type="checkbox"
+      <td className="w-11 p-0">
+        <CheckboxCell
           checked={selected}
-          onChange={(e) => onSelect(task.id, e.target.checked)}
-          onClick={(e) => e.stopPropagation()}
-          className="h-3.5 w-3.5 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+          onChange={(checked) => onSelect(task.id, checked)}
+          label={`Vybrat ${task.title}`}
         />
       </td>
-      <td className="w-8 py-2.5 pl-2">
+      <td className="w-8 py-2.5 pl-1">
         {draggable ? (
           <button
             className="cursor-grab touch-none rounded p-0.5 text-zinc-300 hover:text-zinc-500 active:cursor-grabbing"
@@ -301,19 +414,22 @@ function SortableRow({ task, onClick, selected, onSelect, onStatusChange, showCo
         {task.priority}
       </td>
       <td className="py-2.5">
-        <StatusBadgeDropdown
-          taskId={task.id}
-          status={task.status}
-          runPhase={task.run_phase}
-          badgeTitle={
-            task.status === 'failed' && task.failure_summary
-              ? firstSentence(task.failure_summary)
-              : undefined
-          }
-          onStatusChange={onStatusChange}
-        />
+        {selectionMode ? (
+          <StatusBadge status={task.status} runPhase={task.run_phase} title={badgeTitle} />
+        ) : (
+          <StatusBadgeDropdown
+            taskId={task.id}
+            status={task.status}
+            runPhase={task.run_phase}
+            badgeTitle={badgeTitle}
+            onStatusChange={onStatusChange}
+          />
+        )}
       </td>
-      <td className="py-2.5 pl-2 text-sm font-medium text-zinc-900 group-hover:text-blue-600">
+      <td className={clsx(
+        'py-2.5 pl-2 text-sm font-medium text-zinc-900',
+        !selectionMode && 'group-hover:text-blue-600',
+      )}>
         <div className="flex flex-wrap items-center gap-1.5">
           <span>{task.title}</span>
           {task.notes_count != null && task.notes_count > 0 && (
@@ -363,6 +479,13 @@ interface TaskListProps {
   onReorder: () => Promise<void>
   selectedIds: Set<string>
   onSelectionChange: (ids: Set<string>) => void
+  /**
+   * In selection mode a tap anywhere on a row toggles it instead of opening
+   * the detail, and the drag handle / inline status dropdown are disabled.
+   */
+  selectionMode: boolean
+  /** Called to enter or leave selection mode; leaving is expected to clear the selection. */
+  onSelectionModeChange: (on: boolean) => void
   onStatusChange: () => void
 }
 
@@ -388,7 +511,7 @@ function saveCostColumnPref(show: boolean) {
   }
 }
 
-export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, onStatusChange }: TaskListProps) {
+export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, selectionMode, onSelectionModeChange, onStatusChange }: TaskListProps) {
   const navigate = useNavigate()
   const [items, setItems] = useState(tasks)
   const [reordering, setReordering] = useState(false)
@@ -468,8 +591,22 @@ export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, onS
         next.delete(id)
       }
       onSelectionChange(next)
+      // Ticking a checkbox outside selection mode (desktop) is an implicit
+      // "start selecting": switch the row taps over to toggling too.
+      if (checked && !selectionMode) onSelectionModeChange(true)
     },
-    [selectedIds, onSelectionChange],
+    [selectedIds, onSelectionChange, selectionMode, onSelectionModeChange],
+  )
+
+  // A long-press enters selection mode with the pressed row selected.
+  const handleLongPress = useCallback(
+    (id: string) => {
+      const next = new Set(selectedIds)
+      next.add(id)
+      onSelectionChange(next)
+      if (!selectionMode) onSelectionModeChange(true)
+    },
+    [selectedIds, onSelectionChange, selectionMode, onSelectionModeChange],
   )
 
   // Select-all-on-page toggles the current page's items in/out of the selection
@@ -482,8 +619,9 @@ export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, onS
         else next.delete(t.id)
       }
       onSelectionChange(next)
+      if (checked && !selectionMode) onSelectionModeChange(true)
     },
-    [items, selectedIds, onSelectionChange],
+    [items, selectedIds, onSelectionChange, selectionMode, onSelectionModeChange],
   )
 
   const allSelected = items.length > 0 && items.every((t) => selectedIds.has(t.id))
@@ -511,8 +649,12 @@ export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, onS
           failed: result.failed,
         })
 
-        // Drop successfully-modified tasks from the selection; failed ones stay selected for retry.
-        if (result.succeeded.length > 0) {
+        // A clean run is the end of the selecting session. On a partial
+        // failure drop the succeeded tasks and keep the failed ones selected
+        // for a retry.
+        if (result.succeeded.length > 0 && result.failed.length === 0) {
+          onSelectionModeChange(false)
+        } else if (result.succeeded.length > 0) {
           const next = new Set(selectedIds)
           for (const id of result.succeeded) next.delete(id)
           onSelectionChange(next)
@@ -526,7 +668,7 @@ export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, onS
         throw err
       }
     },
-    [items, selectedIds, onSelectionChange, onStatusChange],
+    [items, selectedIds, onSelectionChange, onSelectionModeChange, onStatusChange],
   )
 
   if (items.length === 0 && selectedIds.size === 0) {
@@ -538,11 +680,32 @@ export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, onS
   }
 
   return (
-    <div>
+    // While the bulk bar is up, pad the list so its last row can scroll clear of it.
+    <div className={clsx(selectedIds.size > 0 && 'pb-28')}>
       {bulkSummary && (
         <BulkResultToast summary={bulkSummary} onDismiss={() => setBulkSummary(null)} />
       )}
-      <div className="mb-2 flex items-center justify-end">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        {selectionMode ? (
+          <button
+            type="button"
+            onClick={() => handleSelectAll(!allSelected)}
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-md px-2 text-sm font-medium text-blue-600 hover:bg-blue-50"
+          >
+            <span
+              aria-hidden="true"
+              className={clsx(
+                'flex h-5 w-5 items-center justify-center rounded border',
+                allSelected ? 'border-blue-600 bg-blue-600 text-white' : 'border-zinc-300',
+              )}
+            >
+              {allSelected && <Check className="h-3.5 w-3.5" />}
+            </span>
+            {allSelected ? 'Odznačit vše' : 'Vybrat vše'}
+          </button>
+        ) : (
+          <span />
+        )}
         <button
           type="button"
           onClick={toggleCost}
@@ -556,15 +719,10 @@ export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, onS
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-zinc-200 bg-zinc-50 text-xs font-medium uppercase tracking-wide text-zinc-500">
-              <th className="w-8 py-2 pl-2 text-center">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={(e) => handleSelectAll(e.target.checked)}
-                  className="h-3.5 w-3.5 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
-                />
+              <th className="w-11 p-0">
+                <CheckboxCell checked={allSelected} onChange={handleSelectAll} label="Vybrat vše" />
               </th>
-              <th className="w-8 py-2 pl-2" />
+              <th className="w-8 py-2 pl-1" />
               <th className="w-16 py-2 text-center">#</th>
               <th className="py-2">Status</th>
               <th className="py-2 pl-2">Title</th>
@@ -587,6 +745,8 @@ export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, onS
                     onClick={handleRowClick}
                     selected={selectedIds.has(task.id)}
                     onSelect={handleSelect}
+                    onLongPress={handleLongPress}
+                    selectionMode={selectionMode}
                     onStatusChange={onStatusChange}
                     showCost={showCost}
                   />
@@ -600,7 +760,7 @@ export function TaskList({ tasks, onReorder, selectedIds, onSelectionChange, onS
         <BulkActionsBar
           count={selectedIds.size}
           onAction={handleBulkAction}
-          onClear={() => onSelectionChange(new Set())}
+          onClear={() => onSelectionModeChange(false)}
         />
       )}
     </div>

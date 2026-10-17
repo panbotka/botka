@@ -32,6 +32,7 @@ export default function BottomNav() {
       className="flex-shrink-0 bg-zinc-50 border-t border-zinc-200 dark:bg-zinc-100 dark:border-zinc-300"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
+      {/* Height mirrored in utils/layout.ts (BOTTOM_NAV_HEIGHT) — keep in sync. */}
       <div className="flex h-14">
         {tabs.map((tab) => (
           <button
