@@ -2,8 +2,12 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestExtractFilePaths(t *testing.T) {
@@ -29,8 +33,8 @@ func TestExtractFilePaths(t *testing.T) {
 		},
 		{
 			name: "multiple distinct types",
-			in:   "saved /tmp/a.png and /tmp/b.csv plus /opt/c.json",
-			want: []string{"/tmp/a.png", "/tmp/b.csv", "/opt/c.json"},
+			in:   "saved /tmp/a.png and /tmp/b.csv plus /opt/c.pdf",
+			want: []string{"/tmp/a.png", "/tmp/b.csv", "/opt/c.pdf"},
 		},
 		{
 			name: "double quoted with spaces",
@@ -54,12 +58,17 @@ func TestExtractFilePaths(t *testing.T) {
 		},
 		{
 			name: "trailing punctuation stripped",
-			in:   "see /tmp/foo.json, also /tmp/bar.html.",
-			want: []string{"/tmp/foo.json", "/tmp/bar.html"},
+			in:   "see /tmp/foo.csv, also /tmp/bar.html.",
+			want: []string{"/tmp/foo.csv", "/tmp/bar.html"},
 		},
 		{
 			name: "skip relative paths",
 			in:   "wrote ./foo.png and bar/baz.pdf",
+			want: nil,
+		},
+		{
+			name: "skip json",
+			in:   "read /home/pi/app/package.json and /tmp/fixture.json",
 			want: nil,
 		},
 		{
@@ -108,14 +117,16 @@ func TestPathCollector_FromToolUse(t *testing.T) {
 	c := newPathCollector()
 
 	c.fromToolUse("Write", json.RawMessage(`{"file_path":"/tmp/a.png","content":"x"}`))
-	c.fromToolUse("Edit", json.RawMessage(`{"file_path":"/tmp/b.json"}`))
+	c.fromToolUse("Edit", json.RawMessage(`{"file_path":"/tmp/b.html"}`))
+	c.fromToolUse("MultiEdit", json.RawMessage(`{"file_path":"/tmp/c.csv","edits":[]}`))
+	c.fromToolUse("NotebookEdit", json.RawMessage(`{"notebook_path":"/tmp/d.ipynb"}`))
 	c.fromToolUse("Bash", json.RawMessage(`{"command":"convert /tmp/in.jpg /tmp/out.pdf"}`))
 	c.fromToolUse("Read", json.RawMessage(`{"file_path":"/tmp/ignored.png"}`))
 	// Duplicate Write should be deduplicated.
 	c.fromToolUse("Write", json.RawMessage(`{"file_path":"/tmp/a.png"}`))
 
 	got := c.paths()
-	want := []string{"/tmp/a.png", "/tmp/b.json", "/tmp/in.jpg", "/tmp/out.pdf"}
+	want := []string{"/tmp/a.png", "/tmp/b.html", "/tmp/c.csv", "/tmp/d.ipynb", "/tmp/in.jpg", "/tmp/out.pdf"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("paths = %v, want %v", got, want)
 	}
@@ -141,5 +152,130 @@ func TestPathCollector_MalformedInputIsSafe(t *testing.T) {
 
 	if got := c.paths(); len(got) != 0 {
 		t.Errorf("expected no paths, got %v", got)
+	}
+}
+
+// writeFileWithMtime creates path (and its parents) and sets its mtime.
+func writeFileWithMtime(t *testing.T, path string, mtime time.Time) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+}
+
+func TestSelectCapturePaths_SkipsListedOldFile(t *testing.T) {
+	dir := t.TempDir()
+	turnStart := time.Now()
+	old := filepath.Join(dir, "old.png")
+	writeFileWithMtime(t, old, turnStart.Add(-time.Hour))
+
+	c := newPathCollector()
+	c.fromToolResult(old + "\n")
+
+	if got := selectCapturePaths(c.paths(), turnStart, nil); len(got) != 0 {
+		t.Errorf("listed old file must be skipped, got %v", got)
+	}
+}
+
+func TestSelectCapturePaths_CapturesFileWrittenDuringTurn(t *testing.T) {
+	dir := t.TempDir()
+	turnStart := time.Now()
+	written := filepath.Join(dir, "chart.png")
+	writeFileWithMtime(t, written, turnStart.Add(time.Second))
+	// Within the clock slack still counts as written during the turn.
+	slack := filepath.Join(dir, "slack.pdf")
+	writeFileWithMtime(t, slack, turnStart.Add(-time.Second))
+
+	c := newPathCollector()
+	c.fromToolUse("Write", json.RawMessage(fmt.Sprintf(`{"file_path":%q}`, written)))
+	c.fromToolUse("Bash", json.RawMessage(fmt.Sprintf(`{"command":"chromium --print-to-pdf=%s"}`, slack)))
+
+	got := selectCapturePaths(c.paths(), turnStart, nil)
+	want := []string{written, slack}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestSelectCapturePaths_SkipsJSON(t *testing.T) {
+	dir := t.TempDir()
+	turnStart := time.Now()
+	jsonPath := filepath.Join(dir, "config.json")
+	writeFileWithMtime(t, jsonPath, turnStart.Add(time.Second))
+
+	if got := selectCapturePaths([]string{jsonPath}, turnStart, nil); len(got) != 0 {
+		t.Errorf("json must be skipped, got %v", got)
+	}
+}
+
+func TestSelectCapturePaths_SkipsMissingAndDirectories(t *testing.T) {
+	dir := t.TempDir()
+	turnStart := time.Now()
+	asDir := filepath.Join(dir, "folder.png")
+	if err := os.Mkdir(asDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(dir, "missing.png")
+
+	if got := selectCapturePaths([]string{asDir, missing}, turnStart, nil); len(got) != 0 {
+		t.Errorf("expected nothing, got %v", got)
+	}
+}
+
+func TestSelectCapturePaths_CapsToNewest(t *testing.T) {
+	dir := t.TempDir()
+	turnStart := time.Now()
+	var paths []string
+	for i := range 11 {
+		p := filepath.Join(dir, fmt.Sprintf("shot-%02d.png", i))
+		writeFileWithMtime(t, p, turnStart.Add(time.Duration(i+1)*time.Second))
+		paths = append(paths, p)
+	}
+
+	got := selectCapturePaths(paths, turnStart, nil)
+	// The three oldest (0..2) are dropped; the rest keep observation order.
+	want := paths[3:]
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestSelectCapturePaths_SkipsExcludedDirs(t *testing.T) {
+	dir := t.TempDir()
+	turnStart := time.Now()
+	fresh := turnStart.Add(time.Second)
+	uploads := filepath.Join(dir, "data", "uploads")
+	contextDir := filepath.Join(dir, "data", "context")
+
+	var excluded []string
+	for _, rel := range []string{
+		"node_modules/pkg/logo.png",
+		".git/x.png",
+		"dist/index.html",
+		"build/report.pdf",
+		"vendor/lib/doc.html",
+		"data/uploads/abc.png",
+		"data/context/thread-1.html",
+	} {
+		p := filepath.Join(dir, rel)
+		writeFileWithMtime(t, p, fresh)
+		excluded = append(excluded, p)
+	}
+	// A sibling whose name merely starts with an excluded dir must survive.
+	kept := filepath.Join(dir, "data", "uploads-report.png")
+	writeFileWithMtime(t, kept, fresh)
+	keptNested := filepath.Join(dir, "builder", "out.png")
+	writeFileWithMtime(t, keptNested, fresh)
+
+	got := selectCapturePaths(append(excluded, kept, keptNested), turnStart, []string{uploads, contextDir, ""})
+	want := []string{kept, keptNested}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }

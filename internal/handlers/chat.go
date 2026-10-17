@@ -34,7 +34,9 @@ var allowedMimeTypes = map[string]bool{
 
 // extToMime maps supported AI-generated file extensions to MIME types.
 // The set is fixed by spec: images (png, jpg/jpeg, gif, webp) plus pdf,
-// html, json, csv. Files with other extensions are not auto-attached.
+// html, csv. JSON is deliberately excluded — JSON files an agent touches are
+// nearly always config or fixtures, not deliverables. Files with other
+// extensions are not auto-attached.
 var extToMime = map[string]string{
 	".png":  "image/png",
 	".jpg":  "image/jpeg",
@@ -43,7 +45,6 @@ var extToMime = map[string]string{
 	".webp": "image/webp",
 	".pdf":  "application/pdf",
 	".html": "text/html",
-	".json": "application/json",
 	".csv":  "text/csv",
 }
 
@@ -556,6 +557,11 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 		}
 	}
 
+	// Record when this reply starts. Only files modified at or after this
+	// moment are auto-attached, so files the agent merely reads or lists
+	// during the reply never become attachments.
+	turnStart := time.Now()
+
 	// Get or create a persistent session for this thread.
 	// The session stays alive across messages — no need for pre-warming or
 	// per-message process spawns. Registry is managed by SessionManager.
@@ -567,7 +573,7 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 		defer streamCancel()
 		claude.Registry.Register(threadID, thread.Title, streamCancel)
 		stream := claude.Run(streamCtx, cfg, lastUserContent)
-		if shouldRetry, retryErrMsg := h.streamEventsToClient(c, thread, stream, lastUserContent, lastUserMsgID, cfg, true); shouldRetry && retryCount < 1 {
+		if shouldRetry, retryErrMsg := h.streamEventsToClient(c, thread, stream, lastUserContent, lastUserMsgID, cfg, turnStart, true); shouldRetry && retryCount < 1 {
 			log.Printf("[chat] thread %d: transient error %q, retrying with fresh session", threadID, retryErrMsg)
 			claude.Registry.Unregister(threadID)
 			h.streamResponse(c, thread, lastUserContent, lastUserMsgID, retryCount+1)
@@ -583,7 +589,7 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 	// Start a stream buffer so late-joining clients can reconnect.
 	claude.Streams.Start(threadID)
 
-	if shouldRetry, retryErrMsg := h.streamEventsToClient(c, thread, stream, lastUserContent, lastUserMsgID, cfg, false); shouldRetry && retryCount < 1 {
+	if shouldRetry, retryErrMsg := h.streamEventsToClient(c, thread, stream, lastUserContent, lastUserMsgID, cfg, turnStart, false); shouldRetry && retryCount < 1 {
 		log.Printf("[chat] thread %d: transient error %q, retrying with fresh session", threadID, retryErrMsg)
 		claude.Sessions.Evict(threadID)
 		h.db.Model(&models.Thread{}).Where("id = ?", threadID).Update("claude_session_id", nil)
@@ -595,7 +601,9 @@ func (h *ChatHandler) streamResponse(c *gin.Context, thread *models.Thread, last
 // HTTP client as SSE. It also saves the response to the database and handles
 // stale session cleanup. If isFallback is true, the registry entry is cleaned up
 // on completion (one-shot Run mode); otherwise the persistent session stays registered.
-func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread, stream <-chan claude.StreamEvent, lastUserContent string, lastUserMsgID *int64, cfg claude.RunConfig, isFallback bool) (shouldRetry bool, retryErrMsg string) {
+// turnStart is when the reply began; only files modified since then are
+// auto-attached to the assistant message.
+func (h *ChatHandler) streamEventsToClient(c *gin.Context, thread *models.Thread, stream <-chan claude.StreamEvent, lastUserContent string, lastUserMsgID *int64, cfg claude.RunConfig, turnStart time.Time, isFallback bool) (shouldRetry bool, retryErrMsg string) {
 	threadID := thread.ID
 
 	// Start a stream buffer so late-joining clients can reconnect.
@@ -814,7 +822,8 @@ loop:
 				// user is actively watching the response.
 				notifyAssistantReply(h.pushNotifier, h.pushEnabled, thread, assistantContent, !clientDisconnected)
 
-				paths := collectedPaths.paths()
+				paths := selectCapturePaths(collectedPaths.paths(), turnStart,
+					[]string{h.uploadDir, h.contextCfg.ContextDir})
 				if len(paths) > 0 {
 					var attachments []models.Attachment
 					for _, p := range paths {
