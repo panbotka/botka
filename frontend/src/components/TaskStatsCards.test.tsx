@@ -61,3 +61,25 @@ describe('TaskStatsCards', () => {
     expect(screen.getByLabelText('Duration').textContent).toBe('0:32')
   })
 })
+
+describe('TaskStatsCards timestamps', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('always shows the time, with the full timestamp as a tooltip', () => {
+    vi.useFakeTimers()
+    // Local-time "now" on the same day as the run, so only the time is shown.
+    const started = new Date(2026, 9, 17, 14, 32, 5)
+    const finished = new Date(2026, 9, 17, 15, 1, 0)
+    vi.setSystemTime(new Date(2026, 9, 17, 18, 0, 0))
+    render(
+      <TaskStatsCards
+        task={{ ...base, started_at: started.toISOString(), completed_at: finished.toISOString() }}
+      />,
+    )
+    const startedEl = screen.getByLabelText('Started')
+    expect(startedEl.textContent).toBe('14:32')
+    expect(startedEl.getAttribute('title')).toBe('17.10.2026 14:32:05')
+    expect(startedEl.className).not.toContain('truncate')
+    expect(screen.getByLabelText('Finished').textContent).toBe('15:01')
+  })
+})

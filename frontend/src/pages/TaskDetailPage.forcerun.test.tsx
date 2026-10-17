@@ -18,6 +18,8 @@ vi.mock('../api/client', async (importOriginal) => ({
 
 // The SSE hook needs an EventSource, which jsdom does not provide.
 vi.mock('../hooks/useTaskEvents', () => ({ useTaskEvents: () => {} }))
+// Live output streams over EventSource too; a running task would mount it.
+vi.mock('../components/LiveOutput', () => ({ LiveOutputInline: () => null }))
 
 import TaskDetailPage from './TaskDetailPage'
 
@@ -91,5 +93,34 @@ describe('TaskDetailPage force run', () => {
 
     await waitFor(() => expect(forceRunTask).toHaveBeenCalledWith(baseTask.id))
     expect(await screen.findByText('all workers are busy')).toBeInTheDocument()
+  })
+})
+
+describe('TaskDetailPage action bar', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fetchTaskNotes.mockResolvedValue([])
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('renders the actions once, in the bar above the stat cards', async () => {
+    fetchTask.mockResolvedValue({ ...baseTask, status: 'running' } as Task)
+    renderPage()
+    const bar = await screen.findByTestId('task-action-bar')
+    expect(screen.getAllByRole('button', { name: 'Kill Task' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(1)
+    expect(bar.contains(screen.getByRole('button', { name: 'Kill Task' }))).toBe(true)
+    const stats = screen.getByTestId('task-stats')
+    expect(bar.compareDocumentPosition(stats) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('asks for confirmation before deleting', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    fetchTask.mockResolvedValue({ ...baseTask, status: 'done' } as Task)
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+    expect(confirmSpy).toHaveBeenCalled()
   })
 })

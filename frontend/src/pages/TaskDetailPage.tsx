@@ -5,21 +5,14 @@ import ReactMarkdown from 'react-markdown'
 import { clsx } from 'clsx'
 import {
   ArrowLeft,
-  Pencil,
-  RotateCcw,
   Trash2,
   CheckCircle2,
   XCircle,
   AlertTriangle,
   Clock,
   Loader2,
-  Undo2,
-  StopCircle,
   ChevronDown,
   ChevronRight,
-  Play,
-  Zap,
-  Ban,
   RefreshCw,
   Sparkles,
 } from 'lucide-react'
@@ -28,6 +21,7 @@ import { LiveOutputInline } from '../components/LiveOutput'
 import TaskOutputView from '../components/TaskOutputView'
 import TaskChangesSection from '../components/TaskChangesSection'
 import TaskStatsCards from '../components/TaskStatsCards'
+import TaskActionBar from '../components/TaskActionBar'
 import { TaskNotesSection } from '../components/TaskNotesSection'
 import { fetchTask, retryTask, deleteTask, updateTask, killTask, forceRunTask, fetchTaskRawOutput, regenerateTaskFailureSummary } from '../api/client'
 import { parseNDJSON, type TaskOutputEvent } from '../utils/parseNDJSON'
@@ -169,6 +163,7 @@ function TaskDetail({ taskId }: { taskId: string }) {
   }
 
   async function handleDelete() {
+    if (!confirm('Delete this task? It can be restored later.')) return
     setActing(true)
     try {
       await deleteTask(taskId)
@@ -309,7 +304,7 @@ function TaskDetail({ taskId }: { taskId: string }) {
       )}
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div>
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold text-zinc-900">{task.title}</h1>
@@ -345,14 +340,22 @@ function TaskDetail({ taskId }: { taskId: string }) {
             )}
           </div>
         </div>
-        <button
-          onClick={() => setEditing(true)}
-          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
-        >
-          <Pencil className="h-3.5 w-3.5" />
-          Edit
-        </button>
       </div>
+
+      {/* Every task action lives here — sticky, so it stays reachable over long output */}
+      <TaskActionBar
+        status={task.status}
+        disabled={acting}
+        onForceRun={handleForceRun}
+        onQueue={handleQueue}
+        onCancel={handleCancel}
+        onRetry={handleRetry}
+        onMarkDone={handleMarkDone}
+        onRestore={handleRestore}
+        onDelete={handleDelete}
+        onEdit={() => setEditing(true)}
+        onKill={handleKill}
+      />
 
       {/* At-a-glance dashboard: status, timing (live stopwatch while running), attempts, cost */}
       <TaskStatsCards task={task} />
@@ -401,97 +404,6 @@ function TaskDetail({ taskId }: { taskId: string }) {
       {/* Historical Output */}
       {hasCompletedOutput && task.status !== 'running' && (
         <HistoricalOutput taskId={taskId} />
-      )}
-
-      {/* Kill button for running tasks */}
-      {task.status === 'running' && (
-        <div className="flex gap-3">
-          <button
-            onClick={handleKill}
-            disabled={acting}
-            className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-          >
-            <StopCircle className="h-3.5 w-3.5" />
-            Kill Task
-          </button>
-        </div>
-      )}
-
-      {/* Actions */}
-      {task.status !== 'running' && (
-        <div className="flex gap-3">
-          {task.status === 'queued' && (
-            <button
-              onClick={handleForceRun}
-              disabled={acting}
-              title="Obejde rate-limit bránu a spustí task hned"
-              className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
-            >
-              <Zap className="h-3.5 w-3.5" />
-              Spustit teď
-            </button>
-          )}
-          {task.status === 'pending' && (
-            <button
-              onClick={handleQueue}
-              disabled={acting}
-              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              <Play className="h-3.5 w-3.5" />
-              Queue
-            </button>
-          )}
-          {task.status === 'pending' && (
-            <button
-              onClick={handleCancel}
-              disabled={acting}
-              className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-            >
-              <Ban className="h-3.5 w-3.5" />
-              Cancel
-            </button>
-          )}
-          {(task.status === 'failed' || task.status === 'needs_review') && (
-            <button
-              onClick={handleRetry}
-              disabled={acting}
-              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              Retry
-            </button>
-          )}
-          {task.status === 'needs_review' && (
-            <button
-              onClick={handleMarkDone}
-              disabled={acting}
-              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Mark Done
-            </button>
-          )}
-          {task.status === 'deleted' && (
-            <button
-              onClick={handleRestore}
-              disabled={acting}
-              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              <Undo2 className="h-3.5 w-3.5" />
-              Restore
-            </button>
-          )}
-          {task.status !== 'deleted' && (
-            <button
-              onClick={handleDelete}
-              disabled={acting}
-              className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Delete
-            </button>
-          )}
-        </div>
       )}
 
       {/* Token Usage */}

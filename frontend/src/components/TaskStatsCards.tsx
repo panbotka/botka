@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { clsx } from 'clsx'
 import { Activity, CalendarClock, Flag, Timer, RotateCcw, DollarSign } from 'lucide-react'
-import { formatDateTime } from '../utils/dateFormat'
+import { formatCompactDateTime, formatFullDateTime } from '../utils/dateFormat'
 import { runPhaseLabel } from '../utils/runPhase'
 import type { Task, TaskStatus } from '../types'
 
@@ -69,13 +69,27 @@ export default function TaskStatsCards({ task }: { task: Task }) {
 
   const attempts = task.executions?.length ?? 0
 
-  const cards: { icon: typeof Activity; label: string; value: string; hint?: string; valueClass?: string; live?: boolean }[] = [
+  const cards: {
+    icon: typeof Activity
+    label: string
+    value: string
+    title?: string
+    hint?: string
+    valueClass?: string
+    live?: boolean
+  }[] = [
     { icon: Activity, label: 'Status', value: tone.label, hint: phase ?? undefined, valueClass: tone.className },
-    { icon: CalendarClock, label: 'Started', value: started ? formatDateTime(started) : '—' },
+    {
+      icon: CalendarClock,
+      label: 'Started',
+      value: started ? formatCompactDateTime(started) : '—',
+      title: started ? formatFullDateTime(started) : undefined,
+    },
     {
       icon: Flag,
       label: 'Finished',
-      value: finished ? formatDateTime(finished) : '—',
+      value: finished ? formatCompactDateTime(finished) : '—',
+      title: finished ? formatFullDateTime(finished) : undefined,
       hint: running ? 'ještě běží' : undefined,
     },
     { icon: Timer, label: 'Duration', value: duration, hint: durationHint, live: running && !!started },
@@ -90,7 +104,7 @@ export default function TaskStatsCards({ task }: { task: Task }) {
 
   return (
     <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6" data-testid="task-stats">
-      {cards.map(({ icon: Icon, label, value, hint, valueClass, live }) => (
+      {cards.map(({ icon: Icon, label, value, title, hint, valueClass, live }) => (
         <div
           key={label}
           className={clsx(
@@ -102,9 +116,12 @@ export default function TaskStatsCards({ task }: { task: Task }) {
             <Icon className={clsx('h-3.5 w-3.5', live && 'animate-pulse text-blue-600')} />
             {label}
           </dt>
+          {/* No truncation: a long timestamp wraps at its space (date / time)
+              rather than hiding the time behind an ellipsis. */}
           <dd
-            className={clsx('mt-1 truncate text-base font-semibold tabular-nums', valueClass ?? 'text-zinc-900')}
+            className={clsx('mt-1 break-words text-base font-semibold tabular-nums', valueClass ?? 'text-zinc-900')}
             aria-label={label}
+            title={title}
           >
             {value}
           </dd>
