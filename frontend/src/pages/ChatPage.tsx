@@ -16,10 +16,13 @@ import BoxRunningIndicator from '../components/BoxRunningIndicator'
 import ThreadSettingsPanel from '../components/ThreadSettingsPanel'
 import ThreadForkBadges from '../components/ThreadForkBadges'
 import CommandPalette from '../components/CommandPalette'
-import { MessageSquare, ArrowLeft, Settings, Command } from 'lucide-react'
+import ModelChip from '../components/ModelChip'
+import MobileChatMenu from '../components/MobileChatMenu'
+import { MessageSquare, ArrowLeft, Settings, Command, MoreHorizontal } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { usePaletteHotkeys } from '../hooks/usePaletteHotkeys'
 import { useSettings } from '../context/SettingsContext'
+import { dispatchChatCommand } from '../utils/chatCommands'
 
 function parseThreadIdFromPath(pathname: string): number | null {
   const match = pathname.match(/^\/chat\/(\d+)$/)
@@ -45,6 +48,7 @@ export default function ChatPage() {
   const [threadNotFound, setThreadNotFound] = useState(false)
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const { settings, updateSettings } = useSettings()
 
   const showArchivedRef = useRef(showArchived)
@@ -62,6 +66,7 @@ export default function ChatPage() {
     setActiveThreadId(id)
     setThreadNotFound(false)
     setSettingsPanelOpen(false)
+    setMobileMenuOpen(false)
   }, [location.pathname])
 
   // Navigate to a thread
@@ -246,15 +251,23 @@ export default function ChatPage() {
         />
         {showMobileChat ? (
           <div className="flex-1 flex flex-col min-w-0 min-h-0">
-            {/* Mobile chat header */}
-            <header className="flex items-center gap-3 px-4 h-12 bg-zinc-50 border-b border-zinc-200 flex-shrink-0 z-10">
+            {/* Mobile chat header — one row: back, title (opens settings), then
+                only-if-active fork/Box icons, the model chip and the "⋯" menu. */}
+            <header className="flex items-center gap-1 pl-2 pr-1 h-12 bg-zinc-50 border-b border-zinc-200 flex-shrink-0 z-10">
               <button
                 onClick={handleMobileBack}
-                className="text-zinc-500 hover:text-zinc-800 cursor-pointer transition-colors -ml-1 min-w-[44px] min-h-[44px] flex items-center justify-center"
+                aria-label="Zpět na seznam"
+                className="text-zinc-500 hover:text-zinc-800 cursor-pointer transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center flex-shrink-0"
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
-              <div className="flex-1 min-w-0">
+              <button
+                type="button"
+                onClick={() => setSettingsPanelOpen(true)}
+                disabled={isExternal || !activeThread}
+                aria-label={isExternal ? undefined : 'Thread settings'}
+                className="flex-1 min-w-0 min-h-[44px] text-left flex flex-col justify-center cursor-pointer disabled:cursor-default"
+              >
                 <span className="text-sm text-zinc-900 font-medium truncate block">
                   {activeThread?.persona_icon && <span className="mr-1">{activeThread.persona_icon}</span>}
                   {activeThread?.title || 'New conversation'}
@@ -264,47 +277,46 @@ export default function ChatPage() {
                     {activeThread.persona_name}
                   </span>
                 )}
-              </div>
-              <button
-                onClick={() => setPaletteOpen(true)}
-                className="text-zinc-500 hover:text-zinc-800 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-                title="Příkazy (⌘P)"
-                aria-label="Otevřít příkazy (Cmd+P)"
-              >
-                <Command className="w-5 h-5" />
               </button>
               {activeThread && (
                 <>
-                  <ThreadForkBadges thread={activeThread} onSelectThread={selectThread} />
+                  <ThreadForkBadges thread={activeThread} onSelectThread={selectThread} compact />
                   {activeProject && isBoxProject(activeProject) && (
-                    <BoxRunningIndicator />
+                    <BoxRunningIndicator compact />
                   )}
-                  <ProjectPicker
-                    projects={projects}
-                    currentProjectId={activeThread.project_id}
-                    onSelect={(projectId) => handleProjectChange(activeThread.id, projectId)}
-                    onBoxProjectsChanged={loadProjects}
-                  />
-                  <CommandButtons project={activeProject} />
-                  <span className="text-[11px] text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md flex-shrink-0">
-                    {activeThread.model || 'Default'}
-                  </span>
-                  {!isExternal && (
-                    <button
-                      onClick={() => setSettingsPanelOpen(true)}
-                      aria-label="Thread settings"
-                      title="Thread settings"
-                      className="text-zinc-500 hover:text-zinc-800 cursor-pointer transition-colors
-                                 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-200/60 flex-shrink-0"
-                    >
-                      <Settings className="w-4 h-4" />
-                    </button>
-                  )}
+                  <ModelChip thread={activeThread} onChanged={handleThreadsChange} readOnly={isExternal} />
                 </>
               )}
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(true)}
+                aria-label="Další akce"
+                aria-haspopup="dialog"
+                className="text-zinc-500 hover:text-zinc-800 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center flex-shrink-0 cursor-pointer"
+              >
+                <MoreHorizontal className="w-5 h-5" />
+              </button>
             </header>
-            {/* Mobile: bookmarks live on their own row since the header is full */}
-            <BookmarksBar variant="row" readOnly={isExternal} />
+            <MobileChatMenu
+              open={mobileMenuOpen}
+              onClose={() => setMobileMenuOpen(false)}
+              projects={projects}
+              project={activeProject}
+              onSelectProject={(projectId) => {
+                if (activeThread) handleProjectChange(activeThread.id, projectId)
+              }}
+              onBoxProjectsChanged={loadProjects}
+              onOpenPalette={() => setPaletteOpen(true)}
+              onOpenSettings={() => setSettingsPanelOpen(true)}
+              onNewChat={() => handleNewThread()}
+              onSearchInThread={() => {
+                if (activeThreadId) dispatchChatCommand({ threadId: activeThreadId, command: '/find' })
+              }}
+              onClearHistory={() => {
+                if (activeThreadId) dispatchChatCommand({ threadId: activeThreadId, command: '/clear', confirmed: true })
+              }}
+              readOnly={isExternal}
+            />
             <ChatView
               threadId={activeThreadId}
               thread={activeThread}
@@ -320,6 +332,7 @@ export default function ChatPage() {
                 tags={tags}
                 onClose={() => setSettingsPanelOpen(false)}
                 onThreadsChange={handleThreadsChange}
+                mobile
               />
             )}
           </div>

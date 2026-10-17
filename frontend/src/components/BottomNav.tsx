@@ -4,6 +4,7 @@ import { MoreHorizontal } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useAuth } from '../context/AuthContext'
 import { isNavPathActive, navItemsFor } from '../utils/navItems'
+import BottomSheet from './BottomSheet'
 
 export default function BottomNav() {
   const location = useLocation()
@@ -23,15 +24,6 @@ export default function BottomNav() {
     setMoreOpen(false)
   }, [location.pathname])
 
-  useEffect(() => {
-    if (!moreOpen) return
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setMoreOpen(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [moreOpen])
-
   const go = (path: string) => {
     setMoreOpen(false)
     navigate(path)
@@ -45,44 +37,34 @@ export default function BottomNav() {
 
   return (
     <>
-      {moreOpen && (
-        <div className="fixed inset-0 z-40" role="presentation">
-          <div
-            data-testid="more-backdrop"
-            className="absolute inset-0 bg-black/40 animate-fade-in"
-            onClick={() => setMoreOpen(false)}
-          />
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Více"
-            className="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-zinc-200 bg-white shadow-xl animate-sheet-up dark:bg-zinc-100 dark:border-zinc-300"
-            style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
-          >
-            <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-zinc-300" aria-hidden="true" />
-            <ul className="p-2">
-              {secondary.map((item) => (
-                <li key={item.path}>
-                  <button
-                    type="button"
-                    onClick={() => go(item.path)}
-                    aria-current={isActive(item.path) ? 'page' : undefined}
-                    className={clsx(
-                      'flex w-full min-h-[48px] items-center gap-3 rounded-lg px-4 text-left text-base font-medium transition-colors cursor-pointer',
-                      isActive(item.path)
-                        ? 'bg-amber-50 text-amber-700 dark:bg-amber-100/20'
-                        : 'text-zinc-700 active:bg-zinc-100',
-                    )}
-                  >
-                    <item.icon className="h-5 w-5" />
-                    {item.label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
+      <BottomSheet
+        open={moreOpen}
+        onClose={() => setMoreOpen(false)}
+        ariaLabel="Více"
+        backdropTestId="more-backdrop"
+        zIndexClass="z-40"
+      >
+        <ul className="p-2">
+          {secondary.map((item) => (
+            <li key={item.path}>
+              <button
+                type="button"
+                onClick={() => go(item.path)}
+                aria-current={isActive(item.path) ? 'page' : undefined}
+                className={clsx(
+                  'flex w-full min-h-[48px] items-center gap-3 rounded-lg px-4 text-left text-base font-medium transition-colors cursor-pointer',
+                  isActive(item.path)
+                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-100/20'
+                    : 'text-zinc-700 active:bg-zinc-100',
+                )}
+              >
+                <item.icon className="h-5 w-5" />
+                {item.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </BottomSheet>
       <nav
         className="flex-shrink-0 bg-zinc-50 border-t border-zinc-200 dark:bg-zinc-100 dark:border-zinc-300"
         style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}

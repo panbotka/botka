@@ -7,8 +7,39 @@ import { useBoxStatus } from '../hooks/useBoxStatus'
  * a quick "Wake" button so the user can bring the host up without leaving
  * the chat header.
  */
-export default function BoxRunningIndicator() {
+export default function BoxRunningIndicator({ compact = false }: { compact?: boolean }) {
   const { state, waking, wake } = useBoxStatus()
+
+  // Mobile header: a single touch-sized icon. Offline turns it into the wake button.
+  if (compact) {
+    if (state === 'offline') {
+      return (
+        <button
+          onClick={wake}
+          disabled={waking}
+          aria-label="Box offline — probudit"
+          title="Box is offline — tap to send Wake-on-LAN"
+          className="min-w-[44px] min-h-[44px] flex items-center justify-center flex-shrink-0 text-amber-600 disabled:opacity-60 cursor-pointer"
+        >
+          {waking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Power className="w-4 h-4" />}
+        </button>
+      )
+    }
+    const booting = state === 'booting'
+    return (
+      <span
+        role="img"
+        aria-label={booting ? 'Booting Box' : 'Running on Box'}
+        title={booting ? 'Box is booting — waiting for it to come online' : 'This thread runs on the remote Box host'}
+        className={`relative w-8 h-11 flex items-center justify-center flex-shrink-0 ${booting ? 'text-amber-600' : 'text-sky-600'}`}
+      >
+        {booting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Server className="w-4 h-4" />}
+        {state === 'online' && (
+          <span className="absolute top-2.5 right-1 w-1.5 h-1.5 rounded-full bg-emerald-500" />
+        )}
+      </span>
+    )
+  }
 
   // Online or unknown (pre-poll) — show the minimal "Running on Box" pill.
   if (state === 'online' || state === 'unknown') {

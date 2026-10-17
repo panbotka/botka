@@ -4,6 +4,7 @@ import { useAutoResize } from '../hooks/useAutoResize';
 import { useInputHistory } from '../hooks/useInputHistory';
 import { useVoiceInput } from '../hooks/useVoiceInput';
 import { useSettings } from '../context/SettingsContext';
+import { useIsMobile } from '../hooks/useIsMobile';
 import SlashCommandMenu, { getFilteredCommands } from './SlashCommandMenu';
 
 // Module-level draft storage — survives component remounts but not page reloads
@@ -43,6 +44,19 @@ interface Props {
   onStop?: () => void;
 }
 
+/** Plan (code brackets) / Act (pencil) glyph used by both plan-mode toggles. */
+function PlanModeIcon({ planMode, className }: { planMode?: boolean; className: string }) {
+  return planMode ? (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={className}>
+      <path d="M2 4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4Zm4.78 1.97a.75.75 0 0 1 0 1.06L5.81 8l.97.97a.75.75 0 1 1-1.06 1.06l-1.5-1.5a.75.75 0 0 1 0-1.06l1.5-1.5a.75.75 0 0 1 1.06 0Zm2.44 1.06a.75.75 0 0 1 1.06-1.06l1.5 1.5a.75.75 0 0 1 0 1.06l-1.5 1.5a.75.75 0 1 1-1.06-1.06l.97-.97-.97-.97Z" />
+    </svg>
+  ) : (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={className}>
+      <path fillRule="evenodd" d="M11.013 2.513a1.75 1.75 0 0 1 2.475 2.474L6.226 12.25a2.751 2.751 0 0 1-.892.596l-2.047.848a.75.75 0 0 1-.98-.98l.848-2.047a2.75 2.75 0 0 1 .596-.892l7.262-7.261Z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
 export interface ChatInputHandle {
   addFiles: (files: FileList | File[]) => void;
   focus: () => void;
@@ -50,6 +64,7 @@ export interface ChatInputHandle {
 
 const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ threadId, onSend, onSlashCommand, queuedCount = 0, planMode, onTogglePlanMode, isStreaming, onStop }, ref) {
   const { settings } = useSettings();
+  const isMobile = useIsMobile();
   const [value, setValue] = useState(() => (threadId ? draftsMap.get(threadId) ?? '' : ''));
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [files, setFiles] = useState<File[]>([]);
@@ -274,64 +289,59 @@ const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ thread
           ? 'border-blue-400/40 focus-within:border-blue-400/60'
           : 'border-zinc-300 focus-within:border-zinc-400'
       }`}>
-        {/* Plan/Act mode toggle */}
-        <div className="flex items-center px-4 pt-2">
-          <button
-            type="button"
-            onClick={onTogglePlanMode}
-            className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer ${
-              planMode
-                ? 'bg-blue-50 text-blue-600 hover:bg-blue-100'
-                : 'bg-amber-50 text-amber-600 hover:bg-amber-100'
-            }`}
-            title="Shift+Tab to toggle"
-          >
-            {planMode ? (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                <path d="M2 4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4Zm4.78 1.97a.75.75 0 0 1 0 1.06L5.81 8l.97.97a.75.75 0 1 1-1.06 1.06l-1.5-1.5a.75.75 0 0 1 0-1.06l1.5-1.5a.75.75 0 0 1 1.06 0Zm2.44 1.06a.75.75 0 0 1 1.06-1.06l1.5 1.5a.75.75 0 0 1 0 1.06l-1.5 1.5a.75.75 0 1 1-1.06-1.06l.97-.97-.97-.97Z" />
-              </svg>
-            ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                <path fillRule="evenodd" d="M11.013 2.513a1.75 1.75 0 0 1 2.475 2.474L6.226 12.25a2.751 2.751 0 0 1-.892.596l-2.047.848a.75.75 0 0 1-.98-.98l.848-2.047a2.75 2.75 0 0 1 .596-.892l7.262-7.261Z" clipRule="evenodd" />
-              </svg>
-            )}
-            {planMode ? 'Plan' : 'Act'}
-          </button>
-          <span className="text-[10px] text-zinc-400 ml-2">Shift+Tab</span>
-          {/* Quick-action chips — reuse the existing slash-command dispatch */}
-          <div className="flex items-center gap-1 ml-auto">
+        {/* Plan/Act toggle + quick-action chips. Desktop only: on mobile the chips
+            live in the header "⋯" menu and the toggle sits next to the attach button. */}
+        {!isMobile && (
+          <div className="flex items-center px-4 pt-2">
             <button
               type="button"
-              onClick={() => onSlashCommand('/new', '')}
-              className="flex items-center gap-1 px-2 min-h-[32px] rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 text-xs transition-colors"
-              title="Nový chat"
-              aria-label="Nový chat"
+              onClick={onTogglePlanMode}
+              className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer ${
+                planMode
+                  ? 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                  : 'bg-amber-50 text-amber-600 hover:bg-amber-100'
+              }`}
+              title="Shift+Tab to toggle"
             >
-              <Plus size={16} />
-              <span className="hidden sm:inline">Nový</span>
+              <PlanModeIcon planMode={planMode} className="w-3 h-3" />
+              {planMode ? 'Plan' : 'Act'}
             </button>
-            <button
-              type="button"
-              onClick={() => onSlashCommand('/find', '')}
-              className="flex items-center gap-1 px-2 min-h-[32px] rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 text-xs transition-colors"
-              title="Hledat"
-              aria-label="Hledat"
-            >
-              <Search size={16} />
-              <span className="hidden sm:inline">Hledat</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onSlashCommand('/clear', '')}
-              className="flex items-center gap-1 px-2 min-h-[32px] rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 text-xs transition-colors"
-              title="Smazat historii"
-              aria-label="Smazat historii"
-            >
-              <Trash2 size={16} />
-              <span className="hidden sm:inline">Smazat</span>
-            </button>
+            <span className="text-[10px] text-zinc-400 ml-2">Shift+Tab</span>
+            {/* Quick-action chips — reuse the existing slash-command dispatch */}
+            <div className="flex items-center gap-1 ml-auto">
+              <button
+                type="button"
+                onClick={() => onSlashCommand('/new', '')}
+                className="flex items-center gap-1 px-2 min-h-[32px] rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 text-xs transition-colors"
+                title="Nový chat"
+                aria-label="Nový chat"
+              >
+                <Plus size={16} />
+                <span className="hidden sm:inline">Nový</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onSlashCommand('/find', '')}
+                className="flex items-center gap-1 px-2 min-h-[32px] rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 text-xs transition-colors"
+                title="Hledat"
+                aria-label="Hledat"
+              >
+                <Search size={16} />
+                <span className="hidden sm:inline">Hledat</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onSlashCommand('/clear', '')}
+                className="flex items-center gap-1 px-2 min-h-[32px] rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 text-xs transition-colors"
+                title="Smazat historii"
+                aria-label="Smazat historii"
+              >
+                <Trash2 size={16} />
+                <span className="hidden sm:inline">Smazat</span>
+              </button>
+            </div>
           </div>
-        </div>
+        )}
         {/* File previews */}
         {files.length > 0 && (
           <div className="flex flex-wrap gap-2 px-4 pt-3">
@@ -371,11 +381,26 @@ const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ thread
             onClick={() => fileInputRef.current?.click()}
             className="text-zinc-400 hover:text-zinc-600 p-3 transition-colors flex-shrink-0 cursor-pointer"
             title="Attach files"
+            aria-label="Attach files"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
               <path fillRule="evenodd" d="M15.621 4.379a3 3 0 00-4.242 0l-7 7a3 3 0 004.241 4.243h.001l.497-.5a.75.75 0 011.064 1.057l-.498.501a4.5 4.5 0 01-6.364-6.364l7-7a4.5 4.5 0 016.368 6.36l-3.455 3.553A2.625 2.625 0 119.52 9.52l3.45-3.451a.75.75 0 111.061 1.06l-3.45 3.451a1.125 1.125 0 001.587 1.595l3.454-3.553a3 3 0 000-4.242z" clipRule="evenodd" />
             </svg>
           </button>
+          {isMobile && (
+            <button
+              type="button"
+              onClick={onTogglePlanMode}
+              aria-label={planMode ? 'Režim Plan (přepnout na Act)' : 'Režim Act (přepnout na Plan)'}
+              aria-pressed={!!planMode}
+              title={planMode ? 'Plan' : 'Act'}
+              className={`min-w-[44px] min-h-[44px] -ml-2 flex items-center justify-center flex-shrink-0 transition-colors cursor-pointer ${
+                planMode ? 'text-blue-600' : 'text-amber-600'
+              }`}
+            >
+              <PlanModeIcon planMode={planMode} className="w-4 h-4" />
+            </button>
+          )}
           <input
             ref={fileInputRef}
             type="file"

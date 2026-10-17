@@ -162,4 +162,22 @@ describe('ThreadSettingsPanel', () => {
     expect(screen.getByText(/11 chars/i)).toBeInTheDocument()
   })
 
+  describe('mobile bottom sheet', () => {
+    it('renders the settings inside a bottom sheet with a drag handle', () => {
+      renderPanel({ mobile: true })
+      const dialog = screen.getByRole('dialog', { name: 'Thread settings' })
+      expect(dialog).toHaveAttribute('aria-modal', 'true')
+      expect(screen.getByTestId('bottom-sheet-handle')).toBeInTheDocument()
+      expect(dialog.querySelector('aside')).toBeNull()
+      expect(screen.getByText('Model')).toBeInTheDocument()
+    })
+
+    it('closes on backdrop tap and on Escape exactly once', () => {
+      const onClose = vi.fn()
+      renderPanel({ mobile: true, onClose })
+      fireEvent.click(screen.getByTestId('thread-settings-backdrop'))
+      fireEvent.keyDown(document, { key: 'Escape' })
+      expect(onClose).toHaveBeenCalledTimes(2)
+    })
+  })
 })

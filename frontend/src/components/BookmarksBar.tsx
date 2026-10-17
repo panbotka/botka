@@ -1,15 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Globe, Trash2 } from 'lucide-react'
+import { Plus, Globe, Trash2, Bookmark as BookmarkIcon } from 'lucide-react'
 import type { Bookmark } from '../types'
 import { fetchBookmarks, createBookmark, deleteBookmark } from '../api/client'
 
 interface Props {
   /**
    * `inline` renders the bar as a compact row of favicons meant to sit inside the
-   * chat header (desktop). `row` renders a full-width, horizontally scrollable
-   * second row beneath the header (mobile, where the header row is already full).
+   * chat header (desktop). `list` renders touch-sized rows (favicon + title, an
+   * explicit delete button instead of the right-click menu) for the mobile chat
+   * "⋯" sheet.
    */
-  variant: 'inline' | 'row'
+  variant: 'inline' | 'list'
   /** Read-only users can open bookmarks but cannot add or delete them. */
   readOnly?: boolean
 }
@@ -99,22 +100,77 @@ export default function BookmarksBar({ variant, readOnly = false }: Props) {
     setMenu({ id, x: e.clientX, y: e.clientY })
   }
 
+  if (variant === 'list') {
+    return (
+      <div data-testid="bookmarks-bar" className="p-2">
+        {bookmarks.length === 0 && (
+          <div className="flex items-center gap-2 px-3 py-3 text-sm text-zinc-400">
+            <BookmarkIcon className="h-4 w-4" />
+            Žádné záložky
+          </div>
+        )}
+        <ul>
+          {bookmarks.map((b) => (
+            <li key={b.id} className="flex items-center">
+              <a
+                href={b.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={b.title || b.url}
+                className="flex min-h-[48px] min-w-0 flex-1 items-center gap-3 rounded-lg px-3 text-base text-zinc-700 active:bg-zinc-100"
+              >
+                <BookmarkFavicon bookmark={b} />
+                <span className="truncate">{b.title || b.url}</span>
+              </a>
+              {!readOnly && (
+                <button
+                  type="button"
+                  onClick={() => handleDelete(b.id)}
+                  aria-label={`Smazat záložku ${b.title || b.url}`}
+                  className="flex min-h-[44px] min-w-[44px] flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 active:bg-red-50 active:text-red-600"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+        {!readOnly && (
+          <form onSubmit={handleCreate} className="flex items-center gap-2 px-1 pt-2">
+            <input
+              type="url"
+              inputMode="url"
+              value={newUrl}
+              onChange={(e) => setNewUrl(e.target.value)}
+              placeholder="https://..."
+              aria-label="URL nové záložky"
+              className="min-h-[44px] min-w-0 flex-1 rounded-lg border border-zinc-200 bg-white px-3 text-base text-zinc-700
+                         placeholder-zinc-300 focus:border-zinc-400 focus:outline-none dark:bg-zinc-200"
+            />
+            <button
+              type="submit"
+              disabled={creating || !newUrl.trim()}
+              aria-label="Add bookmark"
+              className="flex min-h-[44px] items-center gap-1 rounded-lg bg-zinc-900 px-3 text-sm font-medium text-white
+                         disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            >
+              <Plus className="h-4 w-4" />
+              {creating ? 'Přidávám…' : 'Přidat'}
+            </button>
+          </form>
+        )}
+        {error && <p className="px-3 pt-2 text-sm text-red-600">{error}</p>}
+      </div>
+    )
+  }
+
   // Hide the whole bar when there is nothing to show and nothing can be added.
   if (readOnly && bookmarks.length === 0) return null
 
-  const outerClass =
-    variant === 'row'
-      ? 'flex items-center gap-1 px-4 h-10 bg-zinc-50 border-b border-zinc-200 flex-shrink-0'
-      : 'flex items-center gap-0.5 flex-shrink-0'
-  const listClass =
-    variant === 'row'
-      ? 'flex items-center gap-1 overflow-x-auto min-w-0'
-      : 'flex items-center gap-0.5'
-
   return (
     <>
-      <div className={outerClass} data-testid="bookmarks-bar">
-        <div className={listClass}>
+      <div className="flex items-center gap-0.5 flex-shrink-0" data-testid="bookmarks-bar">
+        <div className="flex items-center gap-0.5">
           {bookmarks.map((b) => (
             <a
               key={b.id}

@@ -9,6 +9,7 @@ import type { ActiveToolCall } from '../context/SSEContext';
 import MessageBubble from './MessageBubble';
 import ChatInput, { isAllowedFile, getFileExtension, MAX_FILE_SIZE } from './ChatInput';
 import InThreadSearch from './InThreadSearch';
+import { CHAT_COMMAND_EVENT, type ChatCommandDetail } from '../utils/chatCommands';
 import type { ChatInputHandle } from './ChatInput';
 import AskUserPanel from './AskUserPanel';
 import StreamErrorBlock from './StreamErrorBlock';
@@ -20,6 +21,7 @@ import { useNotifications } from '../hooks/useNotifications';
 import { useConnectionStatus } from '../hooks/useConnectionStatus';
 import { useChatSync } from '../hooks/useChatSync';
 import { useSettings } from '../context/SettingsContext';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { getThreadBackground } from '../utils/threadColors';
 
 // Long threads are rendered from the bottom up in windows. Every bubble costs a
@@ -43,6 +45,8 @@ interface Props {
 }
 
 export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread, onOpenSearch, pendingStarterMessage, onStarterMessageConsumed, onStreamingChange }: Props) {
+  const isMobile = useIsMobile();
+
   // --- State ---
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
@@ -742,6 +746,21 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
 
   // --- Slash commands ---
 
+  const clearHistory = useCallback(async () => {
+    if (!threadId) return;
+    try {
+      sseManager.abortSession(threadId);
+      await api.clearMessages(threadId);
+      await api.clearSession(threadId);
+      setMessages([]);
+      setUsageInfo(null);
+      setClearConfirm(false);
+      showFeedback('info', 'Messages and session cleared');
+    } catch {
+      showFeedback('error', 'Failed to clear');
+    }
+  }, [threadId, sseManager, showFeedback]);
+
   const handleSlashCommand = useCallback(async (command: string, args: string) => {
     const known = COMMANDS.some((c) => c.name === command);
     if (!known) {
@@ -815,17 +834,7 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
           setTimeout(() => setClearConfirm(false), 5000);
           return;
         }
-        try {
-          sseManager.abortSession(threadId);
-          await api.clearMessages(threadId);
-          await api.clearSession(threadId);
-          setMessages([]);
-          setUsageInfo(null);
-          setClearConfirm(false);
-          showFeedback('info', 'Messages and session cleared');
-        } catch {
-          showFeedback('error', 'Failed to clear');
-        }
+        await clearHistory();
         break;
       }
 
@@ -853,7 +862,26 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
         break;
       }
     }
-  }, [threadId, thread, messages, onNewThread, onOpenSearch, showFeedback, clearConfirm, handleSend, sseManager]);
+  }, [threadId, thread, messages, onNewThread, onOpenSearch, showFeedback, clearConfirm, handleSend, clearHistory]);
+
+  // Commands fired from outside the composer (the mobile header "⋯" menu).
+  const handleSlashCommandRef = useRef(handleSlashCommand);
+  handleSlashCommandRef.current = handleSlashCommand;
+  const clearHistoryRef = useRef(clearHistory);
+  clearHistoryRef.current = clearHistory;
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<ChatCommandDetail>).detail;
+      if (!detail || detail.threadId !== threadId) return;
+      if (detail.command === '/clear' && detail.confirmed) {
+        void clearHistoryRef.current();
+      } else {
+        void handleSlashCommandRef.current(detail.command, '');
+      }
+    };
+    window.addEventListener(CHAT_COMMAND_EVENT, handler);
+    return () => window.removeEventListener(CHAT_COMMAND_EVENT, handler);
+  }, [threadId]);
 
   // --- Derived render values ---
 
@@ -1105,7 +1133,12 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
       )}
       <div className="max-w-3xl mx-auto w-full">
         {usageInfo && (usageInfo.input_tokens || usageInfo.cost_usd) && (
-          <div className="flex items-center gap-3 px-4 pb-1 text-[10px] text-zinc-400">
+          <div
+            data-testid="context-usage"
+            className={isMobile
+              ? 'flex items-center gap-2 px-4 pb-0.5 text-[10px] leading-tight text-zinc-400 whitespace-nowrap overflow-hidden'
+              : 'flex items-center gap-3 px-4 pb-1 text-[10px] text-zinc-400'}
+          >
             {usageInfo.input_tokens != null && usageInfo.input_tokens > 0 && (() => {
               const contextWindow = thread?.model === 'opus' ? 1_000_000 : 200_000;
               const used = usageInfo.input_tokens!;
@@ -1131,15 +1164,18 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
               }
               return (
                 <div className="flex items-center gap-1.5 flex-1 min-w-0" title={tooltipLines.join('\n')}>
-                  <div className="flex-1 h-1 bg-zinc-200 rounded-full overflow-hidden min-w-[60px]">
-                    <div
-                      className={`h-full rounded-full transition-all ${barColor}`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
+                  {/* Mobile keeps a single thin text line — no progress bar, no message count. */}
+                  {!isMobile && (
+                    <div className="flex-1 h-1 bg-zinc-200 rounded-full overflow-hidden min-w-[60px]">
+                      <div
+                        className={`h-full rounded-full transition-all ${barColor}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  )}
                   <span className={pctColor}>{Math.round(pct)}%</span>
                   <span>{formatK(used)} / {formatK(contextWindow)}</span>
-                  {sessionHealth?.active && sessionHealth.message_count != null && (
+                  {!isMobile && sessionHealth?.active && sessionHealth.message_count != null && (
                     <span className="text-zinc-300">{sessionHealth.message_count} msg</span>
                   )}
                 </div>

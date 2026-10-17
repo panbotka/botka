@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { api } from '../api/client';
+import { useAvailableModels } from '../hooks/useAvailableModels';
 
 interface Props {
   value: string;
@@ -7,18 +7,11 @@ interface Props {
 }
 
 export default function ModelPicker({ value, onChange }: Props) {
-  const [models, setModels] = useState<string[] | null>(null);
-  const [failed, setFailed] = useState(false);
+  const { models, failed } = useAvailableModels();
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    api.getModels()
-      .then((res) => setModels(res.models))
-      .catch(() => setFailed(true));
-  }, []);
 
   useEffect(() => {
     if (!open) return;

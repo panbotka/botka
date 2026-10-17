@@ -115,7 +115,7 @@ describe('BookmarksBar', () => {
   it('renders nothing for read-only users with no bookmarks', async () => {
     fetchBookmarks.mockResolvedValue([])
 
-    const { container } = render(<BookmarksBar variant="row" readOnly />)
+    const { container } = render(<BookmarksBar variant="inline" readOnly />)
 
     await waitFor(() => expect(fetchBookmarks).toHaveBeenCalled())
     expect(container.querySelector('[data-testid="bookmarks-bar"]')).toBeNull()
