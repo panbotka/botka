@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { EyeOff, Eye } from 'lucide-react';
+import { EyeOff, Eye, GitFork } from 'lucide-react';
+import { copyText } from '../utils/copyText';
 
 interface Props {
   role: 'user' | 'assistant' | 'system';
@@ -9,28 +10,16 @@ interface Props {
   onEdit?: () => void;
   onRegenerate?: () => void;
   onHide?: () => void;
+  onFork?: () => void;
 }
 
-export default function MessageActions({ role, content, isLastAssistant, isHidden, onEdit, onRegenerate, onHide }: Props) {
+export default function MessageActions({ role, content, isLastAssistant, isHidden, onEdit, onRegenerate, onHide, onFork }: Props) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      const textarea = document.createElement('textarea');
-      textarea.value = content;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+    await copyText(content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -76,6 +65,17 @@ export default function MessageActions({ role, content, isLastAssistant, isHidde
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
             <path fillRule="evenodd" d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08.932.75.75 0 0 1-1.3-.75 6 6 0 0 1 9.44-1.242l.842.84V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44 1.241l-.84-.84v1.371a.75.75 0 0 1-1.5 0V9.591a.75.75 0 0 1 .75-.75H5.35a.75.75 0 0 1 0 1.5H3.98l.841.841a4.5 4.5 0 0 0 7.08-.932.75.75 0 0 1 1.025-.273Z" clipRule="evenodd" />
           </svg>
+        </button>
+      )}
+
+      {onFork && (
+        <button
+          onClick={onFork}
+          className="p-1 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-all duration-150"
+          title="Forknout odsud"
+          aria-label="Forknout odsud"
+        >
+          <GitFork size={14} />
         </button>
       )}
 

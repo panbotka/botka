@@ -7,6 +7,9 @@ import MessageActions from './MessageActions';
 import ToolActivity from './ToolActivity';
 import type { ToolActivityCall } from './ToolActivity';
 import AttachmentStrip from './AttachmentStrip';
+import MessageActionSheet from './MessageActionSheet';
+import { useLongPress } from '../hooks/useLongPress';
+import { copyText } from '../utils/copyText';
 import { EyeOff } from 'lucide-react';
 import { linkifyText } from '../utils/linkifyText';
 
@@ -27,6 +30,15 @@ interface Props {
   onImageClick?: (attachment: Attachment, allImages: Attachment[]) => void;
   /** Takes the message id so ChatView can pass one stable callback to every bubble. */
   onRemoveQueued?: (messageId: number) => void;
+  /** Takes the message id so ChatView can pass one stable callback to every bubble. */
+  onFork?: (messageId: number) => void;
+  /** Called after the mobile sheet copied the message, so the parent can toast. */
+  onCopied?: () => void;
+  /**
+   * Mobile replaces the hover-only action row with a long-press action sheet;
+   * passed down from ChatView so every bubble doesn't subscribe to matchMedia.
+   */
+  isMobile?: boolean;
 }
 
 function formatTokens(n: number): string {
@@ -77,7 +89,7 @@ function AssistantAvatar() {
   );
 }
 
-function MessageBubble({ message, isStreaming, liveToolCalls, isLastAssistant, isPending, onEdit, onRegenerate, onHide, onImageClick, onRemoveQueued }: Props) {
+function MessageBubble({ message, isStreaming, liveToolCalls, isLastAssistant, isPending, onEdit, onRegenerate, onHide, onImageClick, onRemoveQueued, onFork, onCopied, isMobile }: Props) {
   const isUser = message.role === 'user';
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
@@ -97,6 +109,21 @@ function MessageBubble({ message, isStreaming, liveToolCalls, isLastAssistant, i
   const handleHide = useCallback(() => onHide?.(messageId), [onHide, messageId]);
   const handleRemoveQueued = useCallback(() => onRemoveQueued?.(messageId), [onRemoveQueued, messageId]);
   const handleStartEdit = useCallback(() => setEditing(true), []);
+  const handleFork = useCallback(() => onFork?.(messageId), [onFork, messageId]);
+  const content = message.content;
+  const handleSheetCopy = useCallback(() => {
+    void copyText(content).then(() => onCopied?.());
+  }, [content, onCopied]);
+
+  // Mobile long-press → action sheet. Only settled messages have actions
+  // (temporary/streaming bubbles use non-positive ids).
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const closeSheet = useCallback(() => setSheetOpen(false), []);
+  const longPressEnabled = !!isMobile && !isStreaming && !editing && !isPending && !message.hidden && messageId > 0;
+  const { handlers: longPressHandlers, pressing } = useLongPress(
+    useCallback(() => setSheetOpen(true), []),
+    longPressEnabled,
+  );
 
   if (message.hidden) {
     return (
@@ -152,11 +179,14 @@ function MessageBubble({ message, isStreaming, liveToolCalls, isLastAssistant, i
 
       <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} max-w-[85%] md:max-w-[75%] min-w-0`}>
         <div
+          data-testid="message-bubble"
+          {...(longPressEnabled ? longPressHandlers : {})}
+          style={longPressEnabled ? { WebkitTouchCallout: 'none' } : undefined}
           className={`rounded-2xl px-4 py-3 break-words overflow-hidden min-w-0 max-w-full ${
             isUser
               ? isPending ? 'bg-zinc-100 text-zinc-400' : 'bg-emerald-600 text-white'
               : 'text-zinc-900'
-          }`}
+          }${pressing ? ' select-none' : ''}`}
         >
           {editing ? (
             <div className="flex flex-col gap-2">
@@ -245,17 +275,21 @@ function MessageBubble({ message, isStreaming, liveToolCalls, isLastAssistant, i
         )}
         {!isStreaming && !editing && !isPending && (
           <div className={`mt-1.5 flex items-center gap-3 ${isUser ? 'self-end' : 'self-start md:ml-0'}`}>
-            <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150">
-              <MessageActions
-                role={message.role}
-                content={message.content}
-                isLastAssistant={isLastAssistant ?? false}
-                isHidden={message.hidden}
-                onEdit={onEdit ? handleStartEdit : undefined}
-                onRegenerate={onRegenerate}
-                onHide={onHide ? handleHide : undefined}
-              />
-            </div>
+            {/* Mobile has no hover: its actions live in the long-press sheet. */}
+            {!isMobile && (
+              <div className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150">
+                <MessageActions
+                  role={message.role}
+                  content={message.content}
+                  isLastAssistant={isLastAssistant ?? false}
+                  isHidden={message.hidden}
+                  onEdit={onEdit ? handleStartEdit : undefined}
+                  onRegenerate={onRegenerate}
+                  onHide={onHide ? handleHide : undefined}
+                  onFork={onFork ? handleFork : undefined}
+                />
+              </div>
+            )}
             {!isUser && message.prompt_tokens != null && message.completion_tokens != null && (
               <TokenBadge promptTokens={message.prompt_tokens} completionTokens={message.completion_tokens} />
             )}
@@ -275,6 +309,21 @@ function MessageBubble({ message, isStreaming, liveToolCalls, isLastAssistant, i
         <div className="mt-1 ml-3 hidden md:block">
           <UserAvatar />
         </div>
+      )}
+
+      {longPressEnabled && (
+        <MessageActionSheet
+          open={sheetOpen}
+          onClose={closeSheet}
+          role={message.role}
+          isLastAssistant={isLastAssistant ?? false}
+          isHidden={message.hidden}
+          onCopy={handleSheetCopy}
+          onEdit={onEdit ? handleStartEdit : undefined}
+          onRegenerate={onRegenerate}
+          onFork={onFork ? handleFork : undefined}
+          onHide={onHide ? handleHide : undefined}
+        />
       )}
     </div>
   );
@@ -307,7 +356,10 @@ function propsAreEqual(prev: Props, next: Props): boolean {
     prev.onRegenerate !== next.onRegenerate ||
     prev.onHide !== next.onHide ||
     prev.onImageClick !== next.onImageClick ||
-    prev.onRemoveQueued !== next.onRemoveQueued
+    prev.onRemoveQueued !== next.onRemoveQueued ||
+    prev.onFork !== next.onFork ||
+    prev.onCopied !== next.onCopied ||
+    prev.isMobile !== next.isMobile
   ) {
     return false;
   }

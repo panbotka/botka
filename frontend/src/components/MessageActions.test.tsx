@@ -17,6 +17,21 @@ describe('MessageActions', () => {
     expect(screen.queryByLabelText('Fork thread from here')).toBeNull()
   })
 
+  it('renders "Forknout odsud" when onFork is passed and calls it', () => {
+    const onFork = vi.fn()
+    render(
+      <MessageActions role="assistant" content="hi" isLastAssistant={false} onFork={onFork} />,
+    )
+    const btn = screen.getByLabelText('Forknout odsud')
+    btn.click()
+    expect(onFork).toHaveBeenCalledOnce()
+  })
+
+  it('omits the fork button without onFork', () => {
+    render(<MessageActions role="user" content="hi" isLastAssistant={false} />)
+    expect(screen.queryByLabelText('Forknout odsud')).toBeNull()
+  })
+
   it('still renders Copy', () => {
     render(
       <MessageActions role="assistant" content="hi" isLastAssistant={false} />,

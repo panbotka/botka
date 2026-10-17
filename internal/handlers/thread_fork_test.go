@@ -277,3 +277,47 @@ func TestThread_ListForks(t *testing.T) {
 		t.Errorf("expected total=2, got %v", resp["total"])
 	}
 }
+
+// The mobile "Forknout odsud" action forks from whichever bubble was pressed,
+// so a message the user cleared (soft-deleted) must never be a fork point, and
+// forking from a live message mid-thread must stop at that message.
+func TestThread_Fork_FromMessageSkipsSoftDeleted(t *testing.T) {
+	db := setupTestDB(t)
+	cleanTables(t, db)
+
+	src := createTestThread(t, db)
+	m1 := models.Message{ThreadID: src.ID, Role: "user", Content: "q1"}
+	db.Create(&m1)
+	m2 := models.Message{ThreadID: src.ID, Role: "assistant", Content: "a1", ParentID: &m1.ID}
+	db.Create(&m2)
+	m3 := models.Message{ThreadID: src.ID, Role: "user", Content: "q2", ParentID: &m2.ID}
+	db.Create(&m3)
+	if err := db.Delete(&m3).Error; err != nil {
+		t.Fatalf("soft-delete m3: %v", err)
+	}
+
+	r := threadRouter(db)
+	w := doRequest(r, http.MethodPost, fmt.Sprintf("/api/v1/threads/%d/fork", src.ID),
+		fmt.Sprintf(`{"from_message_id":%d}`, m3.ID))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for soft-deleted fork point, got %d: %s", w.Code, w.Body.String())
+	}
+
+	w = doRequest(r, http.MethodPost, fmt.Sprintf("/api/v1/threads/%d/fork", src.ID),
+		fmt.Sprintf(`{"from_message_id":%d}`, m1.ID))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	newID := int64(resp["data"].(map[string]interface{})["id"].(float64))
+
+	var contents []string
+	db.Raw(`SELECT content FROM messages WHERE thread_id = ? AND deleted_at IS NULL ORDER BY created_at, id`, newID).
+		Scan(&contents)
+	if strings.Join(contents, ",") != "q1" {
+		t.Errorf("fork from m1 should copy only m1, got %v", contents)
+	}
+}

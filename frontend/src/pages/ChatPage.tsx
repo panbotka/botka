@@ -150,6 +150,11 @@ export default function ChatPage() {
   }, [threads, selectThread, isMobile])
 
   // Thread operations
+  // ChatView navigates to the fork itself; this only makes it appear in the list.
+  const handleForked = useCallback((thread: Thread) => {
+    setThreads(prev => [thread, ...prev.filter(t => t.id !== thread.id)])
+  }, [])
+
   const handleNewThread = async (personaId?: number) => {
     try {
       const thread = await api.createThread(personaId ? { persona_id: personaId } : {})
@@ -325,6 +330,7 @@ export default function ChatPage() {
               onOpenSearch={handleMobileBack}
               pendingStarterMessage={pendingStarterMessage}
               onStarterMessageConsumed={() => setPendingStarterMessage(null)}
+              onForked={handleForked}
             />
             {settingsPanelOpen && activeThread && (
               <ThreadSettingsPanel
@@ -444,6 +450,7 @@ export default function ChatPage() {
               onOpenSearch={() => {}}
               pendingStarterMessage={pendingStarterMessage}
               onStarterMessageConsumed={() => setPendingStarterMessage(null)}
+              onForked={handleForked}
             />
             {settingsPanelOpen && activeThread && (
               <ThreadSettingsPanel

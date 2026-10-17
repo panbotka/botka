@@ -42,9 +42,11 @@ interface Props {
   pendingStarterMessage?: string | null;
   onStarterMessageConsumed?: () => void;
   onStreamingChange?: (threadId: number | null) => void;
+  /** Called with the new thread after "Forknout odsud"; ChatView navigates to it itself. */
+  onForked?: (thread: Thread) => void;
 }
 
-export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread, onOpenSearch, pendingStarterMessage, onStarterMessageConsumed, onStreamingChange }: Props) {
+export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread, onOpenSearch, pendingStarterMessage, onStarterMessageConsumed, onStreamingChange, onForked }: Props) {
   const isMobile = useIsMobile();
 
   // --- State ---
@@ -744,6 +746,24 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
     }
   }, []);
 
+  // --- Fork from message ---
+
+  const onForkedRef = useRef(onForked);
+  onForkedRef.current = onForked;
+
+  const handleFork = useCallback(async (messageId: number) => {
+    if (!threadId) return;
+    try {
+      const forked = await api.forkThread(threadId, messageId);
+      onForkedRef.current?.(forked);
+      navigate(`/chat/${forked.id}`);
+    } catch (err) {
+      showFeedback('error', `Fork se nezdařil: ${err instanceof Error ? err.message : 'neznámá chyba'}`);
+    }
+  }, [threadId, navigate, showFeedback]);
+
+  const handleCopied = useCallback(() => showFeedback('info', 'Zkopírováno'), [showFeedback]);
+
   // --- Slash commands ---
 
   const clearHistory = useCallback(async () => {
@@ -961,6 +981,9 @@ export default function ChatView({ threadId, thread, onTitleUpdate, onNewThread,
                 onHide={!isStreamingThisThread ? handleHide : undefined}
                 onImageClick={handleImageClick}
                 onRemoveQueued={isQueued ? removeQueuedMessage : undefined}
+                onFork={!isStreamingThisThread && !isQueued ? handleFork : undefined}
+                onCopied={handleCopied}
+                isMobile={isMobile}
               />
             );
           })}
