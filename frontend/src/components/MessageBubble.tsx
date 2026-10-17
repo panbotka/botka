@@ -5,6 +5,7 @@ import MarkdownContent from './MarkdownContent';
 import ThinkingSection from './ThinkingSection';
 import MessageActions from './MessageActions';
 import ToolCallPanel from './ToolCallPanel';
+import AttachmentStrip from './AttachmentStrip';
 import { Wrench, ChevronDown, EyeOff } from 'lucide-react';
 import { linkifyText } from '../utils/linkifyText';
 
@@ -20,12 +21,6 @@ interface Props {
   onImageClick?: (attachment: Attachment, allImages: Attachment[]) => void;
   /** Takes the message id so ChatView can pass one stable callback to every bubble. */
   onRemoveQueued?: (messageId: number) => void;
-}
-
-function formatFileSize(bytes: number) {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
 function formatTokens(n: number): string {
@@ -76,148 +71,6 @@ function AssistantAvatar() {
   );
 }
 
-function PdfIcon({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className={className}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-    </svg>
-  );
-}
-
-function TextIcon({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className={className}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-    </svg>
-  );
-}
-
-function FileCard({ attachment, icon, action, variant }: { attachment: Attachment; icon: React.ReactNode; action?: React.ReactNode; variant: 'user' | 'assistant' }) {
-  const isUser = variant === 'user';
-  return (
-    <div className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm ${isUser ? 'bg-white/10' : 'bg-zinc-100 border border-zinc-200 dark:bg-zinc-200'}`}>
-      <div className={`flex-shrink-0 ${isUser ? 'text-white/70' : 'text-zinc-500'}`}>
-        {icon}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className={`truncate font-medium ${isUser ? 'text-white' : 'text-zinc-700'}`}>{attachment.original_name}</div>
-        <div className={`text-xs ${isUser ? 'text-white/50' : 'text-zinc-400'}`}>{formatFileSize(attachment.size)}</div>
-      </div>
-      {action}
-    </div>
-  );
-}
-
-function AttachmentPreviews({ imageAttachments, pdfAttachments, textAttachments, otherAttachments, onImageClick, variant }: {
-  imageAttachments: Attachment[];
-  pdfAttachments: Attachment[];
-  textAttachments: Attachment[];
-  otherAttachments: Attachment[];
-  onImageClick?: (attachment: Attachment, allImages: Attachment[]) => void;
-  variant: 'user' | 'assistant';
-}) {
-  const hasAny = imageAttachments.length + pdfAttachments.length + textAttachments.length + otherAttachments.length > 0;
-  if (!hasAny) return null;
-
-  const isUser = variant === 'user';
-  const linkClass = isUser ? 'text-white/70 hover:text-white' : 'text-emerald-600 hover:text-emerald-700';
-
-  return (
-    <div className="mt-2 flex flex-wrap gap-2">
-      {imageAttachments.map((att) => (
-        <button
-          key={att.id}
-          type="button"
-          onClick={() => onImageClick?.(att, imageAttachments)}
-          className="cursor-pointer rounded-lg overflow-hidden hover:opacity-80 transition-opacity border border-white/20"
-        >
-          <img
-            src={att.url}
-            alt={att.original_name}
-            className="max-w-[300px] max-h-[200px] rounded-lg object-cover"
-          />
-        </button>
-      ))}
-      {pdfAttachments.map((att) => (
-        <FileCard
-          key={att.id}
-          attachment={att}
-          variant={variant}
-          icon={<PdfIcon className="w-5 h-5" />}
-          action={
-            <div className="flex gap-2 flex-shrink-0">
-              <a
-                href={att.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`text-xs font-medium transition-colors ${linkClass}`}
-                onClick={(e) => e.stopPropagation()}
-              >
-                Open
-              </a>
-              <a
-                href={att.url}
-                download={att.original_name}
-                className={`text-xs font-medium transition-colors ${linkClass}`}
-                onClick={(e) => e.stopPropagation()}
-              >
-                Download
-              </a>
-            </div>
-          }
-        />
-      ))}
-      {textAttachments.map((att) => (
-        <FileCard
-          key={att.id}
-          attachment={att}
-          variant={variant}
-          icon={<TextIcon className="w-5 h-5" />}
-          action={
-            <div className="flex gap-2 flex-shrink-0">
-              <a
-                href={att.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`text-xs font-medium transition-colors ${linkClass}`}
-                onClick={(e) => e.stopPropagation()}
-              >
-                Open
-              </a>
-              <a
-                href={att.url}
-                download={att.original_name}
-                className={`text-xs font-medium transition-colors ${linkClass}`}
-                onClick={(e) => e.stopPropagation()}
-              >
-                Download
-              </a>
-            </div>
-          }
-        />
-      ))}
-      {otherAttachments.map((att) => (
-        <FileCard
-          key={att.id}
-          attachment={att}
-          variant={variant}
-          icon={<PdfIcon className="w-5 h-5" />}
-          action={
-            <a
-              href={att.url}
-              download={att.original_name}
-              className={`text-xs font-medium transition-colors flex-shrink-0 ${linkClass}`}
-              onClick={(e) => e.stopPropagation()}
-            >
-              Download
-            </a>
-          }
-        />
-      ))}
-    </div>
-  );
-}
-
 function MessageBubble({ message, isStreaming, isLastAssistant, isPending, onEdit, onRegenerate, onHide, onImageClick, onRemoveQueued }: Props) {
   const isUser = message.role === 'user';
   const [editing, setEditing] = useState(false);
@@ -257,10 +110,6 @@ function MessageBubble({ message, isStreaming, isLastAssistant, isPending, onEdi
   }
 
   const attachments = message.attachments || [];
-  const imageAttachments = attachments.filter((a) => a.mime_type.startsWith('image/'));
-  const pdfAttachments = attachments.filter((a) => a.mime_type === 'application/pdf');
-  const textAttachments = attachments.filter((a) => a.mime_type.startsWith('text/'));
-  const otherAttachments = attachments.filter((a) => !a.mime_type.startsWith('image/') && a.mime_type !== 'application/pdf' && !a.mime_type.startsWith('text/'));
 
   const handleEditSubmit = () => {
     const trimmed = editContent.trim();
@@ -336,11 +185,8 @@ function MessageBubble({ message, isStreaming, isLastAssistant, isPending, onEdi
           ) : isUser ? (
             <>
               <p className="whitespace-pre-wrap text-[15px] leading-relaxed min-w-0 max-w-full">{linkifyText(message.content)}</p>
-              <AttachmentPreviews
-                imageAttachments={imageAttachments}
-                pdfAttachments={pdfAttachments}
-                textAttachments={textAttachments}
-                otherAttachments={otherAttachments}
+              <AttachmentStrip
+                attachments={attachments}
                 onImageClick={onImageClick}
                 variant="user"
               />
@@ -356,11 +202,8 @@ function MessageBubble({ message, isStreaming, isLastAssistant, isPending, onEdi
               )}
               {message.content && <MarkdownContent content={message.content} />}
               {attachments.length > 0 && (
-                <AttachmentPreviews
-                  imageAttachments={imageAttachments}
-                  pdfAttachments={pdfAttachments}
-                  textAttachments={textAttachments}
-                  otherAttachments={otherAttachments}
+                <AttachmentStrip
+                  attachments={attachments}
                   onImageClick={onImageClick}
                   variant="assistant"
                 />

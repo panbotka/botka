@@ -187,6 +187,14 @@ body {
   @apply bg-zinc-400;
 }
 
+/* Hide the scrollbar on sideways-scrolling strips (attachment thumbnails) */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* Markdown content styling */
 .markdown-content {
   overflow-wrap: anywhere;

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Attachment } from '../types';
 
 interface Props {
@@ -6,6 +6,9 @@ interface Props {
   allImages: Attachment[];
   onClose: () => void;
 }
+
+/** Minimum horizontal travel for a touch gesture to count as a swipe. */
+const SWIPE_THRESHOLD_PX = 50;
 
 export default function Lightbox({ attachment, allImages, onClose }: Props) {
   const [currentIndex, setCurrentIndex] = useState(() =>
@@ -32,10 +35,28 @@ export default function Lightbox({ attachment, allImages, onClose }: Props) {
     return () => window.removeEventListener('keydown', handleKey);
   }, [onClose, goNext, goPrev]);
 
+  // Horizontal swipe navigates between images on touch devices.
+  const touchStartX = useRef<number | null>(null);
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0]?.clientX ?? null;
+  };
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const start = touchStartX.current;
+    touchStartX.current = null;
+    const end = e.changedTouches[0]?.clientX;
+    if (!hasMultiple || start === null || end === undefined) return;
+    const dx = end - start;
+    if (Math.abs(dx) < SWIPE_THRESHOLD_PX) return;
+    if (dx < 0) goNext();
+    else goPrev();
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
       onClick={onClose}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
     >
       <button
         onClick={onClose}
