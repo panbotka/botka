@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { render } from '@testing-library/react'
+import { render, waitFor } from '@testing-library/react'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as url from 'node:url'
@@ -43,5 +43,22 @@ describe('MarkdownContent', () => {
     expect(INDEX_CSS).toMatch(
       /\.markdown-content\s+p[\s\S]*?overflow-wrap:\s*anywhere/,
     )
+  })
+
+  it('does not render KaTeX markup for content without math', async () => {
+    const { container } = render(
+      <MarkdownContent content={'Plain text with `code` and a $5 price.'} />,
+    )
+    // Give a (wrongly) triggered lazy math chunk a chance to resolve.
+    await new Promise((r) => setTimeout(r, 50))
+    expect(container.querySelector('.katex')).toBeNull()
+    expect(container.textContent).toContain('a $5 price.')
+  })
+
+  it('renders $$x^2$$ through the lazily loaded KaTeX pipeline', async () => {
+    const { container } = render(<MarkdownContent content={'$$x^2$$'} />)
+    await waitFor(() => {
+      expect(container.querySelector('.katex')).not.toBeNull()
+    })
   })
 })

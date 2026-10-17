@@ -1,78 +1,46 @@
 import { lazy, memo, Suspense } from 'react';
 import Markdown from 'react-markdown';
-import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import remarkMath from 'remark-math';
-import rehypeKatex from 'rehype-katex';
-import 'katex/dist/katex.min.css';
 import { linkifyTasksMarkdown } from '../utils/linkifyTasks';
+import { hasMath } from '../utils/hasMath';
+import { MARKDOWN_COMPONENTS } from './markdownComponents';
 
-const CodeBlock = lazy(() => import('./CodeBlock'));
+// KaTeX + remark-math + rehype-katex live in their own chunk, fetched the
+// first time a message actually contains math.
+const MathMarkdown = lazy(() => import('./MathMarkdown'));
 
 // Hoisted to module scope: react-markdown treats new plugin arrays and a new
 // `components` object as changed props and rebuilds its processor, so inline
 // literals would defeat the memo() below on every parent render.
-const REMARK_PLUGINS = [remarkGfm, remarkMath];
-const REHYPE_PLUGINS = [rehypeKatex];
-
-const COMPONENTS: Components = {
-  a({ children, ...props }) {
-    return (
-      <a target="_blank" rel="noopener noreferrer" {...props}>
-        {children}
-      </a>
-    );
-  },
-  table({ children, ...props }) {
-    return (
-      <div className="table-wrapper">
-        <table {...props}>{children}</table>
-      </div>
-    );
-  },
-  code({ className, children, ...props }) {
-    const match = /language-(\w+)/.exec(className || '');
-    const code = String(children).replace(/\n$/, '');
-    if (match) {
-      return (
-        <Suspense
-          fallback={
-            <pre className="bg-zinc-100 rounded-lg overflow-hidden my-3 p-4 text-sm text-zinc-700">
-              <code>{code}</code>
-            </pre>
-          }
-        >
-          <CodeBlock language={match[1] || ''} code={code} />
-        </Suspense>
-      );
-    }
-    return (
-      <code className="bg-zinc-200 px-1.5 py-0.5 rounded text-sm" {...props}>
-        {children}
-      </code>
-    );
-  },
-};
+const REMARK_PLUGINS = [remarkGfm];
 
 interface Props {
   content: string;
 }
 
 function MarkdownContent({ content }: Props) {
+  const source = linkifyTasksMarkdown(content);
+  const plain = (
+    <Markdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
+      {source}
+    </Markdown>
+  );
   return (
     <div className="markdown-content">
-      <Markdown
-        remarkPlugins={REMARK_PLUGINS}
-        rehypePlugins={REHYPE_PLUGINS}
-        components={COMPONENTS}
-      >
-        {linkifyTasksMarkdown(content)}
-      </Markdown>
+      {hasMath(source) ? (
+        // Until the math chunk arrives, show the message without math
+        // rendering rather than a blank bubble.
+        <Suspense fallback={plain}>
+          <MathMarkdown content={source} />
+        </Suspense>
+      ) : (
+        plain
+      )}
     </div>
   );
 }
 
-// Parsing markdown (remark + rehype + KaTeX) is the single most expensive thing
-// the chat view does. Memoizing on `content` keeps a streamed token from
-// re-parsing every other message in the thread.
+// Parsing markdown (remark + rehype, plus KaTeX for math) is the single most
+// expensive thing the chat view does. Memoizing on `content` keeps a streamed
+// token from re-parsing every other message in the thread.
 export default memo(MarkdownContent);

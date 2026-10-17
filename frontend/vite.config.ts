@@ -1,8 +1,26 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
+import type { Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
+
+// KaTeX's stylesheet lists every font as woff2, woff and ttf, so Vite emits all
+// three (~60 files). Every browser we target loads woff2, so strip the legacy
+// fallbacks from the @font-face `src` lists before Vite resolves their URLs.
+function katexWoff2Only(): Plugin {
+  return {
+    name: 'katex-woff2-only',
+    enforce: 'pre',
+    transform(code, id) {
+      if (!/[\\/]katex[\\/]dist[\\/]katex(\.min)?\.css$/.test(id)) return null
+      return {
+        code: code.replace(/,\s*url\([^)]*\.(?:woff|ttf)\)\s*format\("(?:woff|truetype)"\)/g, ''),
+        map: null,
+      }
+    },
+  }
+}
 
 export default defineConfig({
   test: {
@@ -13,6 +31,7 @@ export default defineConfig({
     exclude: ['e2e/**', 'node_modules/**'],
   },
   plugins: [
+    katexWoff2Only(),
     react(),
     tailwindcss(),
     VitePWA({

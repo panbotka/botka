@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useSettings } from '../context/SettingsContext';
+import { PrismLight as SyntaxHighlighter, resolvePrismLanguage } from './prismLanguages';
 
 interface Props {
   language: string;
@@ -54,7 +54,7 @@ export default function CodeBlock({ language, code }: Props) {
       </div>
       <SyntaxHighlighter
         style={isLight ? oneLight : oneDark}
-        language={language}
+        language={resolvePrismLanguage(language)}
         PreTag="div"
         showLineNumbers={showLineNumbers}
         wrapLongLines={wordWrap}
