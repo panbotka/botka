@@ -1,4 +1,4 @@
-import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, TaskNote, TaskTag, Thread, ThreadDetail, ThreadFolder, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, TaskStatsAggregated, TaskStatsGroupBy, GlobalSearchResults, MessageSearchResponse, UnifiedSearchResult, CostAnalytics, ServerSettings, Message, BoxStatus, BoxAutoOffStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, Skill, EffectiveSkill, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo, Bookmark } from '../types'
+import type { Project, ProjectUsage, ProjectMetrics, Task, TaskDiff, TaskNote, Thread, ThreadDetail, ThreadFolder, ThreadSource, RunnerStatus, UsageInfo, Persona, Tag, Memory, SearchResult, GitCommit, GitStatus, ProjectStats, RunningCommandStatus, TaskStats, TaskStatsAggregated, TaskStatsGroupBy, GlobalSearchResults, MessageSearchResponse, UnifiedSearchResult, CostAnalytics, ServerSettings, Message, BoxStatus, BoxAutoOffStatus, BoxProjectsResponse, SignalBridge, SignalGroup, MCPServer, MCPServerWithStatus, Skill, EffectiveSkill, CronJob, CronExecution, TaskSchedule, PushSubscriptionInfo, Bookmark } from '../types'
 
 const BASE_URL = '/api/v1'
 
@@ -113,7 +113,6 @@ export function killProjectCommand(projectId: string, pid: number): Promise<void
 export function fetchTasks(params?: {
   status?: string
   project_id?: string
-  tag_ids?: number[]
   q?: string
   limit?: number
   offset?: number
@@ -121,9 +120,6 @@ export function fetchTasks(params?: {
   const search = new URLSearchParams()
   if (params?.status) search.set('status', params.status)
   if (params?.project_id) search.set('project_id', params.project_id)
-  if (params?.tag_ids) {
-    for (const id of params.tag_ids) search.append('tag_id', String(id))
-  }
   if (params?.q) search.set('q', params.q)
   if (params?.limit != null) search.set('limit', String(params.limit))
   if (params?.offset != null) search.set('offset', String(params.offset))
@@ -195,12 +191,9 @@ export type BulkOperation =
   | 'set_pending'
   | 'delete'
   | 'set_priority'
-  | 'add_tags'
-  | 'remove_tags'
 
 export type BulkPayload =
   | { priority: number }
-  | { tag_ids: number[] }
   | undefined
 
 export interface BulkFailure {
@@ -612,37 +605,6 @@ export function deleteTag(id: number): Promise<void> {
 
 export function getTagThreadCount(id: number): Promise<number> {
   return requestData<{ count: number }>(`/tags/${id}/threads/count`).then((r) => r.count)
-}
-
-// Task Tags
-
-export function fetchTaskTags(): Promise<TaskTag[]> {
-  return requestData<TaskTag[]>('/task-tags')
-}
-
-export function createTaskTag(data: { name: string; color?: string }): Promise<TaskTag> {
-  return requestData<TaskTag>('/task-tags', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  })
-}
-
-export function updateTaskTag(id: number, data: { name?: string; color?: string }): Promise<TaskTag> {
-  return requestData<TaskTag>(`/task-tags/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify(data),
-  })
-}
-
-export function deleteTaskTag(id: number): Promise<void> {
-  return request<void>(`/task-tags/${id}`, { method: 'DELETE' })
-}
-
-export function assignTaskTags(taskId: string, tagIds: number[]): Promise<TaskTag[]> {
-  return requestData<TaskTag[]>(`/tasks/${taskId}/tags`, {
-    method: 'POST',
-    body: JSON.stringify({ tag_ids: tagIds }),
-  })
 }
 
 // Task Notes
@@ -1460,12 +1422,6 @@ export const api = {
   updateTag,
   deleteTag,
   getTagThreadCount,
-  // Task Tags
-  fetchTaskTags,
-  createTaskTag,
-  updateTaskTag,
-  deleteTaskTag,
-  assignTaskTags,
   // Task Notes
   fetchTaskNotes,
   createTaskNote,

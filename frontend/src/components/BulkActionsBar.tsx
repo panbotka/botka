@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { clsx } from 'clsx'
 import {
   ArrowUpDown,
@@ -8,16 +8,11 @@ import {
   Ban,
   RefreshCw,
   Inbox,
-  Tag,
-  TagIcon,
 } from 'lucide-react'
 
-import { fetchTaskTags } from '../api/client'
 import type { BulkOperation, BulkPayload } from '../api/client'
-import type { TaskTag } from '../types'
-import { TaskTagChip } from './TaskTagChip'
 
-type ActiveModal = 'priority' | 'add-tags' | 'remove-tags' | 'delete' | null
+type ActiveModal = 'priority' | 'delete' | null
 
 interface BulkActionsBarProps {
   count: number
@@ -97,18 +92,6 @@ export function BulkActionsBar({ count, onAction, onClear }: BulkActionsBarProps
             Priority
           </BarButton>
           <BarButton
-            icon={<Tag className="h-3.5 w-3.5" />}
-            onClick={() => setModal('add-tags')}
-          >
-            Add tags
-          </BarButton>
-          <BarButton
-            icon={<TagIcon className="h-3.5 w-3.5" />}
-            onClick={() => setModal('remove-tags')}
-          >
-            Remove tags
-          </BarButton>
-          <BarButton
             icon={<Trash2 className="h-3.5 w-3.5" />}
             onClick={() => setModal('delete')}
             tone="danger"
@@ -131,18 +114,6 @@ export function BulkActionsBar({ count, onAction, onClear }: BulkActionsBarProps
           count={count}
           onCancel={close}
           onConfirm={(p) => applyWithPayload('set_priority', { priority: p })}
-        />
-      )}
-      {(modal === 'add-tags' || modal === 'remove-tags') && (
-        <TagsModal
-          count={count}
-          mode={modal}
-          onCancel={close}
-          onConfirm={(tagIDs) =>
-            applyWithPayload(modal === 'add-tags' ? 'add_tags' : 'remove_tags', {
-              tag_ids: tagIDs,
-            })
-          }
         />
       )}
       {modal === 'delete' && (
@@ -265,103 +236,6 @@ function PriorityModal({
         onConfirm={submit}
         confirmLabel={submitting ? 'Applying…' : 'Apply'}
         confirmDisabled={!valid || submitting}
-      />
-    </ModalShell>
-  )
-}
-
-function TagsModal({
-  count,
-  mode,
-  onCancel,
-  onConfirm,
-}: {
-  count: number
-  mode: 'add-tags' | 'remove-tags'
-  onCancel: () => void
-  onConfirm: (tagIDs: number[]) => Promise<void>
-}) {
-  const [tags, setTags] = useState<TaskTag[]>([])
-  const [loading, setLoading] = useState(true)
-  const [selected, setSelected] = useState<Set<number>>(new Set())
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    fetchTaskTags()
-      .then((list) => setTags(list))
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load tags'))
-      .finally(() => setLoading(false))
-  }, [])
-
-  const sorted = useMemo(
-    () => tags.slice().sort((a, b) => a.name.localeCompare(b.name)),
-    [tags],
-  )
-
-  const toggle = (id: number) => {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  const submit = async () => {
-    if (selected.size === 0) return
-    setError(null)
-    setSubmitting(true)
-    try {
-      await onConfirm(Array.from(selected))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update tasks')
-      setSubmitting(false)
-    }
-  }
-
-  const title = mode === 'add-tags' ? 'Add tags' : 'Remove tags'
-  const verb = mode === 'add-tags' ? 'add to' : 'remove from'
-  const action = mode === 'add-tags' ? 'Add' : 'Remove'
-
-  return (
-    <ModalShell title={title} onClose={onCancel}>
-      <p className="mt-2 text-sm text-zinc-600">
-        Select tags to {verb} {count} task{count === 1 ? '' : 's'}.
-      </p>
-      <div className="mt-3 max-h-60 overflow-auto rounded-md border border-zinc-200 bg-white dark:bg-zinc-50">
-        {loading && <p className="p-3 text-sm text-zinc-500">Loading tags…</p>}
-        {!loading && sorted.length === 0 && (
-          <p className="p-3 text-sm text-zinc-500">No tags exist yet.</p>
-        )}
-        {!loading &&
-          sorted.map((tag) => {
-            const checked = selected.has(tag.id)
-            return (
-              <label
-                key={tag.id}
-                className={clsx(
-                  'flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm hover:bg-zinc-50',
-                  checked && 'bg-zinc-50',
-                )}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => toggle(tag.id)}
-                  className="h-3.5 w-3.5 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
-                />
-                <TaskTagChip tag={tag} />
-              </label>
-            )
-          })}
-      </div>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-      <ModalButtons
-        onCancel={onCancel}
-        onConfirm={submit}
-        confirmLabel={submitting ? 'Applying…' : action}
-        confirmDisabled={selected.size === 0 || submitting}
       />
     </ModalShell>
   )

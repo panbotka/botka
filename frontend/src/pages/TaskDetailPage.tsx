@@ -28,7 +28,6 @@ import { LiveOutputInline } from '../components/LiveOutput'
 import TaskOutputView from '../components/TaskOutputView'
 import TaskChangesSection from '../components/TaskChangesSection'
 import TaskStatsCards from '../components/TaskStatsCards'
-import { TaskTagPicker } from '../components/TaskTagPicker'
 import { TaskNotesSection } from '../components/TaskNotesSection'
 import { fetchTask, retryTask, deleteTask, updateTask, killTask, forceRunTask, fetchTaskRawOutput, regenerateTaskFailureSummary } from '../api/client'
 import { parseNDJSON, type TaskOutputEvent } from '../utils/parseNDJSON'
@@ -36,7 +35,7 @@ import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus'
 import { useTaskEvents } from '../hooks/useTaskEvents'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { runPhaseLabel } from '../utils/runPhase'
-import type { Task, TaskStatus, TaskTag, TaskExecution } from '../types'
+import type { Task, TaskStatus, TaskExecution } from '../types'
 
 const statusConfig: Record<
   TaskStatus,
@@ -357,18 +356,6 @@ function TaskDetail({ taskId }: { taskId: string }) {
 
       {/* At-a-glance dashboard: status, timing (live stopwatch while running), attempts, cost */}
       <TaskStatsCards task={task} />
-
-      {/* Tags */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs uppercase tracking-wide text-zinc-400">Tags</span>
-        <TaskTagPicker
-          taskId={taskId}
-          selected={task.tags ?? []}
-          onChange={(tags: TaskTag[]) =>
-            setTask((prev) => (prev ? { ...prev, tags } : prev))
-          }
-        />
-      </div>
 
       {/* Failure summary */}
       {task.status === 'failed' && (

@@ -3,10 +3,9 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { Task } from '../types'
 
-const { fetchTask, fetchTaskNotes, fetchTaskTags, forceRunTask } = vi.hoisted(() => ({
+const { fetchTask, fetchTaskNotes, forceRunTask } = vi.hoisted(() => ({
   fetchTask: vi.fn(),
   fetchTaskNotes: vi.fn(),
-  fetchTaskTags: vi.fn(),
   forceRunTask: vi.fn(),
 }))
 
@@ -14,7 +13,6 @@ vi.mock('../api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/client')>()),
   fetchTask,
   fetchTaskNotes,
-  fetchTaskTags,
   forceRunTask,
 }))
 
@@ -48,7 +46,6 @@ describe('TaskDetailPage force run', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     fetchTaskNotes.mockResolvedValue([])
-    fetchTaskTags.mockResolvedValue([])
     forceRunTask.mockResolvedValue({ ...baseTask, status: 'running' } as Task)
   })
   afterEach(() => {

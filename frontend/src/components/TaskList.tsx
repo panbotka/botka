@@ -36,7 +36,6 @@ import { bulkUpdateTasks, reorderTasks, updateTask } from '../api/client'
 import type { BulkOperation, BulkPayload } from '../api/client'
 import { BulkActionsBar } from './BulkActionsBar'
 import { BulkResultToast, type BulkResultSummary } from './BulkResultToast'
-import { TaskTagChip } from './TaskTagChip'
 import { runPhaseLabel } from '../utils/runPhase'
 import type { RunPhase, Task, TaskStatus } from '../types'
 
@@ -48,8 +47,6 @@ const operationLabels: Record<BulkOperation, string> = {
   set_pending: 'Move to pending',
   set_priority: 'Set priority',
   delete: 'Delete',
-  add_tags: 'Add tags',
-  remove_tags: 'Remove tags',
 }
 
 // applyOptimisticBulk computes the post-operation task list assuming every
@@ -76,11 +73,6 @@ function applyOptimisticBulk(
       return mapStatus(tasks, ids, 'pending')
     case 'delete':
       return tasks.filter((t) => !ids.has(t.id) || t.status === 'running')
-    case 'add_tags':
-    case 'remove_tags':
-      // Tag changes don't affect this task list view's columns; refetch will
-      // pick them up. Avoid speculating about chip state.
-      return tasks
   }
 }
 
@@ -324,9 +316,6 @@ function SortableRow({ task, onClick, selected, onSelect, onStatusChange, showCo
       <td className="py-2.5 pl-2 text-sm font-medium text-zinc-900 group-hover:text-blue-600">
         <div className="flex flex-wrap items-center gap-1.5">
           <span>{task.title}</span>
-          {task.tags?.map((tag) => (
-            <TaskTagChip key={tag.id} tag={tag} size="xs" />
-          ))}
           {task.notes_count != null && task.notes_count > 0 && (
             <span
               title={`${task.notes_count} note${task.notes_count === 1 ? '' : 's'}`}

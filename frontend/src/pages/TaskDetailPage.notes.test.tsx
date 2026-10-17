@@ -5,17 +5,15 @@ import type { Task } from '../types'
 
 // ── Mocks ───────────────────────────────────────────────────────────────────
 
-const { fetchTask, fetchTaskNotes, fetchTaskTags } = vi.hoisted(() => ({
+const { fetchTask, fetchTaskNotes } = vi.hoisted(() => ({
   fetchTask: vi.fn(),
   fetchTaskNotes: vi.fn(),
-  fetchTaskTags: vi.fn(),
 }))
 
 vi.mock('../api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/client')>()),
   fetchTask,
   fetchTaskNotes,
-  fetchTaskTags,
 }))
 
 // The SSE hook needs an EventSource, which jsdom does not provide.
@@ -61,7 +59,6 @@ describe('TaskDetailPage notes loading', () => {
     vi.clearAllMocks()
     fetchTask.mockResolvedValue(task)
     fetchTaskNotes.mockResolvedValue([])
-    fetchTaskTags.mockResolvedValue([])
   })
 
   afterEach(() => {
